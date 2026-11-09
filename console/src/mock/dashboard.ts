@@ -1,3 +1,4 @@
+import { getTenant } from './api.ts';
 import { apiRequest, isMockMode } from './http.ts';
 import { toQuery } from './storage.ts';
 import type { DashboardKpis, DashboardRange, DashboardRecentItem, DashboardValue } from '../types.ts';
@@ -105,10 +106,17 @@ function rangeBounds(range: DashboardRange): { from: number; to: number } {
 /** GET /dashboard/value */
 export async function getDashboardValue(range: DashboardRange = 'today'): Promise<DashboardValue> {
   if (!isMockMode) return apiRequest(`/dashboard/value${toQuery({ range })}`);
+  const tenant = await getTenant();
+  const minutesPerDraft = tenant.settings.writeMinutesPerDraft;
+  const base = MOCK_RANGES[range].value;
+  const savedCount = base.adoption.original + base.adoption.revised;
   return {
     range,
     ...rangeBounds(range),
-    ...MOCK_RANGES[range].value,
+    ...base,
+    savedMinutes: savedCount * minutesPerDraft,
+    savedMinutesBasis: `（原样 ${base.adoption.original} + 改稿后 ${base.adoption.revised}）× ${minutesPerDraft} 分钟`,
+    minutesPerDraft,
     computedAt: Date.now(),
   };
 }
