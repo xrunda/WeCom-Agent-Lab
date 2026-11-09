@@ -38,6 +38,7 @@
 - **不进仓库、不进日志、不进 PR / issue 评论**。仓库根目录 `.env.local` 是真实凭据，只允许本机脚本通过环境变量读取。
 - DSH profile 的 `cordis.patch.yml` 只写路径与普通配置；Secret 由部署脚本从环境文件注入，不要把明文贴进 profile。
 - 对外截图、录屏前先确认画面里没有 Secret / Token / 完整 `BOT_ID`。
+- 插件按**仓库内的相对路径**部署（`plugins/zhiban-wecom/index.ts` 依赖 `src/c2/**` 与仓库 `node_modules`），不要只拷贝插件目录到别处。
 
 ## 3. 插件配置示例
 
