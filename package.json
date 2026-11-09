@@ -1,0 +1,25 @@
+{
+  "name": "wecom-agent-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "C2: human-in-the-loop draft delivery core (offline testable)",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "demo": "node src/c2/cli.ts",
+    "bot:test": "node experiments/minimal/aibot-push.mjs",
+    "bot:live": "node src/c2/bot-live.ts",
+    "bot:e2e": "node src/c2/live-e2e.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+tmp/
+.archive-seq
+.advisor-userid
+experiments/**/out/
+
+# 证据原始文件默认不入库（可能含企业/成员信息），只保留索引与脱敏说明
+evidence/raw/
+evidence/media/
