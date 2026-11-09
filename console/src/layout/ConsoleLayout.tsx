@@ -1,0 +1,117 @@
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { ProLayout } from '@ant-design/pro-components';
+import { Dropdown, Spin, Tag } from 'antd';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+
+import { useAuth, useTerm } from '../auth/AuthContext.tsx';
+import { isMockMode } from '../mock/api.ts';
+import { buildMenuItems } from './menu.tsx';
+import { TenantTermControl } from './TenantTermControl.tsx';
+
+const LOGO = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#0f766e"/><text x="32" y="43" font-size="32" text-anchor="middle" fill="#ffffff" font-family="PingFang SC, sans-serif">知</text></svg>',
+)}`;
+
+export function ConsoleLayout() {
+  const { session, tenant, loading, signOut } = useAuth();
+  const term = useTerm();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  if (loading) {
+    return (
+      <div className="app-loading">
+        <Spin size="large" tip="正在加载控制台…" />
+      </div>
+    );
+  }
+
+  if (!session || !tenant) return null;
+
+  const menuItems = buildMenuItems(term);
+
+  return (
+    <ProLayout
+      className="console-layout"
+      title="知伴健康 Agent"
+      logo={LOGO}
+      layout="mix"
+      navTheme="light"
+      fixedHeader
+      fixSiderbar
+      siderWidth={236}
+      location={{ pathname: location.pathname }}
+      route={{ path: '/', children: menuItems }}
+      menuItemRender={(item, dom) => {
+        const label = item.soon ? (
+          <span className="menu-label">
+            {dom}
+            <Tag className="menu-soon-tag" color="gold" bordered={false}>
+              即将上线
+            </Tag>
+          </span>
+        ) : (
+          dom
+        );
+        return item.path ? <Link to={item.path}>{label}</Link> : label;
+      }}
+      onMenuHeaderClick={() => navigate('/dashboard')}
+      menuFooterRender={() => (
+        <div className="sider-tenant">
+          <span className="sider-tenant-name">{tenant.name}</span>
+          <span className="sider-tenant-agent">Agent：{tenant.agentName}</span>
+        </div>
+      )}
+      actionsRender={() => [
+        <TenantTermControl key="term" />,
+        <Tag key="mode" color={isMockMode ? 'gold' : 'green'} bordered={false} className="mode-tag">
+          {isMockMode ? 'MOCK' : 'LIVE'}
+        </Tag>,
+      ]}
+      avatarProps={{
+        icon: <UserOutlined />,
+        title: session.account.displayName,
+        render: (_props, dom) => (
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'role',
+                  disabled: true,
+                  label: `角色：${roleName(session.account.role)}`,
+                },
+                { type: 'divider' },
+                { key: 'logout', label: '退出登录', icon: <LogoutOutlined /> },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'logout') {
+                  void signOut().then(() => navigate('/login'));
+                }
+              },
+            }}
+          >
+            <span className="avatar-trigger">{dom}</span>
+          </Dropdown>
+        ),
+      }}
+      footerRender={() => (
+        <footer className="console-footer">
+          <span>知伴健康 Agent · P1 控制台</span>
+          <span>{isMockMode ? '当前为 mock 模式，数据为虚构示例' : '已连接真实接口'}</span>
+        </footer>
+      )}
+      token={{
+        header: { colorBgHeader: '#ffffff' },
+        pageContainer: { paddingInlinePageContainerContent: 24 },
+      }}
+    >
+      <Outlet />
+    </ProLayout>
+  );
+}
+
+function roleName(role: string): string {
+  if (role === 'admin') return '机构管理员';
+  if (role === 'supervisor') return '主管';
+  return '只读';
+}
