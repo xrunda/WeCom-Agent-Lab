@@ -16,9 +16,12 @@ import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
 import { PatientAgentRuntime } from '../../src/p1/runtime.ts';
 import type { SandboxDraftSink, SandboxPatientLike, SandboxTurnInput } from '../../src/p1/runtime.ts';
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
+import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runtime.ts';
 import type {
+  AgentCapabilities,
   InboundMessage,
   Patient,
+  PatientMemoryPort,
   PatientSessionRecord,
   RouteDecision,
 } from '../../src/p1/types.ts';
@@ -68,6 +71,12 @@ export interface PatientRuntimeApi {
   flushDue(): Promise<void>;
   handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
   handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+  /** #36：zhiban-care 到期后调用 */
+  startProactiveTurn(input: ProactiveTurnInput): Promise<ProactiveTurnResult>;
+  /** #35：zhiban-memory 工具用会话 id 找患者 */
+  patientContextForSession(
+    sessionId: string,
+  ): { patientId: string; sourceMsgId?: string; defaultSubject: 'self' | 'family' | 'unknown' } | undefined;
   stats(): RuntimeStats;
   systemPrompt(): string;
   /** #41：租户人设修改后立即应用到下一轮 */
@@ -87,6 +96,23 @@ export interface PatientRuntimeApi {
     | undefined;
   /** #59：数据与安全页的患者存档同意状态统计 */
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
+}
+
+/** #35：zhiban-memory 未安装时安全降级为空 */
+export class LazyMemoryPort implements PatientMemoryPort {
+  private readonly resolve: () => PatientMemoryPort | undefined;
+
+  constructor(resolve: () => PatientMemoryPort | undefined) {
+    this.resolve = resolve;
+  }
+
+  available(): boolean {
+    return this.resolve() !== undefined;
+  }
+
+  render(patientId: string): string[] {
+    return this.resolve()?.render(patientId) ?? [];
+  }
 }
 
 /**
@@ -187,6 +213,14 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       const bridge = new LazyPatientBridge(
         () => ctx.get<PatientBridge>('zhibanWecom'),
       );
+      // #35：zhiban-memory 未安装时返回空，提示词里也不出现记忆工具约定
+      const memory = new LazyMemoryPort(() =>
+        ctx.get<PatientMemoryPort>('zhibanMemory'),
+      );
+      const capabilities = (): AgentCapabilities => ({
+        memory: ctx.get('zhibanMemory') !== undefined,
+        care: ctx.get('zhibanCare') !== undefined,
+      });
 
       runtime = new PatientAgentRuntime({
         service,
@@ -200,6 +234,9 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         mergeWindowMs: config.mergeWindowMs,
         mergeMaxWaitMs: config.mergeMaxWaitMs,
         turnTimeoutMs: config.turnTimeoutMs,
+        memory,
+        capabilities,
+        maxProactivePerHour: config.maxProactivePerHour,
         sandboxSink: () => ctx.get<SandboxDraftSink>('zhibanSandboxSink'),
       });
 
@@ -235,6 +272,9 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           runtime!.handleDraftVerified(draftId, outcome),
         handleAdvisorText: (advisorUserId, text) =>
           runtime!.handleAdvisorText(advisorUserId, text),
+        startProactiveTurn: (input) => runtime!.startProactiveTurn(input),
+        patientContextForSession: (sessionId) =>
+          runtime!.patientContextForSession(sessionId),
         stats: () => runtime!.stats(),
         systemPrompt: () => runtime!.systemPrompt(),
         applySettings: (patch) => {

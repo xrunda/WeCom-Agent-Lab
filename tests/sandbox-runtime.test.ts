@@ -92,6 +92,9 @@ test('沙盒回合用真 Agent 提示词；未产出工具调用时回落到 sin
     contextMessages: 0,
     revisions: 0,
     duplicatesSkipped: 0,
+    proactiveDrafts: 0,
+    proactiveSkipped: 0,
+    proactiveDeferred: 0,
   });
   assert.equal(ctx.events.length, 0);
 });
