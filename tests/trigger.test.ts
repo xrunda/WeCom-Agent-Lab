@@ -32,6 +32,7 @@ function build(options: {
   store?: MemoryStore;
   compose?: ComposeFn;
   startedAt?: number;
+  logger?: (line: string) => void;
 } = {}) {
   const clock = options.clock ?? new FakeClock(20_000);
   const store = options.store ?? new MemoryStore();
@@ -46,6 +47,7 @@ function build(options: {
       excludeSender: ADV,
       startedAt: options.startedAt ?? 10_000,
     },
+    logger: options.logger,
   });
   return { clock, store, archive, trigger };
 }
@@ -122,4 +124,27 @@ test('多条客户消息按 msgtime 升序返回', async () => {
     events.map((e) => e.message.msgid),
     ['early', 'late'],
   );
+});
+
+test('触发日志只含 msgid 尾号、roomid 尾号与发送者类型，不含正文', async () => {
+  const logs: string[] = [];
+  const { archive, store, trigger } = build({ logger: (line) => logs.push(line) });
+  seedGroup(store);
+  const body = '客户说：最近血压 160/100，头很晕';
+  archive.add({
+    msgid: 'msgid_CUSTOMER_123456',
+    roomid: ROOM,
+    from: 'wmCUSTOMER_ABCDEF',
+    text: body,
+    msgtime: 10_500,
+  });
+
+  assert.equal((await trigger.poll()).length, 1);
+
+  const output = logs.join('\n');
+  assert.ok(!output.includes(body), output);
+  assert.ok(!output.includes('msgid_CUSTOMER_123456'), output);
+  assert.ok(!output.includes('wmCUSTOMER_ABCDEF'), output);
+  assert.ok(!output.includes('存档测试群'), output);
+  assert.match(output, /命中客户消息 msgid=…123456 msgtype=text room=…GROUP1 sender=external/);
 });
