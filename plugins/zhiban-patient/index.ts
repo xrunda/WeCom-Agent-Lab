@@ -14,6 +14,8 @@ import { MemoryPatientStore } from '../../src/p1/patient-store.ts';
 import { PatientService } from '../../src/p1/patient-service.ts';
 import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
 import { PatientAgentRuntime } from '../../src/p1/runtime.ts';
+import type { DraftGuardPort } from '../../src/p1/runtime.ts';
+import type { DraftReviewInput, DraftReviewResult } from '../../src/p1/guard.ts';
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type {
   InboundMessage,
@@ -68,6 +70,8 @@ export interface PatientRuntimeApi {
   handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
   handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
   stats(): RuntimeStats;
+  /** #37：给 zhiban-guard 的 escalate_to_human 反查患者 */
+  patientForSession(sessionId: string): string | undefined;
   systemPrompt(): string;
 }
 
@@ -115,6 +119,35 @@ export class LazyPatientBridge implements PatientBridge {
 
   async notifyAdvisor(text: string): Promise<void> {
     return this.require().notifyAdvisor(text);
+  }
+}
+
+/**
+ * 懒加载 zhiban-guard 的草稿门禁（#37）。
+ * guard 未安装时返回「未命中」，草稿按原样入队，不阻塞患者流程。
+ */
+export class LazyDraftGuard implements DraftGuardPort {
+  private readonly resolve: () => DraftGuardPort | undefined;
+
+  constructor(resolve: () => DraftGuardPort | undefined) {
+    this.resolve = resolve;
+  }
+
+  review(input: DraftReviewInput): DraftReviewResult {
+    const guard = this.resolve();
+    if (guard) return guard.review(input);
+    return {
+      riskLevel: input.riskLevel,
+      hits: [],
+      hitNames: [],
+      actions: [],
+      escalate: false,
+      guideOnly: false,
+    };
+  }
+
+  linkDraft(alertId: string, draftId: string): void {
+    this.resolve()?.linkDraft?.(alertId, draftId);
   }
 }
 
@@ -169,11 +202,15 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       const bridge = new LazyPatientBridge(
         () => ctx.get<PatientBridge>('zhibanWecom'),
       );
+      const guard = new LazyDraftGuard(
+        () => ctx.get<DraftGuardPort>('zhibanGuard'),
+      );
 
       runtime = new PatientAgentRuntime({
         service,
         settings: config.settings,
         bridge,
+        guard,
         sessions,
         emit: (type, data) => {
           ctx.emit(type, data);
@@ -200,6 +237,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         handleAdvisorText: (advisorUserId, text) =>
           runtime!.handleAdvisorText(advisorUserId, text),
         stats: () => runtime!.stats(),
+        patientForSession: (sessionId) => runtime!.patientForSession(sessionId),
         systemPrompt: () => runtime!.systemPrompt(),
       };
       ctx.provide('zhibanPatient', api);
