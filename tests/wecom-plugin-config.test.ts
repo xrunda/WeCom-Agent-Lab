@@ -122,3 +122,18 @@ test('群过滤器只放行白名单内的群', () => {
   assert.equal(filter('wrOTHER'), false);
   assert.equal(filter(''), false);
 });
+
+test('升级主管列表可空；配置时去空、去重', () => {
+  assert.deepEqual(parsePluginConfig(raw(), {}).supervisorChatIds, []);
+  assert.deepEqual(
+    parsePluginConfig(
+      raw({ supervisorChatIds: [' wang.guwen ', '', 'li.zhuguan', 'wang.guwen'] }),
+      {},
+    ).supervisorChatIds,
+    ['wang.guwen', 'li.zhuguan'],
+  );
+  assert.throws(
+    () => parsePluginConfig(raw({ supervisorChatIds: 'wang.guwen' }), {}),
+    (error: unknown) => error instanceof WecomConfigError && error.code === 'CONFIG_INVALID',
+  );
+});
