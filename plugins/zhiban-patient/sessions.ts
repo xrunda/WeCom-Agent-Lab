@@ -68,6 +68,7 @@ export class DshPatientSessions implements PatientSessionPort {
   private readonly ctx: DshSessionContext;
   private readonly options: DshPatientSessionsOptions;
   private readonly pending = new Map<string, Promise<PatientSessionRecord>>();
+  private resets = 0;
 
   constructor(ctx: DshSessionContext, options: DshPatientSessionsOptions) {
     this.ctx = ctx;
@@ -103,6 +104,27 @@ export class DshPatientSessions implements PatientSessionPort {
     };
     this.options.saveSession(record);
     this.options.logger?.(`患者 ${patient.id} 会话就绪`);
+    return record;
+  }
+
+  /** #40：新建一条全新会话并覆盖该患者的会话记录；旧会话不再被复用 */
+  async reset(patient: Patient): Promise<PatientSessionRecord> {
+    const suffix = `${Date.now()}_${++this.resets}`;
+    const workspacePath = join(this.options.workspaceRoot, `${patient.id}-r${suffix}`);
+    await mkdir(workspacePath, { recursive: true });
+    const created = await this.ctx.sessionController.create({
+      sessionId: `zhiban-patient-${patient.id}-r${suffix}`,
+      cwd: workspacePath,
+      agentPreset: this.options.agentPreset,
+    });
+    const record: PatientSessionRecord = {
+      patientId: patient.id,
+      sessionId: created.sessionId,
+      workspacePath,
+      createdAt: Date.now(),
+    };
+    this.options.saveSession(record);
+    this.options.logger?.(`患者 ${patient.id} 沙盒会话已重置`);
     return record;
   }
 
