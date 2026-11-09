@@ -11,6 +11,7 @@ import {
 } from '../../mock/patients.ts';
 import { ActionsTab } from './tabs/ActionsTab.tsx';
 import { CarePlansTab } from './tabs/CarePlansTab.tsx';
+import { DietTab } from './tabs/DietTab.tsx';
 import { HealthProfileTab } from './tabs/HealthProfileTab.tsx';
 import { MemoriesTab } from './tabs/MemoriesTab.tsx';
 import { ProfileTab } from './tabs/ProfileTab.tsx';
@@ -149,6 +150,11 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
                 key: 'timeline',
                 label: '对话时间线',
                 children: <TimelineTab patientId={detail.patient.id} />,
+              },
+              {
+                key: 'diet',
+                label: '饮食记录',
+                children: <DietTab patientId={detail.patient.id} />,
               },
               {
                 key: 'profile',
