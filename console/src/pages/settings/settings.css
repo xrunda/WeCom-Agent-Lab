@@ -1,0 +1,238 @@
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--zb-line);
+}
+
+.agent-preview-card {
+  border-radius: var(--zb-radius);
+  background:
+    radial-gradient(circle at 88% 0%, rgba(20, 184, 166, 0.16), transparent 42%),
+    linear-gradient(150deg, #f0fdfa 0%, #ffffff 70%);
+  border: 1px solid #ccfbf1;
+}
+
+.agent-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.agent-preview-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-preview-name strong {
+  font-size: 17px;
+}
+
+.agent-preview-bubble {
+  position: relative;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #d9f2ee;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.agent-preview-bubble::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 22px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-left: 1px solid #d9f2ee;
+  border-top: 1px solid #d9f2ee;
+  transform: rotate(45deg);
+}
+
+.agent-preview-foot {
+  margin-top: 12px;
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+/* 企微状态 */
+.wecom-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wecom-card {
+  border-radius: 14px;
+  border: 1px solid var(--zb-line);
+  background: #fff;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+}
+
+.wecom-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wecom-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  color: var(--zb-ink);
+  font-size: 14px;
+}
+
+.wecom-card-message {
+  color: #475569;
+  font-size: 13px;
+}
+
+.wecom-card-meta {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.wecom-card.red {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.wecom-card.yellow {
+  border-color: #fde68a;
+  background: #fffdf5;
+}
+
+.wecom-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.wecom-demo-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px dashed var(--zb-line);
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+/* 模型 */
+.model-hero {
+  border-radius: var(--zb-radius);
+  background:
+    radial-gradient(circle at 94% 10%, rgba(59, 130, 246, 0.12), transparent 40%),
+    linear-gradient(140deg, #f8fafc 0%, #ffffff 65%);
+  border: 1px solid var(--zb-line);
+}
+
+.model-hero .ant-card-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.model-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--zb-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 账号 */
+.accounts-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.accounts-toolbar .zb-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.account-self-tag {
+  margin-left: 6px;
+}
+
+.matrix-table .ant-table-cell {
+  font-size: 12px;
+}
+
+.matrix-check {
+  color: #0f766e;
+}
+
+.matrix-dash {
+  color: #cbd5e1;
+}
+
+/* 审计 */
+.audit-filter-form .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.audit-table-action {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.audit-detail-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--zb-line);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+}
+
+@media (max-width: 1080px) {
+  .settings-grid-2,
+  .wecom-status-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

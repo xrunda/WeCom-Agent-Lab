@@ -1,0 +1,44 @@
+.knowledge-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.knowledge-layout .zb-side-card {
+  position: sticky;
+  top: 84px;
+}
+
+.knowledge-title-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.knowledge-title-cell .ant-typography {
+  font-size: 13px;
+}
+
+.knowledge-hits {
+  color: var(--zb-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.knowledge-category-foot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--zb-line);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .knowledge-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .knowledge-layout .zb-side-card {
+    position: static;
+  }
+}
