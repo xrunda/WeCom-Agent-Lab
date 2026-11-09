@@ -27,7 +27,7 @@ describe('控制台外壳', () => {
   it('登录后进入工作台，外壳与页面骨架正常渲染', async () => {
     await renderConsole('/dashboard');
 
-    await waitFor(() => expect(screen.getByText('页面骨架已就绪')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('每一条草稿，都在为顾问省时间')).toBeInTheDocument());
     // jsdom 下 ProLayout 不渲染侧边菜单（菜单结构由 menu.test.tsx 覆盖），
     // 这里验证外壳其余部分：租户面板、模式标识、称谓控件与页面标题。
     expect(screen.getByText('安康健康管理中心')).toBeInTheDocument();
