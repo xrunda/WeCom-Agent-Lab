@@ -26,7 +26,8 @@ export function LoginPage() {
   if (loading) {
     return (
       <div className="app-loading">
-        <Spin size="large" tip="正在检查登录状态…" />
+        <Spin size="large" />
+        <div style={{ marginTop: 12, color: '#64748b' }}>正在检查登录状态…</div>
       </div>
     );
   }

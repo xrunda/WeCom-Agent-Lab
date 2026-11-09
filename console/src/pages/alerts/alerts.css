@@ -1,0 +1,19 @@
+.alert-stat-row .ant-card {
+  min-width: 160px;
+}
+
+.alerts-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.alert-unresolved-row > td {
+  background: #fff7f5 !important;
+}
+
+.alert-detail-message {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
