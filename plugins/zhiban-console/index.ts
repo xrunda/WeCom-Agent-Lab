@@ -29,6 +29,8 @@ import {
   type PublicAccount,
   type Role,
 } from '../../src/p1/console-types.ts';
+import { EvidenceService } from '../../src/p1/evidence.ts';
+import type { EvidencePatientPort, EvidenceWecomPort } from '../../src/p1/evidence.ts';
 import { SandboxService } from '../../src/p1/sandbox.ts';
 import type {
   SandboxAgentPort,
@@ -36,6 +38,7 @@ import type {
   SandboxMediaWriter,
   SandboxPatient,
 } from '../../src/p1/sandbox.ts';
+import { buildSecurityOverview } from '../../src/p1/security.ts';
 
 import { ConsoleAuthService, publicAccount } from './auth.ts';
 import type { AuthActor } from './auth.ts';
@@ -53,6 +56,12 @@ import {
   setCookieHeader,
 } from './http.ts';
 import type { HttpRequestLike, HttpResponseLike, RouteContext } from './http.ts';
+import {
+  renderEvidencePdf,
+  renderRecordsPdf,
+  requirePdfFont,
+  resolvePdfFont,
+} from './pdf.ts';
 import { parseEventTypes, SseHub } from './sse.ts';
 import { applyTenantPatch, publicTenant, validateTenantPatch } from './tenant.ts';
 
@@ -96,6 +105,11 @@ interface PatientApiLike {
   sandboxTurn(input: SandboxAgentTurnInput): Promise<void>;
   sandboxInjectContext(sessionId: string, text: string): Promise<void>;
   getPatient(id: string): { id: string; displayName: string } | undefined;
+  getPatientGroups?(id: string): {
+    patient: { id: string; displayName: string };
+    groups: Array<{ id: string; name: string; roomId: string }>;
+  } | undefined;
+  consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
 }
 
 /** zhiban-wecom 暴露给控制台的队列 / 顾问操作 */
@@ -112,6 +126,8 @@ interface WecomAdminLike {
     | { id: string; summary: string; status: string; riskLevel: string }
     | undefined;
   getAdvisor?(advisorId: string): { id: string; name: string; status: string } | undefined;
+  getDraftEvidence?(draftId: string): Promise<unknown>;
+  listDraftsByRooms?(roomIds: string[], from: number, to: number): Promise<unknown[]>;
 }
 
 const API_PREFIX = '/zhiban/api';
@@ -146,6 +162,15 @@ const ROLE_LABEL: Record<Exclude<Role, 'platform'>, string> = {
   supervisor: '主管',
   viewer: '只读',
 };
+
+/** 账号页与数据安全页共用同一份角色权限矩阵，避免两处口径漂移 */
+function rolePermissionMatrix(): Array<{ role: string; label: string; permissions: string[] }> {
+  return (['admin', 'supervisor', 'viewer'] as const).map((role) => ({
+    role,
+    label: ROLE_LABEL[role],
+    permissions: role === 'admin' ? ['*'] : permissionsFor(role),
+  }));
+}
 
 function nowMs(): number {
   return Date.now();
@@ -336,6 +361,36 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     });
     // 患者运行时通过这个服务把沙盒草稿交回来（而不是进入 C2 队列）
     ctx.provide('zhibanSandboxSink', sandbox);
+
+    // #59：证据链 / 服务记录导出。数据来自企微插件与患者插件的只读入口。
+    const pdfFont = resolvePdfFont({
+      path: config.pdf.fontPath,
+      family: config.pdf.fontFamily,
+    });
+    if (!pdfFont) {
+      log('未找到中文字体：导出 PDF 将返回 502，请安装 fonts-noto-cjk 或配置 pdf.fontPath');
+    }
+    const evidence = new EvidenceService({
+      tenantName: config.tenant.name,
+      wecom: () =>
+        ctx.get<WecomAdminLike>('zhibanWecomAdmin') as unknown as EvidenceWecomPort | undefined,
+      patient: () =>
+        ctx.get<PatientApiLike>('zhibanPatient') as unknown as EvidencePatientPort | undefined,
+    });
+    const sendPdf = (
+      rc: RouteContext,
+      filename: string,
+      buffer: Buffer,
+    ): void => {
+      rc.res.writeHead(200, {
+        'content-type': 'application/pdf',
+        'content-length': buffer.length,
+        'cache-control': 'no-store',
+        'content-disposition': `attachment; filename="${filename}"`,
+        'x-request-id': rc.requestId,
+      });
+      rc.res.end(buffer);
+    };
 
     const businessLimiter = new BusinessRateLimiter();
     const idempotency = new IdempotencyCache();
@@ -776,11 +831,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       (rc) => {
         tenantActor(rc);
         respond(rc, 200, {
-          roles: (['admin', 'supervisor', 'viewer'] as const).map((role) => ({
-            role,
-            label: ROLE_LABEL[role],
-            permissions: role === 'admin' ? ['*'] : permissionsFor(role),
-          })),
+          roles: rolePermissionMatrix(),
           allPermissions: ALL_PERMISSIONS,
         });
       },
@@ -923,6 +974,82 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           'content-disposition': 'attachment; filename="audit.csv"',
         });
         rc.res.end(csv);
+      },
+      { permission: 'export' },
+    );
+
+    // ---------- 数据与安全 / 导出（#59） ----------
+
+    router.add(
+      'GET',
+      '/settings/security',
+      (rc) => {
+        tenantActor(rc);
+        const patientApi = ctx.get<PatientApiLike>('zhibanPatient');
+        const tenant = store.getTenant(config.tenantId);
+        if (!tenant) throw new ConsoleError('NOT_FOUND', '租户不存在');
+        respond(
+          rc,
+          200,
+          buildSecurityOverview({
+            dataRegion: config.deployment.region,
+            modelRegion: config.deployment.modelRegion,
+            modelService: config.deployment.modelService,
+            cookieSecure: config.cookieSecure,
+            mediaRootDir: config.sandbox.mediaRootDir,
+            modelName: tenant.settings.modelName,
+            retentionNotice: tenant.settings.retentionNotice,
+            consent: patientApi?.consentStats?.() ?? null,
+            roles: rolePermissionMatrix(),
+            audits: store.listAudits(),
+            now: nowMs(),
+            pdfFontConfigured: pdfFont !== undefined,
+          }),
+        );
+      },
+      { permission: 'tenant.read' },
+    );
+
+    router.add(
+      'GET',
+      '/drafts/:draftId/evidence.pdf',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const bundle = await evidence.draftEvidence(rc.params.draftId!, actor.account.displayName);
+        const buffer = await renderEvidencePdf(bundle, requirePdfFont(pdfFont));
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'evidence.export', 'draft', bundle.draft.id, {
+            bytes: buffer.length,
+          }),
+        );
+        sendPdf(
+          rc,
+          `evidence-${bundle.draft.id.replace(/[^A-Za-z0-9_-]/g, '')}.pdf`,
+          buffer,
+        );
+      },
+      { permission: 'export' },
+    );
+
+    router.add(
+      'GET',
+      '/patients/:id/records.pdf',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const bundle = await evidence.patientRecords(rc.params.id!, actor.account.displayName, {
+          from: parseTime(rc.query.get('from'), 'from'),
+          to: parseTime(rc.query.get('to'), 'to'),
+        });
+        const buffer = await renderRecordsPdf(bundle, requirePdfFont(pdfFont));
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'records.export', 'patient', bundle.patient.id, {
+            bytes: buffer.length,
+            records: bundle.records.length,
+            from: bundle.from,
+            to: bundle.to,
+          }),
+        );
+        sendPdf(rc, `records-${bundle.patient.id.replace(/[^A-Za-z0-9_-]/g, '')}.pdf`, buffer);
       },
       { permission: 'export' },
     );

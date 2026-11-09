@@ -1,5 +1,6 @@
 import {
   EyeOutlined,
+  FilePdfOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
@@ -30,7 +31,13 @@ import type { TableProps } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
+import {
+  MOCK_EXPORT_NOTICE,
+  exportDraftEvidencePdf,
+  isMockOnly,
+} from '../../mock/exports.ts';
 import { listGroups } from '../../mock/groups.ts';
 import { mediaKindLabel, type MediaKind } from '../../mock/media.ts';
 import {
@@ -51,6 +58,16 @@ import './service-flow.css';
 const { Text, Paragraph } = Typography;
 
 const UNSUPPORTED_KINDS: MediaKind[] = ['voice', 'file', 'video'];
+
+/** 已进入发送/核验阶段的草稿才提供证据链导出 */
+const EVIDENCE_STATUSES = new Set([
+  'VERIFIED',
+  'EDIT_SENT',
+  'MISROUTE_ALERT',
+  'UNVERIFIED',
+  'RELEASED',
+  'DEAD_LETTER',
+]);
 
 interface Filters {
   groupId?: string;
@@ -87,6 +104,8 @@ function totalDuration(row: ServiceFlowRow): number | undefined {
 
 export default function ServiceFlowPage() {
   const { message } = App.useApp();
+  const { can } = useAuth();
+  const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [rows, setRows] = useState<ServiceFlowRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,6 +142,22 @@ export default function ServiceFlowPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const exportEvidence = useCallback(
+    async (draftId: string) => {
+      setExporting(true);
+      try {
+        await exportDraftEvidencePdf(draftId);
+        message.success('已开始下载证据链 PDF');
+      } catch (error) {
+        if (isMockOnly(error)) message.info(MOCK_EXPORT_NOTICE);
+        else message.error(error instanceof Error ? error.message : '导出失败');
+      } finally {
+        setExporting(false);
+      }
+    },
+    [message],
+  );
 
   useEffect(() => {
     let active = true;
@@ -407,6 +442,17 @@ export default function ServiceFlowPage() {
         onClose={() => setSelectedId(null)}
         destroyOnHidden
         loading={detailLoading}
+        extra={
+          detail && can('draft.export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
+            <Button
+              icon={<FilePdfOutlined />}
+              loading={exporting}
+              onClick={() => void exportEvidence(detail.draft.id)}
+            >
+              导出证据链 PDF
+            </Button>
+          ) : undefined
+        }
         title={
           detail ? (
             <Space wrap size={10}>
