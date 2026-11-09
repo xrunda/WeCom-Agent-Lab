@@ -4,7 +4,13 @@
  * 提示词一律由租户设置生成，不在代码里写死机构名；
  * 红线条款每次回合都带上，不能靠模型记性。
  */
-import type { InboundMessage, MergedInbound, Speaker, TenantAgentSettings } from './types.ts';
+import type {
+  AgentCapabilities,
+  InboundMessage,
+  MergedInbound,
+  Speaker,
+  TenantAgentSettings,
+} from './types.ts';
 
 export const RED_LINES = [
   '不做诊断、不调整药物剂量、不承诺疗效；涉及用药与检查结论时，只建议咨询医生。',
@@ -15,7 +21,28 @@ export const RED_LINES = [
   '未同意会话存档的成员，其内容不进入自动服务；只提示顾问人工跟进。',
 ];
 
-export function buildSystemPrompt(settings: TenantAgentSettings): string {
+export function buildSystemPrompt(
+  settings: TenantAgentSettings,
+  capabilities: AgentCapabilities = { memory: false, care: false },
+): string {
+  const tools = [
+    '- 每一轮都必须调用 reply_draft 提交草稿；不要用普通文本回复代替。',
+    '- 如果这一轮不需要回复（例如只是内部同事寒暄、或信息不足且不适合回复），调用 reply_skip 并写明原因。',
+    '- 草稿正文只包含要发给患者的话，不写「草稿」「请审核」等内部说明。',
+  ];
+  if (capabilities.memory) {
+    tools.push(
+      '- 长期记忆只记患者或家属明确说过的稳定事实，不记推断、不记寒暄；用 memory_write 记录，用 memory_update 修正，用 memory_list 查询。',
+      '- 家属说的事 subject=family，不能算作患者本人的事实。记错或患者改口时用 memory_update 修正，不要重复新增。',
+      '- 每轮提示词会附上该患者的长期记忆；草稿引用了哪条，就把它的 id 填进 citedMemoryIds。',
+    );
+  }
+  if (capabilities.care) {
+    tools.push(
+      '- 用户说「明天提醒我…」「三天后回访」时调用 schedule_create 建一次性计划；时间必须晚于当前时刻。',
+      '- 计划到期后系统会触发一轮主动回合，届时应判断是否真的需要发关怀消息；不需要就 reply_skip。',
+    );
+  }
   return [
     `你是「${settings.agentName}」，${settings.advisorName} 团队的健康助理。`,
     `服务对象统一称呼为「${settings.patientTerm}」。语气：${settings.tone}。`,
@@ -25,9 +52,7 @@ export function buildSystemPrompt(settings: TenantAgentSettings): string {
     ...RED_LINES.map((line, index) => `${index + 1}. ${line}`),
     '',
     '【工具约定】',
-    '- 每一轮都必须调用 reply_draft 提交草稿；不要用普通文本回复代替。',
-    '- 如果这一轮不需要回复（例如只是内部同事寒暄、或信息不足且不适合回复），调用 reply_skip 并写明原因。',
-    '- 草稿正文只包含要发给患者的话，不写「草稿」「请审核」等内部说明。',
+    ...tools,
   ].join('\n');
 }
 
@@ -60,6 +85,8 @@ export interface TurnPromptOptions {
   proactive?: { reason: string };
   /** 当前草稿版本；改稿时告知模型这是第几版 */
   currentVersion?: number;
+  /** #35：本患者有效记忆，每轮注入 */
+  memoryLines?: string[];
 }
 
 export function buildTurnPrompt(
@@ -71,7 +98,16 @@ export function buildTurnPrompt(
   lines.push(`[知伴健康 · 患者会话] ${settings.agentName}`);
   lines.push(`患者：${merged.patientId}`);
   lines.push(`群：${merged.groupName}（${merged.roomId}）`);
-  lines.push(`本次发言人：${speakerLabel(merged.speaker)}`);
+  if (options.proactive) {
+    lines.push('本轮由主动计划触发，没有新的患者消息。');
+  } else {
+    lines.push(`本次发言人：${speakerLabel(merged.speaker)}`);
+  }
+
+  if (options.memoryLines && options.memoryLines.length > 0) {
+    lines.push('');
+    lines.push(...options.memoryLines);
+  }
 
   if (options.groupContext && options.groupContext.length > 0) {
     lines.push('');
@@ -91,13 +127,17 @@ export function buildTurnPrompt(
   if (options.proactive) {
     lines.push('');
     lines.push(`【主动触发】${options.proactive.reason}`);
+    lines.push('请判断现在是否适合给患者发一条关怀消息；不需要就调用 reply_skip。');
   }
 
   lines.push('');
   lines.push('【本轮新增输入】');
+  if (merged.messages.length === 0) {
+    lines.push('- （无新消息）');
+  }
   for (const message of merged.messages) lines.push(formatMessage(message));
 
-  if (merged.speaker.role === 'family' || merged.speaker.role === 'unknown') {
+  if (!options.proactive && (merged.speaker.role === 'family' || merged.speaker.role === 'unknown')) {
     lines.push('');
     lines.push(
       `注意：本次发言人是「${ROLE_LABEL[merged.speaker.role]}」，不能把内容直接当作患者本人的事实；必要时在草稿里写明来源。`,
@@ -105,7 +145,11 @@ export function buildTurnPrompt(
   }
 
   lines.push('');
-  lines.push('请调用 reply_draft 提交草稿。');
+  lines.push(
+    options.proactive
+      ? '需要发消息请调用 reply_draft；不需要请调用 reply_skip。'
+      : '请调用 reply_draft 提交草稿。',
+  );
   return lines.join('\n');
 }
 

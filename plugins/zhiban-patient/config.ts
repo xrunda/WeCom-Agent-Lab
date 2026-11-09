@@ -25,6 +25,7 @@ export interface PatientPluginConfigInput {
   mergeWindowMs?: unknown;
   mergeMaxWaitMs?: unknown;
   turnTimeoutMs?: unknown;
+  maxProactivePerHour?: unknown;
 }
 
 export interface PatientPluginConfig {
@@ -39,6 +40,8 @@ export interface PatientPluginConfig {
   mergeWindowMs: number;
   mergeMaxWaitMs: number;
   turnTimeoutMs: number;
+  /** #36：同一顾问每小时主动草稿上限，默认 6 */
+  maxProactivePerHour: number;
 }
 
 export class PatientConfigError extends Error {
@@ -115,5 +118,12 @@ export function parsePatientConfig(raw: unknown): PatientPluginConfig {
       120_000,
     ),
     turnTimeoutMs: boundedInt(input.turnTimeoutMs, 'turnTimeoutMs', 5_000, 300_000, 15_000),
+    maxProactivePerHour: boundedInt(
+      input.maxProactivePerHour,
+      'maxProactivePerHour',
+      1,
+      60,
+      6,
+    ),
   };
 }
