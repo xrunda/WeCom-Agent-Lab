@@ -4,6 +4,7 @@
 
 > 当前阶段：**P1 演示版**开发中（GitHub 里程碑 P1-M0～M3）。下文的 M1 结论作为平台约束保留。
 
+- **开发指南（多 Agent 并行）：[docs/DEV-GUIDE.md](./docs/DEV-GUIDE.md)**
 - **产品需求：[PRD.md](./PRD.md)（v1.0，知伴健康 Agent）** · P1 范围：[docs/P1-scope.md](./docs/P1-scope.md)
 - M1 需求（已归档）：[docs/archive/PRD-M1-v0.5.md](./docs/archive/PRD-M1-v0.5.md)
 - 能力矩阵：[docs/M1-capability-matrix.md](./docs/M1-capability-matrix.md)
