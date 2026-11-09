@@ -43,7 +43,8 @@ export interface SandboxAgentTurnInput {
   patient: SandboxPatient;
   group: SandboxGroup;
   text: string;
-  mediaIds: string[];
+  /** #55：沙盒图片在服务器上的落盘路径 */
+  mediaPaths: string[];
   at: number;
 }
 
@@ -285,7 +286,8 @@ export class SandboxService implements SandboxSinkPort {
     });
     this.emit('sandbox.message', { sessionId: record.id, message }, true);
 
-    if (kind === 'text') {
+    // #55：图片与文字走同一链路；图片回合也唤醒 Agent
+    if (kind === 'text' || kind === 'image') {
       void this.runTurn(record, message);
     }
     return { messageId: message.id, acceptedAt: at, quota: this.quotaFor(accountId) };
@@ -298,12 +300,17 @@ export class SandboxService implements SandboxSinkPort {
       const agent = this.requireAgent();
       const patient = this.patientFor(record.accountId);
       const group = this.groupFor(record.accountId, 1);
+      const mediaPaths: string[] = [];
+      if (message.mediaId) {
+        const media = this.store.getMedia(message.mediaId);
+        if (media) mediaPaths.push(media.path);
+      }
       await agent.runTurn({
         sessionId: record.sessionId,
         patient,
         group,
         text: message.text ?? '[图片]',
-        mediaIds: message.mediaId ? [message.mediaId] : [],
+        mediaPaths,
         at: message.at,
       });
     } catch (error) {

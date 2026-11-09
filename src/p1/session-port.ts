@@ -7,15 +7,21 @@
  * 单测用假实现，真机由插件 adapter 注入。
  */
 import type { CustomerGroup, Draft, RiskLevel } from '../c2/types.ts';
-import type { AgentStats, MergedInbound, Patient, PatientSessionRecord } from './types.ts';
+import type {
+  AgentContentPart,
+  AgentStats,
+  MergedInbound,
+  Patient,
+  PatientSessionRecord,
+} from './types.ts';
 
 export interface PatientSessionPort {
   /** 首次服务时创建 DSH 工作区与长期会话；已有则复用 */
   ensure(patient: Patient): Promise<PatientSessionRecord>;
   /** #40：沙盒重置，丢弃旧会话并建立全新上下文；可选，未实现时由调用方降级 */
   reset?(patient: Patient): Promise<PatientSessionRecord>;
-  /** 注入一条患者消息并唤醒一轮 Agent */
-  prompt(sessionId: string, text: string): Promise<void>;
+  /** 注入一条患者消息并唤醒一轮 Agent；#55 支持文本 + 图片附件 */
+  prompt(sessionId: string, input: string | AgentContentPart[]): Promise<void>;
   /** 把核验结果 / 内部发言作为上下文注入，不唤醒回合 */
   injectContext(sessionId: string, text: string): Promise<void>;
   /** 等当前回合结束；超时返回 timeout，不抛错 */
@@ -31,6 +37,8 @@ export interface EnqueueAgentDraftInput {
   lastInboundAt?: number;
   inboundMessageIds: string[];
   mediaIds: string[];
+  /** #55：图片类型，用于卡片标注与质检 */
+  mediaKinds?: string[];
   inboundSummary: string;
   body: string;
   riskLevel: RiskLevel;

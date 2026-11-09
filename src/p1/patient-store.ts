@@ -15,6 +15,7 @@ import type {
   Patient,
   PatientSessionRecord,
 } from './types.ts';
+import type { MealLogRecord } from './vision.ts';
 
 export interface PatientSnapshot {
   advisors: AdvisorRecord[];
@@ -23,6 +24,8 @@ export interface PatientSnapshot {
   bindings: GroupBinding[];
   patients: Patient[];
   sessions: PatientSessionRecord[];
+  /** #55 饮食记录 */
+  mealLogs?: MealLogRecord[];
   stats?: Partial<AgentStats>;
   audits?: AuditEvent[];
 }
@@ -34,6 +37,7 @@ export type PatientTable =
   | 'bindings'
   | 'patients'
   | 'sessions'
+  | 'mealLogs'
   | 'stats'
   | 'audit';
 
@@ -68,6 +72,7 @@ export class MemoryPatientStore {
   private readonly bindings = new Map<string, GroupBinding>();
   private readonly patients = new Map<string, Patient>();
   private readonly sessions = new Map<string, PatientSessionRecord>();
+  private readonly mealLogs = new Map<string, MealLogRecord>();
   private readonly auditEvents: AuditEvent[] = [];
   private readonly backend?: PatientStoreBackend;
   private readonly onPersistError?: (error: Error) => void;
@@ -80,6 +85,7 @@ export class MemoryPatientStore {
     gm: 0,
     gbd: 0,
     pat: 0,
+    meal: 0,
   };
 
   private counts: AgentStats = {
@@ -103,6 +109,7 @@ export class MemoryPatientStore {
     for (const binding of snapshot.bindings) this.bindings.set(binding.id, binding);
     for (const patient of snapshot.patients) this.patients.set(patient.id, patient);
     for (const session of snapshot.sessions) this.sessions.set(session.patientId, session);
+    for (const log of snapshot.mealLogs ?? []) this.mealLogs.set(log.id, log);
     if (snapshot.stats) this.counts = { ...this.counts, ...snapshot.stats };
     if (snapshot.audits) this.auditEvents.push(...snapshot.audits);
 
@@ -111,9 +118,10 @@ export class MemoryPatientStore {
     this.seq.gm = maxId([...this.members.keys()], 'gm_');
     this.seq.gbd = maxId([...this.bindings.keys()], 'gbd_');
     this.seq.pat = maxId([...this.patients.keys()], 'pat_');
+    this.seq.meal = maxId([...this.mealLogs.keys()], 'meal_');
   }
 
-  nextId(kind: 'adv' | 'grp' | 'gm' | 'gbd' | 'pat'): string {
+  nextId(kind: 'adv' | 'grp' | 'gm' | 'gbd' | 'pat' | 'meal'): string {
     this.seq[kind] += 1;
     return `${kind}_${this.seq[kind]}`;
   }
@@ -235,6 +243,23 @@ export class MemoryPatientStore {
     return [...this.sessions.values()];
   }
 
+  // ---------- meal log（#55） ----------
+
+  saveMealLog(log: MealLogRecord): void {
+    this.mealLogs.set(log.id, log);
+    this.persist('mealLogs', log.id, log);
+  }
+
+  getMealLog(id: string): MealLogRecord | undefined {
+    return this.mealLogs.get(id);
+  }
+
+  listMealLogs(patientId: string): MealLogRecord[] {
+    return [...this.mealLogs.values()]
+      .filter((log) => log.patientId === patientId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   // ---------- stats ----------
 
   bumpStat(key: keyof AgentStats, by = 1): void {
@@ -268,6 +293,7 @@ export class MemoryPatientStore {
       bindings: [...this.bindings.values()],
       patients: [...this.patients.values()],
       sessions: [...this.sessions.values()],
+      mealLogs: [...this.mealLogs.values()],
       stats: { ...this.counts },
       audits: [...this.auditEvents],
     };

@@ -14,6 +14,11 @@ import type {
 export interface BotPort {
   sendCard(chatId: string, card: CardPayload): Promise<{ messageId: string }>;
   sendText(chatId: string, text: string): Promise<{ messageId: string }>;
+  /**
+   * #55：把患者原图转推给顾问。path 是服务端落盘路径；
+   * 适配器负责读文件、校验格式与大小。未实现时队列跳过图片。
+   */
+  sendImage?(chatId: string, path: string): Promise<{ messageId: string }>;
 }
 
 export interface ArchivePort {
@@ -78,7 +83,7 @@ export interface Store {
 
 export interface BotSentRecord {
   chatId: string;
-  kind: 'card' | 'text';
+  kind: 'card' | 'text' | 'image';
   message: BotMessage;
   messageId: string;
   at: number;

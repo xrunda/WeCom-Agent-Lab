@@ -7,6 +7,7 @@ import type {
   CustomerGroup,
   Draft,
   DraftStatus,
+  ImagePayload,
   SentMessage,
   TextPayload,
 } from './types.ts';
@@ -118,6 +119,8 @@ export class MockBot implements BotPort {
   failCardTimes = 0;
   /** 接下来 N 次发送文本失败 */
   failTextTimes = 0;
+  /** 接下来 N 次发送图片失败（#55） */
+  failImageTimes = 0;
 
   private clock: Clock;
   private seq = 0;
@@ -147,12 +150,28 @@ export class MockBot implements BotPort {
     return { messageId };
   }
 
+  /** #55：原图转推；只记录路径，不读文件 */
+  async sendImage(chatId: string, path: string): Promise<{ messageId: string }> {
+    if (this.failImageTimes > 0) {
+      this.failImageTimes -= 1;
+      throw new Error('MOCK_IMAGE_FAILURE');
+    }
+    const messageId = `image_${++this.seq}`;
+    const payload: ImagePayload = { msgtype: 'image', image: { path } };
+    this.sent.push({ chatId, kind: 'image', message: payload, messageId, at: this.clock.now() });
+    return { messageId };
+  }
+
   cards(): BotSentRecord[] {
     return this.sent.filter((s) => s.kind === 'card');
   }
 
   texts(): BotSentRecord[] {
     return this.sent.filter((s) => s.kind === 'text');
+  }
+
+  images(): BotSentRecord[] {
+    return this.sent.filter((s) => s.kind === 'image');
   }
 }
 

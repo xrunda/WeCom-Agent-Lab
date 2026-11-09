@@ -11,6 +11,7 @@ import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
 import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
 import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
+import type { MealLogRecord } from '../src/p1/vision.ts';
 
 const ADMIN_PASSWORD = 'AdminPass123';
 const PLATFORM_PASSWORD = 'PlatformPass123';
@@ -143,6 +144,8 @@ interface PatientApi {
   getPatient(id: string): { id: string; displayName: string } | undefined;
   /** #59：数据安全页 / 服务记录导出 */
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
+  /** #55：饮食记录 */
+  listMealLogs?(patientId: string): MealLogRecord[];
   getPatientGroups?(id: string):
     | {
         patient: { id: string; displayName: string };
@@ -764,4 +767,60 @@ test('患者服务记录 PDF：时间范围校验、404、导出审计与文件�
 
   const audit = await call('GET', '/zhiban/api/audit?action=records.export', { cookie });
   assert.equal((audit.json() as { total: number }).total, font ? 1 : 0);
+});
+
+test('#55 饮食记录：按患者读取、时间过滤、分页，且不暴露服务器路径', async () => {
+  const { ctx, call } = await start();
+  ctx.patientApi.getPatient = (id) =>
+    id === 'pat_1' ? { id: 'pat_1', displayName: '张女士' } : undefined;
+  const records: MealLogRecord[] = [
+    {
+      id: 'meal_2',
+      tenantId: 'tn_test',
+      patientId: 'pat_1',
+      groupId: 'grp_1',
+      messageId: 'msg_2',
+      mediaPath: '/srv/media/pat_1/dinner.jpg',
+      mealType: 'dinner',
+      foods: [{ name: '清蒸鲈鱼', portion: '约 150g' }],
+      confidence: 0.9,
+      sandbox: false,
+      createdAt: 1_700_000_200_000,
+    },
+    {
+      id: 'meal_1',
+      tenantId: 'tn_test',
+      patientId: 'pat_1',
+      groupId: 'grp_1',
+      mealType: 'lunch',
+      foods: [{ name: '番茄炒蛋' }],
+      confidence: 0.7,
+      sandbox: false,
+      createdAt: 1_700_000_000_000,
+    },
+  ];
+  ctx.patientApi.listMealLogs = (patientId) =>
+    patientId === 'pat_1' ? records : [];
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const all = await call('GET', '/zhiban/api/patients/pat_1/meal-logs', { cookie });
+  assert.equal(all.status, 200);
+  const body = all.json() as { items: Array<Record<string, unknown>>; total: number };
+  assert.equal(body.total, 2);
+  assert.equal(body.items[0]!.id, 'meal_2');
+  assert.equal(body.items[0]!.photoUrl, null);
+  assert.equal(JSON.stringify(body).includes('/srv/media'), false);
+
+  const ranged = await call(
+    'GET',
+    '/zhiban/api/patients/pat_1/meal-logs?from=1700000100000&to=1700000300000&page=1&pageSize=10',
+    { cookie },
+  );
+  assert.equal(ranged.status, 200);
+  const rangedBody = ranged.json() as { items: Array<Record<string, unknown>>; total: number };
+  assert.equal(rangedBody.total, 1);
+  assert.equal(rangedBody.items[0]!.mealType, 'dinner');
+
+  const missing = await call('GET', '/zhiban/api/patients/pat_404/meal-logs', { cookie });
+  assert.equal(missing.status, 404);
 });

@@ -366,7 +366,7 @@ test('只接收沙盒患者的 memory.created，内容截断到 200 字', async 
 });
 
 test('上传图片：校验类型与大小、解析尺寸、按账号隔离读取', async () => {
-  const { service, writes } = setup();
+  const { service, writes, agent } = setup();
   const uploaded = await service.saveUpload(ACCOUNT, {
     filename: 'meal.png',
     contentType: 'image/png',
@@ -398,6 +398,12 @@ test('上传图片：校验类型与大小、解析尺寸、按账号隔离读�
   // 图片消息只能引用自己上传的沙盒图片
   const posted = await service.postMessage(ACCOUNT, { kind: 'image', mediaId: uploaded.mediaId });
   assert.match(posted.messageId, /^msg_sbx_/);
+
+  // #55：图片消息也唤醒 Agent，并把落盘路径交给患者运行时
+  await tick();
+  assert.equal(agent.turns.length, 1);
+  assert.equal(agent.turns[0]!.text, '[图片]');
+  assert.deepEqual(agent.turns[0]!.mediaPaths, [`/tmp/${uploaded.mediaId}.png`]);
 });
 
 test('imageSize 支持 PNG / JPEG，未知格式返回 null', () => {

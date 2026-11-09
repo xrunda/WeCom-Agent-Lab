@@ -39,6 +39,7 @@ import type {
   SandboxPatient,
 } from '../../src/p1/sandbox.ts';
 import { buildSecurityOverview } from '../../src/p1/security.ts';
+import { mealLogView, type MealLogRecord } from '../../src/p1/vision.ts';
 
 import { ConsoleAuthService, publicAccount } from './auth.ts';
 import type { AuthActor } from './auth.ts';
@@ -110,6 +111,8 @@ interface PatientApiLike {
     groups: Array<{ id: string; name: string; roomId: string }>;
   } | undefined;
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
+  /** #55：饮食记录 */
+  listMealLogs?(patientId: string): MealLogRecord[];
 }
 
 /** zhiban-wecom 暴露给控制台的队列 / 顾问操作 */
@@ -650,6 +653,34 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         });
       },
       { permission: 'advisor.operate' },
+    );
+
+    // ---------- 饮食记录（#55） ----------
+
+    router.add(
+      'GET',
+      '/patients/:id/meal-logs',
+      (rc) => {
+        tenantActor(rc);
+        const patientApi = ctx.get<PatientApiLike>('zhibanPatient');
+        const patient = patientApi?.getPatient?.(rc.params.id!);
+        if (!patient) throw new ConsoleError('NOT_FOUND', '患者不存在');
+        const from = parseTime(rc.query.get('from'), 'from');
+        const to = parseTime(rc.query.get('to'), 'to');
+        const items = (patientApi?.listMealLogs?.(patient.id) ?? [])
+          .filter(
+            (log) =>
+              (from === undefined || log.createdAt >= from) &&
+              (to === undefined || log.createdAt <= to),
+          )
+          .map((log) => mealLogView(log));
+        respond(
+          rc,
+          200,
+          paginate(items, positiveInt(rc.query.get('page'), 1), positiveInt(rc.query.get('pageSize'), 20)),
+        );
+      },
+      { permission: 'patient.read' },
     );
 
     // ---------- 沙盒（#40） ----------

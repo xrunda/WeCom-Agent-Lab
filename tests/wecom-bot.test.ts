@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   WeComBotAdapter,
@@ -225,4 +229,58 @@ test('aibot_event_callback 取出 event_key 与 task_id', async () => {
   assert.equal(received[0].eventKey, 'ack:draft_test:sent');
   assert.equal(received[0].taskId, 'task_1');
   assert.equal(received[0].userid, 'LiGuang');
+});
+
+test('#55 sendImage 用 aibot_send_msg + base64 + 原始字节 md5', async (t) => {
+  const { ws, adapter } = await connected();
+  const dir = await mkdtemp(join(tmpdir(), 'zhiban-bot-image-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const data = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9]);
+  const path = join(dir, 'meal.jpg');
+  await writeFile(path, data);
+
+  const pending = adapter.sendImage('LiGuang', path);
+  // readFile 走线程池，等发送帧真正写进 socket
+  for (let i = 0; i < 100 && ws.sent.length < 2; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const frame = expectFrame(ws);
+  assert.equal(frame.cmd, 'aibot_send_msg');
+  assert.equal(frame.body.chatid, 'LiGuang');
+  assert.equal(frame.body.chat_type, 1);
+  assert.equal(frame.body.msgtype, 'image');
+  assert.equal(frame.body.image.base64, data.toString('base64'));
+  assert.equal(frame.body.image.md5, createHash('md5').update(data).digest('hex'));
+
+  ws.respond(frame.headers.req_id);
+  const res = await pending;
+  assert.match(res.messageId, /^local_image_/);
+});
+
+test('#55 sendImage 拒绝超限、非 JPG/PNG 与读不到的文件，错误不含路径', async (t) => {
+  const { adapter } = await connected();
+  const dir = await mkdtemp(join(tmpdir(), 'zhiban-bot-image-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const tooLarge = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(2 * 1024 * 1024)]);
+  const largePath = join(dir, 'large.jpg');
+  await writeFile(largePath, tooLarge);
+  await assert.rejects(adapter.sendImage('LiGuang', largePath), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.message, 'SEND_IMAGE_TOO_LARGE');
+    assert.equal(error.message.includes(dir), false);
+    return true;
+  });
+
+  const gifPath = join(dir, 'note.gif');
+  await writeFile(gifPath, Buffer.from('GIF89a'));
+  await assert.rejects(adapter.sendImage('LiGuang', gifPath), /SEND_IMAGE_UNSUPPORTED/);
+
+  const missing = join(dir, 'missing.jpg');
+  await assert.rejects(adapter.sendImage('LiGuang', missing), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.message, 'SEND_IMAGE_READ_FAILED');
+    assert.equal(error.message.includes(missing), false);
+    return true;
+  });
 });
