@@ -1,0 +1,198 @@
+[
+  {
+    "id": "grp_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_01",
+    "chatId": "chat_demo_01",
+    "name": "糖友-张女士",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_01",
+    "patientIds": [
+      "pat_01"
+    ],
+    "memberCount": 4,
+    "externalMemberCount": 2,
+    "consent": {
+      "agreed": 2,
+      "unknown": 0,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794194400000,
+    "demo": false,
+    "createdAt": 1789434000000,
+    "updatedAt": 1794210000000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_02",
+    "chatId": "chat_demo_02",
+    "name": "减重-刘先生",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_02",
+    "patientIds": [
+      "pat_02"
+    ],
+    "memberCount": 3,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 1,
+      "unknown": 0,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794207600000,
+    "demo": false,
+    "createdAt": 1789869600000,
+    "updatedAt": 1794207900000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_03",
+    "chatId": null,
+    "name": "产后-孙女士",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_01",
+    "patientIds": [
+      "pat_03"
+    ],
+    "memberCount": 3,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 0,
+      "unknown": 0,
+      "disagreed": 1
+    },
+    "lastActiveAt": 1794197400000,
+    "demo": false,
+    "createdAt": 1790910000000,
+    "updatedAt": 1794139800000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_04",
+    "chatId": null,
+    "name": "外部成员 8f2a1c",
+    "nameSource": "members",
+    "status": "pending",
+    "advisorId": "adv_02",
+    "patientIds": [],
+    "memberCount": 2,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 0,
+      "unknown": 1,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794195000000,
+    "demo": false,
+    "createdAt": 1794195000000,
+    "updatedAt": 1794195000000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_05",
+    "chatId": "chat_demo_05",
+    "name": "作息-周先生",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_03",
+    "patientIds": [
+      "pat_04"
+    ],
+    "memberCount": 3,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 1,
+      "unknown": 0,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794200400000,
+    "demo": false,
+    "createdAt": 1791442800000,
+    "updatedAt": 1794205800000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_06",
+    "chatId": "chat_demo_06",
+    "name": "家人-吴女士",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_01",
+    "patientIds": [
+      "pat_05"
+    ],
+    "memberCount": 4,
+    "externalMemberCount": 2,
+    "consent": {
+      "agreed": 2,
+      "unknown": 0,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794210000000,
+    "demo": true,
+    "createdAt": 1793496600000,
+    "updatedAt": 1794207300000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_07",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_07",
+    "chatId": "chat_demo_07",
+    "name": "术后-郑先生",
+    "nameSource": "config",
+    "status": "serving",
+    "advisorId": "adv_02",
+    "patientIds": [
+      "pat_06"
+    ],
+    "memberCount": 3,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 0,
+      "unknown": 1,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794184200000,
+    "demo": true,
+    "createdAt": 1793671200000,
+    "updatedAt": 1794184800000,
+    "deletedAt": null
+  },
+  {
+    "id": "grp_08",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "roomId": "wr_demo_grp_08",
+    "chatId": null,
+    "name": "采集-未分配群",
+    "nameSource": "roomid",
+    "status": "collect_only",
+    "advisorId": "adv_02",
+    "patientIds": [],
+    "memberCount": 2,
+    "externalMemberCount": 1,
+    "consent": {
+      "agreed": 0,
+      "unknown": 1,
+      "disagreed": 0
+    },
+    "lastActiveAt": 1794190800000,
+    "demo": false,
+    "createdAt": 1794190800000,
+    "updatedAt": 1794190800000,
+    "deletedAt": null
+  }
+]

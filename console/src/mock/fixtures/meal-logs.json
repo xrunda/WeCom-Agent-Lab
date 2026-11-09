@@ -1,0 +1,102 @@
+[
+  {
+    "id": "meal_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "groupId": "grp_01",
+    "messageId": "msg_meal_01",
+    "mediaId": "med_demo_meal_01",
+    "photoUrl": "/zhiban/api/media/med_demo_meal_01",
+    "mealType": "dinner",
+    "foods": [
+      {
+        "name": "清蒸鲈鱼",
+        "portion": "约 150g"
+      },
+      {
+        "name": "糙米饭",
+        "portion": "小半碗"
+      },
+      {
+        "name": "西兰花",
+        "portion": "约 100g"
+      }
+    ],
+    "notes": "整体搭配不错，主食控制得也好。",
+    "agentComment": "这顿搭配很稳，蛋白质和蔬菜都够，糙米饭的量也合适。",
+    "confidence": 0.88,
+    "sandbox": false,
+    "createdAt": 1794136200000
+  },
+  {
+    "id": "meal_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "groupId": "grp_02",
+    "messageId": "msg_meal_02",
+    "mediaId": "med_demo_meal_02",
+    "photoUrl": "/zhiban/api/media/med_demo_meal_02",
+    "mealType": "lunch",
+    "foods": [
+      {
+        "name": "牛肉面",
+        "portion": "一大碗"
+      }
+    ],
+    "notes": "面量偏大，建议下次少面多菜。",
+    "agentComment": "这碗面量有点大，下次可以少一点面、加一份青菜。",
+    "confidence": 0.72,
+    "sandbox": false,
+    "createdAt": 1794198000000
+  },
+  {
+    "id": "meal_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_06",
+    "groupId": "grp_07",
+    "messageId": "msg_meal_03",
+    "mediaId": "med_demo_meal_03",
+    "photoUrl": "/zhiban/api/media/med_demo_meal_03",
+    "mealType": "dinner",
+    "foods": [
+      {
+        "name": "小米粥",
+        "portion": "一碗"
+      },
+      {
+        "name": "鸡蛋羹",
+        "portion": "一份"
+      }
+    ],
+    "notes": "清淡易消化，适合恢复期。",
+    "agentComment": "这顿很清淡，适合现在这个阶段，注意别太烫。",
+    "confidence": 0.81,
+    "sandbox": false,
+    "createdAt": 1794048000000
+  },
+  {
+    "id": "meal_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_05",
+    "groupId": "grp_06",
+    "messageId": "msg_meal_04",
+    "mediaId": "med_demo_meal_04",
+    "photoUrl": "/zhiban/api/media/med_demo_meal_04",
+    "mealType": "breakfast",
+    "foods": [
+      {
+        "name": "豆浆",
+        "portion": "一杯"
+      },
+      {
+        "name": "油条",
+        "portion": "一根"
+      }
+    ],
+    "notes": "油条偏油，建议换成鸡蛋。",
+    "agentComment": "豆浆可以，油条有点油，下次可以换成水煮蛋。",
+    "confidence": 0.65,
+    "sandbox": false,
+    "createdAt": 1794183300000
+  }
+]

@@ -1,0 +1,131 @@
+[
+  {
+    "id": "rul_builtin_no_diagnosis",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "redline",
+    "name": "不诊断",
+    "keywords": [
+      "诊断",
+      "确诊",
+      "是什么病"
+    ],
+    "riskLevel": "high",
+    "action": "flag",
+    "enabled": true,
+    "builtin": true,
+    "hitCount": 0,
+    "createdAt": 1788192000000,
+    "updatedAt": 1788192000000
+  },
+  {
+    "id": "rul_builtin_no_medication",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "redline",
+    "name": "不调药",
+    "keywords": [
+      "停药",
+      "减药",
+      "换药",
+      "加量"
+    ],
+    "riskLevel": "high",
+    "action": "flag",
+    "enabled": true,
+    "builtin": true,
+    "hitCount": 0,
+    "createdAt": 1788192000000,
+    "updatedAt": 1788192000000
+  },
+  {
+    "id": "rul_builtin_no_efficacy",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "redline",
+    "name": "不承诺疗效",
+    "keywords": [
+      "保证治好",
+      "根治",
+      "一定有效"
+    ],
+    "riskLevel": "high",
+    "action": "flag",
+    "enabled": true,
+    "builtin": true,
+    "hitCount": 0,
+    "createdAt": 1788192000000,
+    "updatedAt": 1788192000000
+  },
+  {
+    "id": "rul_builtin_emergency",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "redline",
+    "name": "急症只引导就医",
+    "keywords": [
+      "胸痛",
+      "胸口痛",
+      "呼吸困难",
+      "昏迷",
+      "说话不清"
+    ],
+    "riskLevel": "high",
+    "action": "escalate",
+    "enabled": true,
+    "builtin": true,
+    "hitCount": 0,
+    "createdAt": 1788192000000,
+    "updatedAt": 1788192000000
+  },
+  {
+    "id": "rul_kw_chest_pain",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "keyword",
+    "name": "急症-胸痛",
+    "keywords": [
+      "胸口痛",
+      "胸痛",
+      "喘不上气"
+    ],
+    "riskLevel": "high",
+    "action": "escalate",
+    "enabled": true,
+    "builtin": false,
+    "hitCount": 2,
+    "createdAt": 1791594000000,
+    "updatedAt": 1791594000000
+  },
+  {
+    "id": "rul_kw_stop_med",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "keyword",
+    "name": "用药-停药",
+    "keywords": [
+      "停药",
+      "减药",
+      "换药"
+    ],
+    "riskLevel": "high",
+    "action": "flag",
+    "enabled": true,
+    "builtin": false,
+    "hitCount": 3,
+    "createdAt": 1791594300000,
+    "updatedAt": 1791594300000
+  },
+  {
+    "id": "rul_kw_promise_cure",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "kind": "keyword",
+    "name": "疗效承诺",
+    "keywords": [
+      "根治",
+      "保证治好",
+      "包好"
+    ],
+    "riskLevel": "high",
+    "action": "flag",
+    "enabled": true,
+    "builtin": false,
+    "hitCount": 0,
+    "createdAt": 1791594600000,
+    "updatedAt": 1791594600000
+  }
+]

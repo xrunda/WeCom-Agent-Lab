@@ -1,0 +1,56 @@
+[
+  {
+    "id": "gbd_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_01",
+    "patientId": "pat_01",
+    "isPrimary": true,
+    "createdAt": 1789434000000,
+    "deletedAt": null
+  },
+  {
+    "id": "gbd_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_02",
+    "patientId": "pat_02",
+    "isPrimary": true,
+    "createdAt": 1789869600000,
+    "deletedAt": null
+  },
+  {
+    "id": "gbd_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_03",
+    "patientId": "pat_03",
+    "isPrimary": true,
+    "createdAt": 1790910000000,
+    "deletedAt": null
+  },
+  {
+    "id": "gbd_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_05",
+    "patientId": "pat_04",
+    "isPrimary": true,
+    "createdAt": 1791442800000,
+    "deletedAt": null
+  },
+  {
+    "id": "gbd_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_06",
+    "patientId": "pat_05",
+    "isPrimary": true,
+    "createdAt": 1793496600000,
+    "deletedAt": null
+  },
+  {
+    "id": "gbd_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "groupId": "grp_07",
+    "patientId": "pat_06",
+    "isPrimary": true,
+    "createdAt": 1793671200000,
+    "deletedAt": null
+  }
+]

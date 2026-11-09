@@ -1,0 +1,803 @@
+[
+  {
+    "id": "draft_1001",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "externalUserId": "wm_demo_zhang",
+    "groupId": "grp_01",
+    "groupRoomId": "wr_demo_grp_01",
+    "groupName": "糖友-张女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0101"
+    ],
+    "inboundSummary": "晚上吃点什么好",
+    "mediaIds": [],
+    "body": "晚上建议清淡一点，主食选糙米或杂粮，搭配一份鱼或豆腐，再来两拳头的绿叶菜。记得避开海鲜。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "晚上建议清淡一点，主食选糙米或杂粮，搭配一份鱼或豆腐，再来两拳头的绿叶菜。记得避开海鲜。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794186780000
+      }
+    ],
+    "sentVersion": 1,
+    "riskLevel": "low",
+    "status": "VERIFIED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_01",
+      "mem_02"
+    ],
+    "citedKnowledgeIds": [
+      "knw_01",
+      "knw_02"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1001",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794186720000,
+    "createdAt": 1794186760000,
+    "queuedAt": 1794186760000,
+    "pushedAt": 1794186780000,
+    "ackedAt": 1794186960000,
+    "verifiedAt": 1794187140000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_01",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1002",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "externalUserId": "wm_demo_liu",
+    "groupId": "grp_02",
+    "groupRoomId": "wr_demo_grp_02",
+    "groupName": "减重-刘先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_02",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0102"
+    ],
+    "inboundSummary": "中午吃了一碗牛肉面，会不会超了",
+    "mediaIds": [],
+    "body": "一碗牛肉面不算失控，关键是面量。下次可以少一点面、加一份青菜，晚上正常吃、别刻意不吃。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "一碗牛肉面不算失控，关键是面量。下次可以少一点面、加一份青菜，晚上正常吃、别刻意不吃。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794188460000
+      }
+    ],
+    "sentVersion": 1,
+    "riskLevel": "low",
+    "status": "VERIFIED",
+    "ruleIds": [],
+    "citedMemoryIds": [],
+    "citedKnowledgeIds": [
+      "knw_02"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1002",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794188400000,
+    "createdAt": 1794188430000,
+    "queuedAt": 1794188430000,
+    "pushedAt": 1794188460000,
+    "ackedAt": 1794188640000,
+    "verifiedAt": 1794188820000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_02",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1003",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_04",
+    "externalUserId": "wm_demo_zhou",
+    "groupId": "grp_05",
+    "groupRoomId": "wr_demo_grp_05",
+    "groupName": "作息-周先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_03",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0103"
+    ],
+    "inboundSummary": "昨晚又两点才睡着",
+    "mediaIds": [],
+    "body": "偶尔晚睡不用太焦虑。今晚可以试着把手机放到床边以外，睡前用 10 分钟做点放松，明早固定时间起床。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "偶尔晚睡不用太焦虑。今晚可以试着把手机放到床边以外，睡前用 10 分钟做点放松，明早固定时间起床。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794189960000
+      }
+    ],
+    "sentVersion": 1,
+    "riskLevel": "medium",
+    "status": "VERIFIED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_05"
+    ],
+    "citedKnowledgeIds": [
+      "knw_04",
+      "knw_05"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1003",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794189900000,
+    "createdAt": 1794189930000,
+    "queuedAt": 1794189930000,
+    "pushedAt": 1794189960000,
+    "ackedAt": 1794190200000,
+    "verifiedAt": 1794190320000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_03",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1004",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_03",
+    "externalUserId": "wm_demo_sun",
+    "groupId": "grp_03",
+    "groupRoomId": "wr_demo_grp_03",
+    "groupName": "产后-孙女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0104"
+    ],
+    "inboundSummary": "最近总觉得累，是不是恢复得不好",
+    "mediaIds": [],
+    "body": "产后前几个月容易累，先别急着下结论。可以留意睡眠和饮食，如果持续加重或伴随发热、伤口异常，建议尽快线下就诊。",
+    "version": 2,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "产后累是正常的，多休息就好。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794191400000
+      },
+      {
+        "version": 2,
+        "body": "产后前几个月容易累，先别急着下结论。可以留意睡眠和饮食，如果持续加重或伴随发热、伤口异常，建议尽快线下就诊。",
+        "instruction": "语气再温和一点，别下结论",
+        "createdBy": "staff",
+        "createdAt": 1794191580000
+      }
+    ],
+    "sentVersion": 2,
+    "riskLevel": "low",
+    "status": "VERIFIED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_04"
+    ],
+    "citedKnowledgeIds": [
+      "knw_07"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1004",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794191400000,
+    "createdAt": 1794191420000,
+    "queuedAt": 1794191420000,
+    "pushedAt": 1794191640000,
+    "ackedAt": 1794191880000,
+    "verifiedAt": 1794192060000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_04",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1005",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "externalUserId": "wm_demo_liu",
+    "groupId": "grp_02",
+    "groupRoomId": "wr_demo_grp_02",
+    "groupName": "减重-刘先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_02",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0105"
+    ],
+    "inboundSummary": "能不能开点减肥药",
+    "mediaIds": [],
+    "body": "药物方面我不能给建议，也不建议自行购买。我们可以先把饮食和作息调整起来，具体用药请让医生评估，我帮你把问题记下来转给顾问。",
+    "version": 3,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "减肥药需要医生评估，我不能推荐。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794193200000
+      },
+      {
+        "version": 2,
+        "body": "药物方面我不能给建议。我们可以先调整饮食和作息，具体用药请让医生评估。",
+        "instruction": "加上明天记得复诊",
+        "createdBy": "staff",
+        "createdAt": 1794193380000
+      },
+      {
+        "version": 3,
+        "body": "药物方面我不能给建议，也不建议自行购买。我们可以先把饮食和作息调整起来，具体用药请让医生评估，我帮你把问题记下来转给顾问。",
+        "instruction": "再短一点",
+        "createdBy": "staff",
+        "createdAt": 1794193560000
+      }
+    ],
+    "sentVersion": 3,
+    "riskLevel": "high",
+    "status": "VERIFIED",
+    "ruleIds": [
+      "rul_kw_stop_med"
+    ],
+    "citedMemoryIds": [],
+    "citedKnowledgeIds": [
+      "knw_08"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1005",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794193200000,
+    "createdAt": 1794193220000,
+    "queuedAt": 1794193220000,
+    "pushedAt": 1794193620000,
+    "ackedAt": 1794193920000,
+    "verifiedAt": 1794194100000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_05",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1006",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "externalUserId": "wm_demo_zhang",
+    "groupId": "grp_01",
+    "groupRoomId": "wr_demo_grp_01",
+    "groupName": "糖友-张女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0106"
+    ],
+    "inboundSummary": "今天走了六千步，够吗",
+    "mediaIds": [],
+    "body": "六千步已经不错了，先保持。如果状态允许，可以在饭后加 10 分钟慢走，对餐后血糖更友好。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "六千步已经不错了，先保持。如果状态允许，可以在饭后加 10 分钟慢走，对餐后血糖更友好。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794194460000
+      }
+    ],
+    "sentVersion": 1,
+    "riskLevel": "low",
+    "status": "EDIT_SENT",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_02"
+    ],
+    "citedKnowledgeIds": [
+      "knw_06"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1006",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794194400000,
+    "createdAt": 1794194430000,
+    "queuedAt": 1794194430000,
+    "pushedAt": 1794194460000,
+    "ackedAt": 1794194700000,
+    "verifiedAt": 1794194880000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_06",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1007",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_03",
+    "externalUserId": "wm_demo_sun",
+    "groupId": "grp_03",
+    "groupRoomId": "wr_demo_grp_03",
+    "groupName": "产后-孙女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0107"
+    ],
+    "inboundSummary": "宝宝晚上总是醒",
+    "mediaIds": [],
+    "body": "小月龄宝宝夜醒很常见。可以先固定睡前流程，观察白天小睡是否过长。如果宝宝精神、吃奶都正常，通常不用太担心。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "小月龄宝宝夜醒很常见。可以先固定睡前流程，观察白天小睡是否过长。如果宝宝精神、吃奶都正常，通常不用太担心。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794197460000
+      }
+    ],
+    "sentVersion": 1,
+    "riskLevel": "low",
+    "status": "MISROUTE_ALERT",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_04"
+    ],
+    "citedKnowledgeIds": [],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1007",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794197400000,
+    "createdAt": 1794197420000,
+    "queuedAt": 1794197420000,
+    "pushedAt": 1794197460000,
+    "ackedAt": 1794197640000,
+    "verifiedAt": 1794197820000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_07",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1008",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_04",
+    "externalUserId": "wm_demo_zhou",
+    "groupId": "grp_05",
+    "groupRoomId": "wr_demo_grp_05",
+    "groupName": "作息-周先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_03",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0108"
+    ],
+    "inboundSummary": "周末能补觉吗",
+    "mediaIds": [],
+    "body": "周末可以稍微多睡一会儿，但尽量不要和工作日起床时间差太多，避免周一更难受。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "周末可以稍微多睡一会儿，但尽量不要和工作日起床时间差太多，避免周一更难受。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794200460000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "medium",
+    "status": "UNVERIFIED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_05"
+    ],
+    "citedKnowledgeIds": [
+      "knw_04"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1008",
+    "pushAttempts": 1,
+    "verifyAttempts": 4,
+    "lastInboundAt": 1794200400000,
+    "createdAt": 1794200430000,
+    "queuedAt": 1794200430000,
+    "pushedAt": 1794200460000,
+    "ackedAt": 1794200700000,
+    "verifiedAt": 1794201600000,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": "vrf_08",
+    "errorCode": null
+  },
+  {
+    "id": "draft_1009",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "externalUserId": "wm_demo_zhang",
+    "groupId": "grp_01",
+    "groupRoomId": "wr_demo_grp_01",
+    "groupName": "糖友-张女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "proactive",
+    "inboundMessageIds": [],
+    "inboundSummary": "Agent 主动：提醒今晚测餐后血糖",
+    "mediaIds": [],
+    "body": "张姐，今晚饭后两小时记得测一下血糖。测完把数字发我，我帮你看看和这顿饭的关系。",
+    "version": 2,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "今晚饭后两小时记得测血糖。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794205200000
+      },
+      {
+        "version": 2,
+        "body": "张姐，今晚饭后两小时记得测一下血糖。测完把数字发我，我帮你看看和这顿饭的关系。",
+        "instruction": "亲切一点，称呼张姐",
+        "createdBy": "staff",
+        "createdAt": 1794205440000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "high",
+    "status": "PUSHED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_02"
+    ],
+    "citedKnowledgeIds": [],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1009",
+    "pushAttempts": 1,
+    "verifyAttempts": 0,
+    "lastInboundAt": null,
+    "createdAt": 1794205200000,
+    "queuedAt": 1794205200000,
+    "pushedAt": 1794205500000,
+    "ackedAt": null,
+    "verifiedAt": null,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": null,
+    "verificationId": null,
+    "errorCode": null
+  },
+  {
+    "id": "draft_1010",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "externalUserId": "wm_demo_liu",
+    "groupId": "grp_02",
+    "groupRoomId": "wr_demo_grp_02",
+    "groupName": "减重-刘先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_02",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0110"
+    ],
+    "inboundSummary": "晚上饿了能不能吃点水果",
+    "mediaIds": [],
+    "body": "可以，选一小份低糖水果，比如半个苹果或几颗草莓，尽量放在晚饭后一小时，不要临睡前吃。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "可以，选一小份低糖水果，比如半个苹果或几颗草莓，尽量放在晚饭后一小时，不要临睡前吃。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794207660000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "low",
+    "status": "ACKNOWLEDGED",
+    "ruleIds": [],
+    "citedMemoryIds": [],
+    "citedKnowledgeIds": [
+      "knw_02"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1010",
+    "pushAttempts": 1,
+    "verifyAttempts": 1,
+    "lastInboundAt": 1794207600000,
+    "createdAt": 1794207620000,
+    "queuedAt": 1794207620000,
+    "pushedAt": 1794207660000,
+    "ackedAt": 1794207900000,
+    "verifiedAt": null,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "sent",
+    "verificationId": null,
+    "errorCode": null
+  },
+  {
+    "id": "draft_1011",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_05",
+    "externalUserId": "wm_demo_wu",
+    "groupId": "grp_06",
+    "groupRoomId": "wr_demo_grp_06",
+    "groupName": "家人-吴女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0111"
+    ],
+    "inboundSummary": "我妈今天头晕，要不要去医院",
+    "mediaIds": [],
+    "body": "阿姨如果只是短暂头晕、休息后缓解，可以先观察并测一下血压。如果头晕持续、伴随胸闷、说话不清或肢体无力，请立即就医。这个问题我同步给顾问，稍后电话联系您。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "阿姨如果只是短暂头晕、休息后缓解，可以先观察并测一下血压。如果头晕持续、伴随胸闷、说话不清或肢体无力，请立即就医。这个问题我同步给顾问，稍后电话联系您。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794210000000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "high",
+    "status": "QUEUED",
+    "ruleIds": [
+      "rul_builtin_emergency"
+    ],
+    "citedMemoryIds": [
+      "mem_06"
+    ],
+    "citedKnowledgeIds": [
+      "knw_08"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": true,
+    "cardTaskId": null,
+    "pushAttempts": 0,
+    "verifyAttempts": 0,
+    "lastInboundAt": 1794210000000,
+    "createdAt": 1794210030000,
+    "queuedAt": 1794210030000,
+    "pushedAt": null,
+    "ackedAt": null,
+    "verifiedAt": null,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": null,
+    "verificationId": null,
+    "errorCode": null
+  },
+  {
+    "id": "draft_1012",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_05",
+    "externalUserId": "wm_demo_wu",
+    "groupId": "grp_06",
+    "groupRoomId": "wr_demo_grp_06",
+    "groupName": "家人-吴女士",
+    "groupNameSource": "config",
+    "advisorId": "adv_01",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0112"
+    ],
+    "inboundSummary": "周末有空吗",
+    "mediaIds": [],
+    "body": "周末我都在线。如果您想聊聊阿姨的饮食安排，可以随时在这里说，我帮您记下来。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "周末我都在线。如果您想聊聊阿姨的饮食安排，可以随时在这里说，我帮您记下来。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794207060000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "low",
+    "status": "SKIPPED",
+    "ruleIds": [],
+    "citedMemoryIds": [],
+    "citedKnowledgeIds": [],
+    "fallback": false,
+    "sandbox": false,
+    "demo": true,
+    "cardTaskId": "task_1012",
+    "pushAttempts": 1,
+    "verifyAttempts": 0,
+    "lastInboundAt": 1794207000000,
+    "createdAt": 1794207020000,
+    "queuedAt": 1794207020000,
+    "pushedAt": 1794207060000,
+    "ackedAt": 1794207300000,
+    "verifiedAt": null,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": "skipped",
+    "verificationId": null,
+    "errorCode": null
+  },
+  {
+    "id": "draft_1013",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_04",
+    "externalUserId": "wm_demo_zhou",
+    "groupId": "grp_05",
+    "groupRoomId": "wr_demo_grp_05",
+    "groupName": "作息-周先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_03",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0113"
+    ],
+    "inboundSummary": "昨天说的那个方法还有效吗",
+    "mediaIds": [],
+    "body": "有效的，还是先固定起床时间。今晚可以试着比平时早 20 分钟上床，不用一次提前太多。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "有效的，还是先固定起床时间。今晚可以试着比平时早 20 分钟上床，不用一次提前太多。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794199200000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "medium",
+    "status": "RELEASED",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_05"
+    ],
+    "citedKnowledgeIds": [
+      "knw_04"
+    ],
+    "fallback": false,
+    "sandbox": false,
+    "demo": false,
+    "cardTaskId": "task_1013",
+    "pushAttempts": 1,
+    "verifyAttempts": 0,
+    "lastInboundAt": 1794199200000,
+    "createdAt": 1794199220000,
+    "queuedAt": 1794199220000,
+    "pushedAt": 1794199260000,
+    "ackedAt": null,
+    "verifiedAt": null,
+    "releasedAt": 1794201000000,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": null,
+    "verificationId": null,
+    "errorCode": null
+  },
+  {
+    "id": "draft_1014",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_06",
+    "externalUserId": "wm_demo_zheng",
+    "groupId": "grp_07",
+    "groupRoomId": "wr_demo_grp_07",
+    "groupName": "术后-郑先生",
+    "groupNameSource": "config",
+    "advisorId": "adv_02",
+    "source": "inbound",
+    "inboundMessageIds": [
+      "msg_archive_0114"
+    ],
+    "inboundSummary": "今天伤口有点痒",
+    "mediaIds": [],
+    "body": "伤口愈合时发痒比较常见，先别抓。如果出现红肿、渗液或发热，请尽快联系医生。我同步给顾问跟进。",
+    "version": 1,
+    "revisions": [
+      {
+        "version": 1,
+        "body": "伤口愈合时发痒比较常见，先别抓。如果出现红肿、渗液或发热，请尽快联系医生。我同步给顾问跟进。",
+        "instruction": null,
+        "createdBy": "agent",
+        "createdAt": 1794184260000
+      }
+    ],
+    "sentVersion": null,
+    "riskLevel": "low",
+    "status": "DEAD_LETTER",
+    "ruleIds": [],
+    "citedMemoryIds": [
+      "mem_08"
+    ],
+    "citedKnowledgeIds": [],
+    "fallback": true,
+    "sandbox": false,
+    "demo": true,
+    "cardTaskId": "task_1014",
+    "pushAttempts": 5,
+    "verifyAttempts": 0,
+    "lastInboundAt": 1794184200000,
+    "createdAt": 1794184220000,
+    "queuedAt": 1794184220000,
+    "pushedAt": null,
+    "ackedAt": null,
+    "verifiedAt": null,
+    "releasedAt": null,
+    "remindedAt": null,
+    "escalatedAt": null,
+    "ackAction": null,
+    "verificationId": null,
+    "errorCode": "PUSH_FAILED"
+  }
+]

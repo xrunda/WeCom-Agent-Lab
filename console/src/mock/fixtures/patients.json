@@ -1,0 +1,156 @@
+[
+  {
+    "id": "pat_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "张女士",
+    "avatar": null,
+    "externalUserId": "wm_demo_zhang",
+    "tags": [
+      "控糖",
+      "高血压"
+    ],
+    "advisorId": "adv_01",
+    "groupIds": [
+      "grp_01"
+    ],
+    "consent": "agreed",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": false,
+    "accompaniedSince": 1789434000000,
+    "lastActiveAt": 1794194400000,
+    "memoryCount": 3,
+    "pendingPlanCount": 1,
+    "createdAt": 1789434000000,
+    "updatedAt": 1794210000000,
+    "deletedAt": null
+  },
+  {
+    "id": "pat_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "刘先生",
+    "avatar": null,
+    "externalUserId": "wm_demo_liu",
+    "tags": [
+      "减重",
+      "乳糖不耐受"
+    ],
+    "advisorId": "adv_02",
+    "groupIds": [
+      "grp_02"
+    ],
+    "consent": "agreed",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": false,
+    "accompaniedSince": 1789869600000,
+    "lastActiveAt": 1794207600000,
+    "memoryCount": 2,
+    "pendingPlanCount": 1,
+    "createdAt": 1789869600000,
+    "updatedAt": 1794207900000,
+    "deletedAt": null
+  },
+  {
+    "id": "pat_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "孙女士",
+    "avatar": null,
+    "externalUserId": "wm_demo_sun",
+    "tags": [
+      "产后修复"
+    ],
+    "advisorId": "adv_01",
+    "groupIds": [
+      "grp_03"
+    ],
+    "consent": "disagreed",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": false,
+    "accompaniedSince": 1790910000000,
+    "lastActiveAt": 1794197400000,
+    "memoryCount": 1,
+    "pendingPlanCount": 0,
+    "createdAt": 1790910000000,
+    "updatedAt": 1794139800000,
+    "deletedAt": null
+  },
+  {
+    "id": "pat_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "周先生",
+    "avatar": null,
+    "externalUserId": "wm_demo_zhou",
+    "tags": [
+      "作息",
+      "睡眠"
+    ],
+    "advisorId": "adv_03",
+    "groupIds": [
+      "grp_05"
+    ],
+    "consent": "agreed",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": false,
+    "accompaniedSince": 1791442800000,
+    "lastActiveAt": 1794200400000,
+    "memoryCount": 1,
+    "pendingPlanCount": 1,
+    "createdAt": 1791442800000,
+    "updatedAt": 1794205800000,
+    "deletedAt": null
+  },
+  {
+    "id": "pat_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "吴女士",
+    "avatar": null,
+    "externalUserId": "wm_demo_wu",
+    "tags": [
+      "家属代问",
+      "高血压"
+    ],
+    "advisorId": "adv_01",
+    "groupIds": [
+      "grp_06"
+    ],
+    "consent": "agreed",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": true,
+    "accompaniedSince": 1793496600000,
+    "lastActiveAt": 1794210000000,
+    "memoryCount": 1,
+    "pendingPlanCount": 0,
+    "createdAt": 1793496600000,
+    "updatedAt": 1794207300000,
+    "deletedAt": null
+  },
+  {
+    "id": "pat_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "displayName": "郑先生",
+    "avatar": null,
+    "externalUserId": "wm_demo_zheng",
+    "tags": [
+      "术后恢复"
+    ],
+    "advisorId": "adv_02",
+    "groupIds": [
+      "grp_07"
+    ],
+    "consent": "unknown",
+    "consentCheckedAt": 1794182400000,
+    "status": "serving",
+    "demo": true,
+    "accompaniedSince": 1793671200000,
+    "lastActiveAt": 1794184200000,
+    "memoryCount": 1,
+    "pendingPlanCount": 0,
+    "createdAt": 1793671200000,
+    "updatedAt": 1794184800000,
+    "deletedAt": null
+  }
+]

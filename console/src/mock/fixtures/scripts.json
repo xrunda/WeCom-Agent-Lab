@@ -1,0 +1,101 @@
+[
+  {
+    "id": "scr_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "开场",
+    "title": "首次服务问候",
+    "content": "您好，我是您的健康服务助手。后续饮食、作息上有想聊的，随时在这里说，我会帮您记下来。",
+    "tags": [
+      "开场",
+      "首次"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "饮食",
+    "title": "晚餐建议",
+    "content": "晚餐尽量在 19 点前完成，主食选杂粮，搭配一份蛋白质和两份蔬菜。",
+    "tags": [
+      "饮食",
+      "晚餐"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "饮食",
+    "title": "外食提醒",
+    "content": "外食时先看烹调方式，清蒸、白灼优先，少选油炸和浓汤。",
+    "tags": [
+      "外食"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "作息",
+    "title": "晚睡回应",
+    "content": "偶尔晚睡不用太焦虑，今晚先把手机放远一点，明早固定时间起床。",
+    "tags": [
+      "作息",
+      "睡眠"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "运动",
+    "title": "餐后活动",
+    "content": "饭后 30 分钟可以慢走 15–20 分钟，量力而行，不用追求步数。",
+    "tags": [
+      "运动"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "复诊",
+    "title": "复诊提醒",
+    "content": "明天有复诊安排，记得带上最近的检查结果，路上注意安全。",
+    "tags": [
+      "复诊"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_07",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "情绪",
+    "title": "焦虑回应",
+    "content": "听起来这段时间确实不容易。我们先从一件小事开始，不用一次做到所有。",
+    "tags": [
+      "情绪"
+    ],
+    "enabled": true,
+    "sample": true
+  },
+  {
+    "id": "scr_08",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "转人工",
+    "title": "升级人工",
+    "content": "这个问题我同步给顾问，稍后由顾问和您详细沟通。",
+    "tags": [
+      "转人工"
+    ],
+    "enabled": true,
+    "sample": true
+  }
+]

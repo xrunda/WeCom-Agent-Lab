@@ -1,0 +1,134 @@
+{
+  "installed": [
+    {
+      "id": "skl_zhiban-wecom",
+      "name": "企微服务通道",
+      "description": "存档轮询、机器人推送、回读核验",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-wecom",
+      "capabilities": [
+        "archive",
+        "bot",
+        "verify"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_zhiban-patient",
+      "name": "患者路由",
+      "description": "群 ↔ 患者 ↔ 长期会话",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-patient",
+      "capabilities": [
+        "route",
+        "turn"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_zhiban-memory",
+      "name": "长期记忆",
+      "description": "抽取、注入、可查可改可删",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-memory",
+      "capabilities": [
+        "memory"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_zhiban-care",
+      "name": "主动关怀",
+      "description": "按计划主动起草关怀消息",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-care",
+      "capabilities": [
+        "schedule"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_zhiban-guard",
+      "name": "健康红线",
+      "description": "不诊断、不调药、不承诺疗效、急症引导就医",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-guard",
+      "capabilities": [
+        "risk"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_zhiban-knowledge",
+      "name": "知识问答",
+      "description": "机构知识条目与命中统计",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-knowledge",
+      "capabilities": [
+        "knowledge"
+      ],
+      "tier": "A"
+    },
+    {
+      "id": "skl_meal-vision",
+      "name": "餐食图片识别",
+      "description": "识别食物、结合记忆点评、沉淀饮食记录",
+      "version": "1.0.0",
+      "status": "enabled",
+      "pluginId": "zhiban-guard",
+      "capabilities": [
+        "vision",
+        "meal_log"
+      ],
+      "tier": "A"
+    }
+  ],
+  "upcoming": [
+    {
+      "id": "skl_report-reading",
+      "name": "体检报告解读",
+      "description": "即将上线",
+      "version": null,
+      "status": "coming_soon",
+      "pluginId": null,
+      "capabilities": [],
+      "tier": "C"
+    },
+    {
+      "id": "skl_appointment",
+      "name": "预约提醒",
+      "description": "即将上线",
+      "version": null,
+      "status": "coming_soon",
+      "pluginId": null,
+      "capabilities": [],
+      "tier": "C"
+    },
+    {
+      "id": "skl_device",
+      "name": "智能设备数据接入",
+      "description": "血糖 / 血压设备直连",
+      "version": null,
+      "status": "coming_soon",
+      "pluginId": null,
+      "capabilities": [],
+      "tier": "C"
+    },
+    {
+      "id": "skl-miniapp",
+      "name": "患者端小程序直连",
+      "description": "即将上线",
+      "version": null,
+      "status": "coming_soon",
+      "pluginId": null,
+      "capabilities": [],
+      "tier": "C"
+    }
+  ]
+}
