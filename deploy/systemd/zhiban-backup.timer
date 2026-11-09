@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Zhiban backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+AccuracySec=1min
+Persistent=true
+Unit=zhiban-backup.service
+
+[Install]
+WantedBy=timers.target
