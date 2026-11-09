@@ -1,0 +1,40 @@
+.scripts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.script-card {
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdfd 100%);
+}
+
+.script-card .ant-card-head {
+  min-height: 46px;
+}
+
+.script-content {
+  margin: 0 0 12px !important;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.75;
+  min-height: 46px;
+}
+
+.script-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.script-tags .ant-tag {
+  margin-inline-end: 0;
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .scripts-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
