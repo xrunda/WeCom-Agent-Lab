@@ -15,11 +15,14 @@ import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import { C2Service } from '../../src/c2/service.ts';
 import { ArchiveTrigger } from '../../src/c2/trigger.ts';
-import type { Alert, Draft } from '../../src/c2/types.ts';
+import type { Alert, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { PatientBridge } from '../../src/p1/session-port.ts';
+import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 
 import { parsePluginConfig, serviceGroupFilter } from './config.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
+import type { PatientSink } from './runtime.ts';
 
 export const name = 'zhiban-wecom';
 
@@ -37,6 +40,8 @@ export interface DshPluginContext {
   };
   effect(fn: () => EffectCleanup | Promise<EffectCleanup>): unknown;
   emit(type: string, data: unknown): unknown;
+  provide(name: string, value: unknown): unknown;
+  get<T = unknown>(name: string): T | undefined;
   storageDomain: {
     open<S extends DomainSpec>(spec: S): Promise<Domain<S>>;
   };
@@ -57,6 +62,89 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   const log = (line: string): void => ctx.logger?.info?.(`[zhiban-wecom] ${line}`);
 
   log(`加载配置：环境=${config.environment} 群数=${config.serviceGroupRoomIds.length}`);
+
+  // #33/#34：患者域通过这个服务入队草稿、改稿与回执；先 provide 再启动，
+  // 避免两个插件加载顺序不同导致对方拿不到服务。
+  let serviceRef: C2Service | undefined;
+  let botRef: WeComBotAdapter | undefined;
+  const requireService = (): C2Service => {
+    if (!serviceRef) throw new Error('WECOM_SERVICE_NOT_READY');
+    return serviceRef;
+  };
+  const wecomBridge: PatientBridge = {
+    async enqueueDraft(input) {
+      const draft = requireService().enqueueDraft({
+        advisorId: input.advisorId,
+        groupRoomId: input.groupRoomId,
+        customerId: input.customerId,
+        customerName: input.customerName,
+        lastInboundAt: input.lastInboundAt,
+        inboundMessageId: input.inboundMessageIds[0] ?? `merged_${Date.now()}`,
+        inboundMessageIds: input.inboundMessageIds,
+        mediaIds: input.mediaIds,
+        inboundSummary: input.inboundSummary,
+        body: input.body,
+        riskLevel: input.riskLevel,
+        source: input.source,
+        fallback: input.fallback,
+        citedMemoryIds: input.citedMemoryIds,
+        citedKnowledgeIds: input.citedKnowledgeIds,
+      });
+      return { draftId: draft.id, version: draft.version ?? 1 };
+    },
+    async reviseDraft(draftId, input) {
+      const draft = requireService().reviseDraft(draftId, input);
+      return { draftId: draft.id, version: draft.version ?? 1 };
+    },
+    requestRevision(draftId, instruction) {
+      requireService().requestRevision(draftId, instruction);
+    },
+    getActiveDraft(advisorId) {
+      const id = serviceRef?.store.getActiveDraft(advisorId);
+      return id ? serviceRef?.store.getDraft(id) : undefined;
+    },
+    getDraft(draftId) {
+      return serviceRef?.store.getDraft(draftId);
+    },
+    listVerifiedBodies(senderId) {
+      return (
+        serviceRef?.store
+          .listDrafts()
+          .filter(
+            (draft) =>
+              draft.customerId === senderId &&
+              (draft.status === 'VERIFIED' || draft.status === 'EDIT_SENT'),
+          )
+          .map((draft) => draft.body) ?? []
+      );
+    },
+    async notifyAdvisor(text) {
+      if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
+      await botRef.sendText(config.advisorChatId, text);
+    },
+  };
+  ctx.provide('zhibanWecom', wecomBridge);
+
+  // 患者域同样懒加载：wecom 可以先启动，患者插件就绪后自动接管
+  const patientApi = (): {
+    observeRooms: PatientSink['observeRooms'];
+    routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
+    handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
+    handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+  } | undefined => ctx.get('zhibanPatient');
+  const patientSink: PatientSink = {
+    observeRooms: (rooms) => patientApi()?.observeRooms(rooms),
+    routeInbound: (message) =>
+      patientApi()?.routeInbound(message) ?? {
+        handled: false,
+        decision: { action: 'ignore', reason: 'PATIENT_UNAVAILABLE' },
+      },
+    handleDraftVerified: async (draftId, outcome) => {
+      await patientApi()?.handleDraftVerified(draftId, outcome);
+    },
+    handleAdvisorText: async (advisorUserId, text) =>
+      (await patientApi()?.handleAdvisorText(advisorUserId, text)) ?? false,
+  };
 
   ctx.effect(async () => {
     const domain = await ctx.storageDomain.open(wecomDomain);
@@ -103,8 +191,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           onMessage: (message) => {
             log(
               `机器人收到消息 chattype=${message.chattype} msgtype=${message.msgtype} ` +
-                `user=${tailId(message.userid)}（只处理卡片回调，正文不落日志）`,
+                `user=${tailId(message.userid)}（正文不落日志）`,
             );
+            // #56：顾问与机器人的 1:1 文本 = 改稿指令
+            if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
+              void runtime?.handleAdvisorMessage(message.userid, message.text);
+            }
           },
           onEvent: (event) => {
             if (event.eventKey) confirmHandler?.(event.eventKey);
@@ -124,6 +216,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           log(`告警 ${alert.kind}${alert.draftId ? ` draft=${alert.draftId}` : ''}`);
         },
       });
+      serviceRef = service;
+      botRef = bot;
 
       // 顾问与群绑定：已存在则保留，只同步配置里的 chatId
       const advisor = store.getAdvisor(config.advisorId);
@@ -180,6 +274,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         bot,
         config,
         clock,
+        patient: patientSink,
         emit: (type, data) => {
           ctx.emit(type, data);
         },
@@ -197,11 +292,15 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       return async () => {
         await runtime?.stop();
         bot?.close();
+        serviceRef = undefined;
+        botRef = undefined;
         await domain.close();
         log('已停止并落盘');
       };
     } catch (error) {
       bot?.close();
+      serviceRef = undefined;
+      botRef = undefined;
       await domain.close();
       throw error;
     }

@@ -32,6 +32,18 @@ export interface ArchivePort {
     /** #54：是否包含图片消息；缺省只返回文字 */
     includeMedia?: boolean;
   }): Promise<ArchivedInbound[]>;
+
+  /**
+   * #63：拉取指定群里的全部文字/图片消息（含内部员工），
+   * 供患者插件区分「外部发言触发回合」与「内部发言只作上下文」。
+   * 未实现的存档端口回退到 listInboundMessages。
+   */
+  listGroupMessages?(params: {
+    roomIds: string[];
+    since: number;
+    until: number;
+    includeMedia?: boolean;
+  }): Promise<ArchivedInbound[]>;
 }
 
 export interface Clock {

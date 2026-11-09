@@ -12,10 +12,27 @@ import type { ComposeFn } from '../../src/c2/trigger.ts';
 import type { C2Service } from '../../src/c2/service.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
-import type { Alert, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
+
+/**
+ * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
+ * wecom 只负责把存档消息转交过去，不依赖患者域实现。
+ */
+export interface PatientSink {
+  observeRooms(
+    rooms: Array<{
+      roomId: string;
+      members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+    }>,
+  ): void;
+  routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
+  handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
+  handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+}
 
 export interface WecomRuntimeDeps {
   store: DomainStore;
@@ -29,6 +46,8 @@ export interface WecomRuntimeDeps {
   /** 发到 DSH 事件总线：ctx.emit(type, data) */
   emit: (type: string, data: unknown) => void;
   logger?: (line: string) => void;
+  /** 患者域（可选）：存在时由它接管服务群消息 */
+  patient?: PatientSink;
 }
 
 export interface StartOptions {
@@ -88,6 +107,7 @@ export class WecomRuntime {
   private readonly clock: Clock;
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
+  private readonly patient?: PatientSink;
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
@@ -106,6 +126,7 @@ export class WecomRuntime {
     this.clock = deps.clock;
     this.emit = deps.emit;
     this.logger = deps.logger;
+    this.patient = deps.patient;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -165,8 +186,31 @@ export class WecomRuntime {
     if (!this.running || this.polling) return;
     this.polling = true;
     try {
-      const events = await this.trigger.poll();
-      for (const event of events) {
+      const result = await this.trigger.pollWithContext();
+      this.patient?.observeRooms(result.rooms);
+
+      // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
+      const ordered: Array<{ message: ArchivedInbound; event?: (typeof result.events)[number] }> = [
+        ...result.internal.map((message) => ({ message })),
+        ...result.events.map((event) => ({ message: event.message, event })),
+      ].sort((a, b) => a.message.msgtime - b.message.msgtime);
+
+      for (const { message, event } of ordered) {
+        if (this.patient) {
+          const routed = this.patient.routeInbound({
+            msgid: message.msgid,
+            roomId: message.roomid,
+            from: message.from,
+            text: message.text,
+            msgtime: message.msgtime,
+            msgtype: message.msgtype,
+            mediaPath: message.mediaPath,
+          });
+          // 患者域接管（合并窗口 / 上下文 / 未启用）时不走模板草稿
+          if (routed.handled) continue;
+        }
+        if (!event) continue;
+
         let draft: Draft;
         try {
           draft = this.service.enqueueDraft({
@@ -234,6 +278,10 @@ export class WecomRuntime {
         });
         const draft = result.draftId ? this.store.getDraft(result.draftId) : undefined;
         if (draft) await this.notify(verificationNotice(draft, result.outcome));
+        // #34：核验结果作为上下文写回患者长期会话，不唤醒新回合
+        if (result.draftId) {
+          await this.patient?.handleDraftVerified(result.draftId, result.outcome);
+        }
       }
       this.persistProgress();
     } catch (error) {
@@ -270,7 +318,25 @@ export class WecomRuntime {
         await this.notify('这条草稿已经处理过了，无需重复点击。');
         return;
       }
+      // #56：改稿后旧卡片仍然可见，点旧卡片只提示，不当作错误
+      if (message.startsWith('STALE_CARD')) {
+        this.log(`过期卡片，忽略（${message}）`);
+        await this.notify('这条草稿已有新版本，请使用最新一条卡片操作。');
+        return;
+      }
       this.log(`确认失败：${message}`);
+    }
+  }
+
+  /** 顾问在机器人 1:1 里发文字：有活动草稿时作为改稿指令（#56） */
+  async handleAdvisorMessage(advisorUserId: string, text: string): Promise<void> {
+    if (!this.patient) return;
+    try {
+      await this.patient.handleAdvisorText(advisorUserId, text);
+    } catch (error) {
+      this.log(
+        `改稿指令处理失败：${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

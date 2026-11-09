@@ -27,19 +27,30 @@ export function shanghaiClock(ms: number): string {
 }
 
 /**
- * 按钮 key 形如 ack:<draftId>:<action>。
- * draftId 不允许包含冒号（生成时保证）。
+ * 按钮 key 形如 ack:<draftId>:<action>（v1）或 ack:<draftId>:v<n>:<action>（改稿后）。
+ * draftId 不允许包含冒号（生成时保证）。旧版卡片没有版本段，按 v1 处理；
+ * 改稿后版本段不匹配即判为过期卡片（#56）。
  */
-export function buttonKey(draftId: string, action: ButtonAction): string {
-  return `ack:${draftId}:${action}`;
+export function buttonKey(draftId: string, action: ButtonAction, version?: number): string {
+  if (version === undefined || version <= 1) return `ack:${draftId}:${action}`;
+  return `ack:${draftId}:v${version}:${action}`;
 }
 
-export function parseButtonKey(key: string): { draftId: string; action: ButtonAction } | null {
+export function parseButtonKey(
+  key: string,
+): { draftId: string; action: ButtonAction; version?: number } | null {
   const parts = key.split(':');
-  if (parts.length !== 3 || parts[0] !== 'ack') return null;
-  const action = parts[2] as ButtonAction;
-  if (!BUTTON_ACTIONS.includes(action)) return null;
-  return { draftId: parts[1], action };
+  if (parts.length === 3 && parts[0] === 'ack') {
+    const action = parts[2] as ButtonAction;
+    if (!BUTTON_ACTIONS.includes(action)) return null;
+    return { draftId: parts[1], action };
+  }
+  if (parts.length === 4 && parts[0] === 'ack' && /^v[1-9]\d*$/.test(parts[2])) {
+    const action = parts[3] as ButtonAction;
+    if (!BUTTON_ACTIONS.includes(action)) return null;
+    return { draftId: parts[1], action, version: Number(parts[2].slice(1)) };
+  }
+  return null;
 }
 
 /**
@@ -58,17 +69,26 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
     draft.groupNameSource !== 'members' &&
     draft.groupMembers !== undefined &&
     draft.groupMembers.length > 0;
+  const version = draft.version ?? 1;
+  const revised = version > 1;
   return {
     msgtype: 'template_card',
     template_card: {
       card_type: 'button_interaction',
-      // 平台要求非空且唯一；带上 createdAt，重启后 draft_1 也不会撞车
-      task_id: `c2-${draft.id}-${draft.createdAt.toString(36)}`.slice(0, 32),
+      // 平台要求非空且唯一；带上 createdAt 与版本，重启后 draft_1、改稿后 v2 也不会撞车
+      task_id: `c2-${draft.id}-${draft.createdAt.toString(36)}-v${version}`.slice(0, 32),
       main_title: {
-        title: `待回复 · ${draft.groupName}`,
-        desc: ahead > 0 ? `后面还有 ${ahead} 条` : '当前仅此一条',
+        title: revised ? `第 ${version} 版 · 待回复 · ${draft.groupName}` : `待回复 · ${draft.groupName}`,
+        desc:
+          revised && draft.revisionInstruction
+            ? `按你的要求：${truncate(draft.revisionInstruction, 40)}`
+            : ahead > 0
+              ? `后面还有 ${ahead} 条`
+              : '当前仅此一条',
       },
-      sub_title_text: `客户原文：${truncate(draft.inboundSummary, 80)}`,
+      sub_title_text: draft.fallback
+        ? `模板草稿 · 客户原文：${truncate(draft.inboundSummary, 80)}`
+        : `客户原文：${truncate(draft.inboundSummary, 80)}`,
       horizontal_content_list: [
         { keyname: '客户', value: truncate(customer, 60) },
         ...(showMembers
@@ -79,10 +99,12 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
           value: draft.ruleIds.length > 0 ? draft.ruleIds.join('、') : '无',
         },
         { keyname: '风险', value: RISK_LABEL[draft.riskLevel] },
+        ...(draft.source === 'proactive' ? [{ keyname: '来源', value: 'Agent 主动' }] : []),
+        ...(draft.fallback ? [{ keyname: '标记', value: '模板草稿' }] : []),
       ],
       button_list: [
-        { text: '已发送', style: 1, key: buttonKey(draft.id, 'sent') },
-        { text: '忽略', style: 4, key: buttonKey(draft.id, 'skipped') },
+        { text: '已发送', style: 1, key: buttonKey(draft.id, 'sent', version) },
+        { text: '忽略', style: 4, key: buttonKey(draft.id, 'skipped', version) },
       ],
     },
   };

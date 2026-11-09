@@ -19,6 +19,8 @@ const TRANSITIONS: Record<DraftStatus, readonly DraftStatus[]> = {
     DRAFT_STATUS.UNVERIFIED,
     DRAFT_STATUS.FAILED,
     DRAFT_STATUS.DEAD_LETTER,
+    // #56：顾问私聊发指令，Agent 产出新版本，重新进入队列
+    DRAFT_STATUS.QUEUED,
   ],
   FAILED: [DRAFT_STATUS.QUEUED, DRAFT_STATUS.DEAD_LETTER],
   ACKNOWLEDGED: [

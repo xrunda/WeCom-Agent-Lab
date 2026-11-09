@@ -48,6 +48,17 @@ export interface TriggerEvent {
   draft: ComposedDraft;
 }
 
+/** #63：外部发言触发回合；内部员工发言只作上下文 */
+export interface TriggerPollResult {
+  events: TriggerEvent[];
+  internal: ArchivedInbound[];
+  /** 本轮观察到的群与外部成员，供 zhiban-patient 自动发现 */
+  rooms: Array<{
+    roomId: string;
+    members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+  }>;
+}
+
 export interface ArchiveTriggerDeps {
   archive: ArchivePort;
   store: Store;
@@ -83,18 +94,37 @@ export class ArchiveTrigger {
    * 同一条 msgid 只会返回一次（进程内去重）。
    */
   async poll(): Promise<TriggerEvent[]> {
+    return (await this.pollWithContext()).events;
+  }
+
+  /**
+   * #63：一次拉取同时返回外部发言（触发草稿）与内部员工发言（只作上下文）。
+   * 存档端口没有 listGroupMessages 时退化为原行为（无内部上下文、无群发现）。
+   */
+  async pollWithContext(): Promise<TriggerPollResult> {
     const now = this.clock.now();
-    const messages = await this.archive.listInboundMessages({
-      roomIds: this.config.roomIds,
-      excludeSender: this.config.excludeSender,
-      since: this.startedAt,
-      until: now,
-      includeMedia: this.config.includeMedia === true,
-    });
+    const list = this.archive.listGroupMessages;
+    const messages = list
+      ? await list.call(this.archive, {
+          roomIds: this.config.roomIds,
+          since: this.startedAt,
+          until: now,
+          includeMedia: this.config.includeMedia === true,
+        })
+      : await this.archive.listInboundMessages({
+          roomIds: this.config.roomIds,
+          excludeSender: this.config.excludeSender,
+          since: this.startedAt,
+          until: now,
+          includeMedia: this.config.includeMedia === true,
+        });
     messages.sort((a, b) => a.msgtime - b.msgtime);
     this.log(`轮询完成：候选 ${messages.length} 条`);
 
     const events: TriggerEvent[] = [];
+    const internal: ArchivedInbound[] = [];
+    const roomMembers = new Map<string, Map<string, { id: string; isExternal: boolean; lastActiveAt: number }>>();
+
     for (const message of messages) {
       if (this.seen.has(message.msgid)) continue;
       this.seen.add(message.msgid);
@@ -104,6 +134,24 @@ export class ArchiveTrigger {
         this.log(`跳过 ${describeMessageMeta({ ...message, msgtype: 'text' })}：群未绑定`);
         continue;
       }
+
+      const isExternal = message.from.startsWith('wm');
+      const members =
+        roomMembers.get(message.roomid) ??
+        new Map<string, { id: string; isExternal: boolean; lastActiveAt: number }>();
+      members.set(message.from, {
+        id: message.from,
+        isExternal,
+        lastActiveAt: message.msgtime,
+      });
+      roomMembers.set(message.roomid, members);
+
+      if (!isExternal) {
+        // 内部员工（顾问/同事）的发言：只进上下文，不触发回合
+        internal.push(message);
+        continue;
+      }
+      if (message.from === this.config.excludeSender) continue;
 
       const draft = this.compose({ group, message });
       if (!draft) {
@@ -116,7 +164,11 @@ export class ArchiveTrigger {
     }
 
     this.trimSeen();
-    return events;
+    return {
+      events,
+      internal,
+      rooms: [...roomMembers].map(([roomId, members]) => ({ roomId, members: [...members.values()] })),
+    };
   }
 
   private trimSeen(): void {
