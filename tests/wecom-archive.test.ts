@@ -24,6 +24,8 @@ function adapterWith(outputs: string[], config: Record<string, unknown> = {}) {
     binaryPath: '/bin/archive_dump',
     privateKeyPath: './private_key.pem',
     configPath: './config.txt',
+    // 既有用例验证的是服务群链路；#31 的默认非服务群行为单独测
+    isServiceGroup: () => true,
     run: async (args) => {
       calls.push(args);
       const out = outputs[Math.min(index, outputs.length - 1)];
@@ -192,4 +194,109 @@ test('群消息保留 roomid，单聊 roomid 为空串', async () => {
 
   assert.equal(messages.find((m) => m.msgid === 'g1')?.roomid, 'wrGROUP1');
   assert.equal(messages.find((m) => m.msgid === 's1')?.roomid, '');
+});
+
+test('日志只含消息元数据，不含正文', async () => {
+  const logs: string[] = [];
+  const body = '患者说：最近血糖 12.8，晚上睡不着';
+  const { adapter } = adapterWith(
+    [
+      dump(24, [
+        record({
+          msgid: 'msgid_CUSTOMER_123456',
+          action: 'recv',
+          from: 'wmCUSTOMER_ABCDEF',
+          roomid: 'wrGROUP_ABCDEF123456',
+          text: { content: body },
+        }),
+      ]),
+    ],
+    { logger: (line: string) => logs.push(line) },
+  );
+
+  const messages = await adapter.listInboundMessages({
+    roomIds: ['wrGROUP_ABCDEF123456'],
+    excludeSender: 'LiGuang',
+    since: 0,
+    until: 10_000,
+  });
+
+  assert.equal(messages[0].text, body);
+  const output = logs.join('\n');
+  assert.ok(!output.includes(body), output);
+  assert.ok(!output.includes('msgid_CUSTOMER_123456'), output);
+  assert.ok(!output.includes('wrGROUP_ABCDEF123456'), output);
+  assert.match(output, /msgid=…123456/);
+  assert.match(output, /room=…123456/);
+  assert.match(output, /sender=external/);
+});
+
+test('未采纳原因不打印完整 msgid、roomid 和发送者', async () => {
+  const logs: string[] = [];
+  const { adapter } = adapterWith(
+    [
+      dump(24, [
+        record({
+          msgid: 'msgid_SELF_123456',
+          action: 'send',
+          from: 'LiGuang',
+          roomid: 'wrGROUP_ABCDEF123456',
+        }),
+      ]),
+    ],
+    { logger: (line: string) => logs.push(line) },
+  );
+
+  const messages = await adapter.listInboundMessages({
+    roomIds: ['wrGROUP_ABCDEF123456'],
+    excludeSender: 'LiGuang',
+    since: 0,
+    until: 10_000,
+  });
+
+  assert.equal(messages.length, 0);
+  const output = logs.join('\n');
+  assert.ok(!output.includes('msgid_SELF_123456'), output);
+  assert.ok(!output.includes('LiGuang'), output);
+  assert.match(output, /未采纳 msgid=…123456：发送者是员工本人/);
+});
+
+test('默认把群视为非服务群：正文不落缓存，日志只留计数', async () => {
+  const logs: string[] = [];
+  const body = '这条正文不应该出现在任何存储或日志里';
+  const { adapter } = adapterWith(
+    [
+      dump(24, [
+        record({
+          msgid: 'msgid_NON_SERVICE_123456',
+          action: 'recv',
+          from: 'wmCUSTOMER_ABCDEF',
+          roomid: 'wrGROUP_ABCDEF123456',
+          text: { content: body },
+        }),
+      ]),
+    ],
+    {
+      isServiceGroup: undefined,
+      logger: (line: string) => logs.push(line),
+    },
+  );
+
+  const inbound = await adapter.listInboundMessages({
+    roomIds: ['wrGROUP_ABCDEF123456'],
+    excludeSender: 'LiGuang',
+    since: 0,
+    until: 10_000,
+  });
+  const sent = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 0, until: 10_000 });
+
+  assert.equal(inbound.length, 0);
+  assert.equal(sent.length, 0);
+  assert.equal(adapter.listCached()[0]?.text, undefined);
+
+  const output = logs.join('\n');
+  assert.ok(!output.includes(body), output);
+  assert.ok(!output.includes('msgid_NON_SERVICE_123456'), output);
+  assert.match(output, /非服务群 1 条仅计数/);
+  assert.match(output, /未采纳 msgid=…123456：非服务群/);
 });

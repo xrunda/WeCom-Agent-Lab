@@ -2,15 +2,16 @@
 
 > 工作包：WP-B（#28 / #29 / #30）
 > 验证日期：2026-11-09
-> 验证环境：macOS 本机 + DSH 0.2.1-rc.5 + Node.js v24.13.0 + DeepSeek-V4.1-Flash
-> 结论性质：本机验证；Ubuntu VM 上的 systemd、开机自启、kill 后拉起标为 **⏳ 待真机**。
+> 验证环境：macOS 本机（Node.js v24.13.0）+ 腾讯云 Ubuntu 24.04 VM（Node.js v22.23.4）
+> + DSH 0.2.1-rc.5 + DeepSeek-V4.1-Flash
+> 结论性质：本机 + 腾讯云真机验证；服务器 systemd、开机自启、kill 后拉起、Web UI 已完成。
 > 验证插件与脚本：[`experiments/m0-dsh-validation/`](../experiments/m0-dsh-validation/)
 
 ## 0. 结论摘要
 
 | Issue | 结论 | 说明 |
 |---|---|---|
-| #28 | **本机通过；服务器部分 ⏳** | DSH 0.2.1-rc.5、独立 `zhiban` profile、DeepSeek-V4.1-Flash、hello 插件、5 张餐食照片 + 1 张虚构化验单均已在本机验证；systemd / 开机自启 / kill 拉起 / Web UI 手工复核待 Ubuntu VM |
+| #28 | **本机 + 腾讯云 VM 通过** | DSH 0.2.1-rc.5、独立 `zhiban` profile、DeepSeek-V4.1-Flash、hello 插件、5 张餐食照片 + 1 张虚构化验单均已在本机验证；腾讯云 Ubuntu 24.04 上 systemd 常驻、开机自启、kill 后 10 秒拉起、Web UI 手工复核均通过 |
 | #29 | **可行，无需回退** | 插件在没有客户端连接时，可通过公开接口向指定长期会话注入消息并触发回合，并能捕获 `reply_draft` 工具参数；连续注入、忙时注入、重启后继续注入均验证通过 |
 | #30 | **五项均可行；Connection Fetch 有认证边界** | Connection Fetch GET/POST 可用，但只对 owner 开放（未认证 401）；控制台 API/SSE 应使用 `ctx.webServer.register`。SSE 60 秒、schedule 一次性/cron、提醒投递与跨重启、插件清单均验证通过 |
 
@@ -238,33 +239,43 @@ M0 验证了两种入口文件，DSH 都能按绝对路径直接加载：
 - 对餐食强制区分“看到的”和“推测的”；份量/热量给区间；看不清时先问，不要编。
 - 继续坚持“草稿给顾问、不自动发给客户”（F1）。
 
-### 1.5 服务器 / systemd（⏳ 待真机）
+### 1.5 服务器 / systemd（腾讯云 Ubuntu 24.04 真机通过）
 
-本机没有 Ubuntu VM 权限，以下项目**未执行**，只提供了可执行步骤和 unit：
+2026-11-09 在腾讯云 Ubuntu 24.04 LTS（x86_64，2 vCPU，1.9 GiB RAM，50 GB disk）上完成。
+服务器实际版本：DSH `0.2.1-rc.5`，Node.js `v22.23.4`，`dsh` 实际路径 `/usr/bin/dsh`
+（不是 unit 默认的 `/usr/local/bin/dsh`，部署时已按 `command -v dsh` 修改 `ExecStart`）。
 
 | 验收项 | 状态 | 说明 |
 |---|---|---|
-| `systemctl restart` 后恢复 | ⏳ | unit 与步骤见 [`deploy/README.md`](../experiments/m0-dsh-validation/deploy/README.md) |
-| `dsh --profile zhiban --dump-config` 看到 hello | ✅ 本机 | 服务器上需用 `DSH_HOME=/var/lib/zhiban/dsh` 再跑一次 |
-| Web UI 新开会话，模型为 V4.1 Flash，能调 hello | ⏳ UI 手工复核 | 本机已通过 Web 服务的模型会话验证模型与工具 |
-| kill 主进程 10 秒内被 systemd 拉起 | ⏳ | 本机只验证了 SIGTERM 重启后会话/提醒恢复 |
-| 仅监听内网/本机 | ✅ 本机 127.0.0.1；⏳ 服务器 | unit 默认 `127.0.0.1:3080`，不要改成 `0.0.0.0` |
-| API Key 只在部署侧 | ✅ 文档约束 | 使用 `/etc/zhiban/dsh.env`（0600），不进 git/日志/PR |
+| `systemctl restart` 后恢复 | ✅ 真机 | `active`，health 返回 196 个插件 |
+| `dsh --profile zhiban --dump-config` 看到 hello | ✅ 真机 | 使用 `DSH_HOME=/var/lib/zhiban/dsh`，能看到 `zhiban-hello` / `zhiban-m0` |
+| Web UI 新开会话，模型为 V4.1 Flash，能调 hello | ✅ 真机 | 新会话调用 hello，返回“你好，部署验收。zhiban profile 的 hello 插件已加载。” |
+| kill 主进程 10 秒内被 systemd 拉起 | ✅ 真机 | PID `1185585 → 1185717`，`NRestarts=1`，恢复后 health 正常 |
+| 仅监听内网/本机 | ✅ 真机 | `127.0.0.1:3080`；通过 SSH 隧道访问 Web UI，未对公网开放 |
+| API Key 只在部署侧 | ✅ 真机 | `/etc/zhiban/dsh.env`，`600 root:root`，未进 git/日志/PR |
+
+补充真机验证：
+
+- 真实模型回合：HTTP 200，8.8 秒，`completed`，assistant 与 `reply_draft` 均正常。
+- 提醒跨 `systemctl restart`：`RESULT: PASS`，source 含 `schedule`，草稿正常投递。
+- 日志：grep 不到 Key 模式，也 grep 不到测试消息正文；无 OOM 记录。
+- 内存：DSH RSS 约 270–280 MB，cgroup 约 240 MB；主机 available 约 1.0 GiB。
+  主机 swap 已接近用满，图片识别和并发回合上线前仍需压测。
 
 systemd unit 在 [`deploy/dsh-zhiban.service`](../experiments/m0-dsh-validation/deploy/dsh-zhiban.service)，
-关键配置：
+关键配置（`ExecStart` 按实际安装路径修改；本次服务器为 `/usr/bin/dsh`）：
 
 ```ini
 User=zhiban
 Environment=HOME=/var/lib/zhiban
 Environment=DSH_HOME=/var/lib/zhiban/dsh
 EnvironmentFile=-/etc/zhiban/dsh.env
-ExecStart=/usr/local/bin/dsh --profile zhiban --no-open --host 127.0.0.1 --port 3080
+ExecStart=/usr/bin/dsh --profile zhiban --no-open --host 127.0.0.1 --port 3080
 Restart=always
 RestartSec=3
 ```
 
-服务器验收命令（在 VM 上执行后把结果贴回 #28）：
+服务器验收命令（本次已执行通过）：
 
 ```bash
 sudo systemctl restart dsh-zhiban
@@ -648,19 +659,31 @@ cookie jar、API Key、launch token 都不入库。
 `zhiban` 用户、`DSH_HOME=/var/lib/zhiban/dsh`、写 `/etc/zhiban/dsh.env`、安装 unit、执行
 `systemctl restart` 与 `kill -9` 验收。
 
+本次实测环境为 Ubuntu 24.04 + Node.js `v22.23.4` + DSH `0.2.1-rc.5`，`dsh` 实际路径
+`/usr/bin/dsh`；unit 的 `ExecStart` 已按实际路径修改。`systemctl restart`、`kill -9`、
+Web UI、提醒跨重启均已通过。Web UI 只监听 `127.0.0.1:3080`，远程访问用 SSH 隧道：
+
+```bash
+ssh -N -L 3080:127.0.0.1:3080 <user>@<vm-host>
+```
+
 ---
 
 ## 5. 待真机 / 未验证清单
 
+服务器 systemd 常驻、开机自启、kill 10s 拉起、Web UI 手工复核已于 2026-11-09 在腾讯云
+Ubuntu 24.04 上通过（见 §1.5）。
+
 | 项 | 状态 | 交给谁 |
 |---|---|---|
-| Ubuntu VM 上 systemd 常驻、开机自启、kill 10s 拉起 | ⏳ | 项目负责人在服务器执行，结果贴回 #28 |
-| DSH Web UI 手工新开会话、模型下拉框、hello 工具点击验证 | ⏳ | 项目负责人 |
 | 真实企微图片（压缩、低光、手写化验单、多菜混合）识别质量 | ⏳ | #55 / #64，需匿名化样本 |
 | 20–50 并发回合容量、队列上限、内存增长 | ⏳ | P1-R-03 上线前压测 |
 | Connection Fetch 上的 SSE | 未验证 | 不作为生产方案；控制台用 WebServer |
 | 相同 `requestId` 的幂等语义 | 未验证 | P1 用企微 msgid 在上层去重 |
 | 真实患者正文的磁盘加密/保留期/备份 | ⏳ | P1 安全与运维项 |
+| 服务器 Node 版本与本机不同（22.23.4 vs 24.13.0） | 已验证可用 | 部署文档建议写 `>=22.6`，或明确推荐版本 |
+| DSH 启动时把带 owner token 的 Web URL 写入 journald | 已知风险 | token 随 restart 轮换；建议限制 journald 读取权限并向上游反馈 |
+| 主机 1.9 GiB 内存、swap 接近用满 | 观察 | 图片识别 / 并发回合前压测 |
 
 ## 6. 相关文件
 

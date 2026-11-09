@@ -37,7 +37,8 @@ function RequireAuth() {
   if (loading) {
     return (
       <div className="app-loading">
-        <Spin size="large" tip="正在加载…" />
+        <Spin size="large" />
+        <div style={{ marginTop: 12, color: '#64748b' }}>正在加载…</div>
       </div>
     );
   }

@@ -12,6 +12,7 @@
 import { execFile } from 'node:child_process';
 
 import type { ArchivePort } from '../ports.ts';
+import { describeMessageMeta, tailId } from '../redact.ts';
 import type { ArchivedInbound, SentMessage } from '../types.ts';
 
 /** 存档解出来的消息（只声明 C2 用到的字段，其余透传） */
@@ -47,6 +48,11 @@ export interface WeComArchiveConfig {
   timeoutMs?: number;
   /** 起始 seq；线上应从持久化存储恢复 */
   initialSeq?: number;
+  /**
+   * 服务群判定；默认全部视为非服务群，正文不落缓存、不进日志。
+   * 真实判定（外部成员）由 #33 注入。
+   */
+  isServiceGroup?: (roomId: string) => boolean;
   logger?: (message: string) => void;
   /** 测试注入：返回 archive_dump 的 stdout */
   run?: (args: string[]) => Promise<string>;
@@ -73,17 +79,9 @@ function firstDiff(a: string, b: string): string {
   return '码点相同（比较结果却不等，请检查代理对）';
 }
 
-/** 一条记录的关键字段，用来判断它为什么没触发草稿 */
-function describeRecord(record: ArchiveRecord): string {
-  const room = record.roomid ? `群=${record.roomid}` : '单聊';
-  const text = record.text?.content ?? '';
-  const preview = text.length > 20 ? `${text.slice(0, 20)}…` : text;
-  const time = new Date(record.msgtime).toISOString().slice(11, 23);
-  return (
-    `${room} action=${record.action ?? '-'} from=${record.from} ` +
-    `msgtype=${record.msgtype} msgtime=${time} textLen=${text.length}` +
-    (preview ? ` text="${preview}"` : '')
-  );
+/** 一条记录的关键元数据，用来判断它为什么没触发草稿；不含正文 */
+export function describeRecord(record: ArchiveRecord): string {
+  return describeMessageMeta(record);
 }
 
 export const DEFAULT_ARCHIVE_CONFIG = {
@@ -99,16 +97,20 @@ export class WeComArchiveAdapter implements ArchivePort {
   private readonly maxBatches: number;
   private readonly cacheLimit: number;
   private readonly run: (args: string[]) => Promise<string>;
+  private readonly isServiceGroup: (roomId: string) => boolean;
 
   private seq: number;
   private cache: ArchiveRecord[] = [];
   private known = new Set<string>();
+  /** 本轮 pull 中只计数、未落正文的记录数 */
+  private nonServiceCount = 0;
 
   constructor(config: WeComArchiveConfig) {
     this.config = config;
     this.batchSize = config.batchSize ?? DEFAULT_ARCHIVE_CONFIG.batchSize;
     this.maxBatches = config.maxBatchesPerPoll ?? DEFAULT_ARCHIVE_CONFIG.maxBatchesPerPoll;
     this.cacheLimit = config.cacheLimit ?? DEFAULT_ARCHIVE_CONFIG.cacheLimit;
+    this.isServiceGroup = config.isServiceGroup ?? (() => false);
     this.seq = config.initialSeq ?? 0;
     this.run = config.run ?? ((args) => this.exec(args));
   }
@@ -127,6 +129,7 @@ export class WeComArchiveAdapter implements ArchivePort {
   /** 拉取增量并写入缓存；失败时抛错，由调用方决定退避 */
   async pull(): Promise<number> {
     let added = 0;
+    this.nonServiceCount = 0;
     for (let i = 0; i < this.maxBatches; i += 1) {
       const before = this.seq;
       const out = await this.fetch(this.seq);
@@ -136,7 +139,10 @@ export class WeComArchiveAdapter implements ArchivePort {
       if (out.messages.length < this.batchSize) break;
       if (this.seq === before) break;
     }
-    if (added > 0) this.log(`存档拉入 ${added} 条，seq=${this.seq}`);
+    if (added > 0) {
+      const nonService = this.nonServiceCount > 0 ? `（非服务群 ${this.nonServiceCount} 条仅计数）` : '';
+      this.log(`存档拉入 ${added} 条${nonService}，seq=${this.seq}`);
+    }
     return added;
   }
 
@@ -150,6 +156,7 @@ export class WeComArchiveAdapter implements ArchivePort {
     return this.cache
       .filter(
         (r) =>
+          this.isServiceGroup(r.roomid ?? '') &&
           r.action === 'send' &&
           r.msgtype === 'text' &&
           r.from === params.fromUser &&
@@ -178,10 +185,14 @@ export class WeComArchiveAdapter implements ArchivePort {
     // 近 2 分钟内的记录才打「未采纳」原因，避免历史记录刷屏
     const debugFloor = params.since - 120_000;
     const reject = (record: ArchiveRecord, reason: string) => {
-      if (record.msgtime >= debugFloor) this.log(`  未采纳 ${record.msgid}：${reason}`);
+      if (record.msgtime >= debugFloor) this.log(`  未采纳 msgid=${tailId(record.msgid)}：${reason}`);
     };
     for (const record of this.cache) {
       const roomid = record.roomid ?? '';
+      if (!this.isServiceGroup(roomid)) {
+        reject(record, '非服务群');
+        continue;
+      }
       if (record.msgtype !== 'text') {
         reject(record, `msgtype=${record.msgtype}`);
         continue;
@@ -192,11 +203,11 @@ export class WeComArchiveAdapter implements ArchivePort {
           params.roomIds.length === 1 && expected
             ? `；与配置对比 ${firstDiff(roomid, expected)}`
             : '';
-        reject(record, `群不符 ${JSON.stringify(roomid)} 长度=${roomid.length}${detail}`);
+        reject(record, `群不符 room=${tailId(roomid)}${detail}`);
         continue;
       }
       if (record.from === params.excludeSender) {
-        reject(record, `发送者是员工本人 ${record.from}`);
+        reject(record, '发送者是员工本人');
         continue;
       }
       if (record.msgtime < params.since) {
@@ -253,9 +264,15 @@ export class WeComArchiveAdapter implements ArchivePort {
     for (const message of messages) {
       if (!message?.msgid || this.known.has(message.msgid)) continue;
       this.known.add(message.msgid);
-      this.cache.push(message);
+      const service = this.isServiceGroup(message.roomid ?? '');
+      // 非服务群的正文不写入任何存储：缓存里只留元数据，正文置空
+      this.cache.push(service ? message : { ...message, text: undefined });
       added += 1;
-      this.log(`  记录 msgid=${message.msgid} ${describeRecord(message)}`);
+      if (service) {
+        this.log(`  记录 ${describeRecord(message)}`);
+      } else {
+        this.nonServiceCount += 1;
+      }
     }
     if (this.cache.length > this.cacheLimit) {
       const dropped = this.cache.splice(0, this.cache.length - this.cacheLimit);

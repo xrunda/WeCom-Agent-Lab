@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { WeComBotAdapter } from './adapters/wecom-bot.ts';
 import type { InboundEvent, InboundMessage } from './adapters/wecom-bot.ts';
 import { MemoryStore, MockArchive } from './memory.ts';
+import { tailId } from './redact.ts';
 import { C2Service } from './service.ts';
 import type { Alert, Draft } from './types.ts';
 
@@ -107,7 +108,10 @@ function ensureAdvisor(userid: string): void {
 }
 
 async function handleMessage(message: InboundMessage): Promise<void> {
-  log(`收到消息 userid=${message.userid} chattype=${message.chattype} text=${message.text ?? '-'}`);
+  log(
+    `收到消息 userid=${tailId(message.userid)} chattype=${message.chattype} ` +
+      `msgtype=${message.msgtype || 'unknown'} sender=employee`,
+  );
   if (message.chattype !== 'single') {
     log('联调脚本只处理单聊；群聊消息已忽略');
     return;

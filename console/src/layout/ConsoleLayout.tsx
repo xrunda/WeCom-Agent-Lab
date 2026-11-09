@@ -1,10 +1,11 @@
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { ProLayout } from '@ant-design/pro-components';
-import { Dropdown, Spin, Tag } from 'antd';
+import { Badge, Dropdown, Spin, Tag } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth, useTerm } from '../auth/AuthContext.tsx';
 import { isMockMode } from '../mock/api.ts';
+import { useAlertCount } from '../pages/alerts/useAlertCount.ts';
 import { buildMenuItems } from './menu.tsx';
 import { TenantTermControl } from './TenantTermControl.tsx';
 
@@ -17,11 +18,13 @@ export function ConsoleLayout() {
   const term = useTerm();
   const location = useLocation();
   const navigate = useNavigate();
+  const alertCount = useAlertCount();
 
   if (loading) {
     return (
       <div className="app-loading">
-        <Spin size="large" tip="正在加载控制台…" />
+        <Spin size="large" />
+        <div style={{ marginTop: 12, color: '#64748b' }}>正在加载控制台…</div>
       </div>
     );
   }
@@ -43,16 +46,21 @@ export function ConsoleLayout() {
       location={{ pathname: location.pathname }}
       route={{ path: '/', children: menuItems }}
       menuItemRender={(item, dom) => {
-        const label = item.soon ? (
-          <span className="menu-label">
-            {dom}
-            <Tag className="menu-soon-tag" color="gold" bordered={false}>
-              即将上线
-            </Tag>
-          </span>
-        ) : (
-          dom
-        );
+        const showAlertBadge = item.path === '/alerts' && alertCount > 0;
+        const label =
+          item.soon || showAlertBadge ? (
+            <span className="menu-label">
+              {dom}
+              {showAlertBadge && <Badge count={alertCount} size="small" />}
+              {item.soon && (
+                <Tag className="menu-soon-tag" color="gold" bordered={false}>
+                  即将上线
+                </Tag>
+              )}
+            </span>
+          ) : (
+            dom
+          );
         return item.path ? <Link to={item.path}>{label}</Link> : label;
       }}
       onMenuHeaderClick={() => navigate('/dashboard')}

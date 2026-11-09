@@ -185,7 +185,7 @@ export class WeComBotAdapter implements BotPort {
     try {
       frame = JSON.parse(raw) as Frame;
     } catch {
-      this.log(`收到非 JSON 帧：${raw.slice(0, 200)}`);
+      this.log(`收到非 JSON 帧：长度=${raw.length}`);
       return;
     }
 
@@ -244,7 +244,7 @@ export class WeComBotAdapter implements BotPort {
         this.close();
         return;
       default:
-        this.log(`收到未识别帧：${raw.slice(0, 200)}`);
+        this.log(`收到未识别帧：cmd=${String(frame.cmd ?? '-')} 长度=${raw.length}`);
     }
   }
 
