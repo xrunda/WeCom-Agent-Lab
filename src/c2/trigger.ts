@@ -36,6 +36,8 @@ export interface ArchiveTriggerConfig {
   excludeSender: string;
   /** 只处理 msgtime >= 该时刻的消息；缺省取构造时刻，避免重放历史 */
   startedAt?: number;
+  /** #54：把图片消息也交给 compose（需适配器启用媒体下载） */
+  includeMedia?: boolean;
   /** 去重集合上限 */
   seenLimit?: number;
 }
@@ -87,6 +89,7 @@ export class ArchiveTrigger {
       excludeSender: this.config.excludeSender,
       since: this.startedAt,
       until: now,
+      includeMedia: this.config.includeMedia === true,
     });
     messages.sort((a, b) => a.msgtime - b.msgtime);
     this.log(`轮询完成：候选 ${messages.length} 条`);

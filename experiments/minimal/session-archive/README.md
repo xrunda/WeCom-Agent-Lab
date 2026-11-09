@@ -41,7 +41,7 @@ NewSdk()
   → GetChatData(sdk, seq, limit, proxy, passwd, timeout, chatData)   // limit ≤ 1000
   → RSA 私钥解 chatData[i].encrypt_random_key（PKCS#1 v1.5）
   → DecryptData(encrypt_key, chatData[i].encrypt_chat_msg, &msg)
-  → GetMediaData(sdk, sdkfileid, indexbuf, ...)                     // 每次 ≤ 512K
+  → GetMediaData(sdk, indexbuf, sdkfileid, ...)                     // 每次 ≤ 512K
 ```
 
 > 已在真实环境验证（2026-11-08，见 `docs/C2-0-verification-log.md`）：`Init` 只有 corpId/secret 三个参数；
