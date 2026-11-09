@@ -200,6 +200,9 @@ C2-2-01/03 产出：`src/c2/adapters/wecom-bot.ts`（订阅、ping、req_id 关�
 > 目标形态：存档**全量采集**员工所在的所有群，由**业务系统判定**哪些群走服务流程。
 > 只有付费客户、且后台配了知识库/病历/菜单的群才触发草稿；非客户群即使被存档读到，也不进服务流程。
 > 现状是它的退化版：`ArchiveTrigger.roomIds` 硬编码一个群。
+>
+> **给接手产品设计的 Agent**：先读 [docs/HANDOFF-C2-business-product.md](docs/HANDOFF-C2-business-product.md)，
+> 那里把平台事实、已实现、空白和待决策问题整篇交代清楚了。
 
 | ID | 任务 | 责任人 | 状态 | 说明 |
 |---|---|---|---|---|

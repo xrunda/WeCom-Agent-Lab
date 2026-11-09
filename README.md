@@ -11,6 +11,7 @@
 - 任务清单：[ISSUES.md](./ISSUES.md)
 - **C2 架构设计（后续方向，不属 M1）**：[docs/C2-architecture.md](./docs/C2-architecture.md)
 - **C2 平台验证记录**：[docs/C2-0-verification-log.md](./docs/C2-0-verification-log.md)
+- **业务侧产品设计交接**（给接手的产品 Agent 读）：[docs/HANDOFF-C2-business-product.md](./docs/HANDOFF-C2-business-product.md)
 
 ## M1 要回答的唯一问题
 
