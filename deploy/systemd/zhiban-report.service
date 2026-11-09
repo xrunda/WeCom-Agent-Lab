@@ -1,0 +1,17 @@
+# #52 模型费用日报。读不到状态文件时失败退出，不编造数字。
+[Unit]
+Description=Zhiban daily model cost report
+Documentation=file:/opt/zhiban/app/docs/P1-deploy.md
+
+[Service]
+Type=oneshot
+User=zhiban
+Group=zhiban
+EnvironmentFile=-/etc/zhiban/report.env
+ExecStart=/usr/bin/node --experimental-strip-types /opt/zhiban/app/src/ops/daily-report.ts
+TimeoutStartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0027

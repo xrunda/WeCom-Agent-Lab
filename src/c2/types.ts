@@ -14,6 +14,8 @@ export const DRAFT_STATUS = {
   MISROUTE_ALERT: 'MISROUTE_ALERT',
   UNVERIFIED: 'UNVERIFIED',
   DEAD_LETTER: 'DEAD_LETTER',
+  /** P1 新增：管理员释放串行队列，当前草稿终结（data-model §4.1） */
+  RELEASED: 'RELEASED',
 } as const;
 
 export type DraftStatus = (typeof DRAFT_STATUS)[keyof typeof DRAFT_STATUS];

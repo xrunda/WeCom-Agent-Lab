@@ -16,11 +16,13 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.5",
+    "pdfkit": "^0.17.2",
     "ws": "^8.18.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pdfkit": "^0.17.3",
     "@types/ws": "^8.18.2",
     "typescript": "^5.9.3"
   }

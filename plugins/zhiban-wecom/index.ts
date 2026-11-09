@@ -15,7 +15,14 @@ import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import { C2Service } from '../../src/c2/service.ts';
 import { ArchiveTrigger } from '../../src/c2/trigger.ts';
-import type { Alert, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { ArchivePort } from '../../src/c2/ports.ts';
+import type {
+  Alert,
+  ArchivedInbound,
+  Draft,
+  DraftRevision,
+  VerifyOutcome,
+} from '../../src/c2/types.ts';
 import type { PatientBridge } from '../../src/p1/session-port.ts';
 import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 
@@ -67,6 +74,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   // 避免两个插件加载顺序不同导致对方拿不到服务。
   let serviceRef: C2Service | undefined;
   let botRef: WeComBotAdapter | undefined;
+  /** #59：证据导出需要回读存档原文；运行时才创建，未就绪时证据降级为空 */
+  let archiveRef: ArchivePort | undefined;
   const requireService = (): C2Service => {
     if (!serviceRef) throw new Error('WECOM_SERVICE_NOT_READY');
     return serviceRef;
@@ -125,6 +134,190 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   };
   ctx.provide('zhibanWecom', wecomBridge);
 
+  /** 证据窗口：草稿创建前后各取一段存档，覆盖合并输入与核验回读延迟 */
+  const EVIDENCE_WINDOW_MS = 30 * 60_000;
+
+  async function loadArchiveMessages(
+    roomId: string,
+    since: number,
+    until: number,
+  ): Promise<ArchivedInbound[]> {
+    const archive = archiveRef;
+    if (!archive) return [];
+    try {
+      if (typeof archive.listGroupMessages === 'function') {
+        return await archive.listGroupMessages({ roomIds: [roomId], since, until, includeMedia: true });
+      }
+      return await archive.listInboundMessages({
+        roomIds: [roomId],
+        excludeSender: config.advisorChatId,
+        since,
+        until,
+        includeMedia: true,
+      });
+    } catch {
+      // 存档不可用时不阻塞导出；PDF 会标注「未取到存档原文」
+      return [];
+    }
+  }
+
+  function buildEvidence(draft: Draft, messages: ArchivedInbound[]) {
+    const advisor = serviceRef?.store.getAdvisor(draft.advisorId);
+    const revisions: DraftRevision[] =
+      draft.revisions && draft.revisions.length > 0
+        ? draft.revisions
+        : [
+            {
+              version: draft.version ?? 1,
+              body: draft.body,
+              createdBy: 'agent',
+              createdAt: draft.createdAt,
+            },
+          ];
+    const inboundIds = new Set(
+      draft.inboundMessageIds && draft.inboundMessageIds.length > 0
+        ? draft.inboundMessageIds
+        : [draft.inboundMessageId],
+    );
+    const inbound = messages
+      .filter((message) => inboundIds.has(message.msgid))
+      .sort((a, b) => a.msgtime - b.msgtime)
+      .map((message) => ({
+        msgid: message.msgid,
+        from: message.from,
+        text: message.text,
+        msgtime: message.msgtime,
+        ...(message.msgtype ? { msgtype: message.msgtype } : {}),
+        ...(message.mediaPath ? { mediaPath: message.mediaPath } : {}),
+      }));
+    const verification = draft.verification
+      ? {
+          outcome: draft.verification.outcome,
+          ...(draft.verification.matchedMsgId
+            ? { matchedMsgId: draft.verification.matchedMsgId }
+            : {}),
+          ...(draft.verification.matchedRoomId
+            ? { matchedRoomId: draft.verification.matchedRoomId }
+            : {}),
+          ...(draft.verification.similarity !== undefined
+            ? { similarity: draft.verification.similarity }
+            : {}),
+          checkedAt: draft.verification.checkedAt,
+        }
+      : undefined;
+    const matched = verification?.matchedMsgId;
+    const sentMessage = matched ? messages.find((message) => message.msgid === matched) : undefined;
+    return {
+      id: draft.id,
+      advisorId: draft.advisorId,
+      ...(advisor ? { advisorName: advisor.name } : {}),
+      groupRoomId: draft.groupRoomId,
+      groupName: draft.groupName,
+      customerName: draft.customerName,
+      inboundSummary: draft.inboundSummary,
+      inboundMessageIds: [...inboundIds],
+      mediaIds: draft.mediaIds ?? [],
+      body: draft.body,
+      version: draft.version ?? revisions[revisions.length - 1]?.version ?? 1,
+      revisions,
+      status: draft.status,
+      riskLevel: draft.riskLevel,
+      ...(draft.source ? { source: draft.source } : {}),
+      ...(draft.fallback !== undefined ? { fallback: draft.fallback } : {}),
+      ...(draft.sentVersion !== undefined ? { sentVersion: draft.sentVersion } : {}),
+      ...(verification ? { verification } : {}),
+      ...(draft.ackAction ? { ackAction: draft.ackAction } : {}),
+      ...(draft.ackAt !== undefined ? { ackAt: draft.ackAt } : {}),
+      createdAt: draft.createdAt,
+      ...(draft.pushedAt !== undefined ? { pushedAt: draft.pushedAt } : {}),
+      citedMemoryIds: draft.citedMemoryIds ?? [],
+      citedKnowledgeIds: draft.citedKnowledgeIds ?? [],
+      inbound,
+      sent: sentMessage
+        ? { msgid: sentMessage.msgid, text: sentMessage.text, msgtime: sentMessage.msgtime }
+        : null,
+    };
+  }
+
+  // #39：控制台的队列释放 / 顾问恢复入口。方法内部懒取 service，
+  // 让控制台插件先加载也不会拿到半初始化的实例。
+  const adminApi = {
+    async releaseQueue(advisorId: string, actor = 'admin') {
+      const result = await requireService().releaseQueue(advisorId, actor);
+      ctx.emit('draft.released', {
+        draftId: result.releasedDraftId,
+        advisorId,
+        nextDraftId: result.nextDraftId,
+      });
+      return result;
+    },
+    restoreAdvisor(advisorId: string, actor = 'admin') {
+      const advisor = requireService().restoreAdvisor(advisorId, actor);
+      ctx.emit('advisor.updated', {
+        id: advisor.id,
+        name: advisor.name,
+        status: advisor.status,
+        consecutiveMisroutes: advisor.consecutiveMisroutes,
+      });
+      return {
+        id: advisor.id,
+        name: advisor.name,
+        status: advisor.status,
+        consecutiveMisroutes: advisor.consecutiveMisroutes,
+      };
+    },
+    getDraft(draftId: string) {
+      const draft = serviceRef?.store.getDraft(draftId);
+      if (!draft) return undefined;
+      return {
+        id: draft.id,
+        summary: draft.inboundSummary,
+        status: draft.status,
+        riskLevel: draft.riskLevel,
+      };
+    },
+    getAdvisor(advisorId: string) {
+      const advisor = serviceRef?.store.getAdvisor(advisorId);
+      if (!advisor) return undefined;
+      return { id: advisor.id, name: advisor.name, status: advisor.status };
+    },
+    // #59：证据链 / 服务记录导出。只读；存档不可用时降级为空原文。
+    async getDraftEvidence(draftId: string) {
+      const draft = serviceRef?.store.getDraft(draftId);
+      if (!draft) return undefined;
+      const messages = await loadArchiveMessages(
+        draft.groupRoomId,
+        draft.createdAt - EVIDENCE_WINDOW_MS,
+        (draft.verification?.checkedAt ?? draft.pushedAt ?? draft.createdAt) + EVIDENCE_WINDOW_MS,
+      );
+      return buildEvidence(draft, messages);
+    },
+    async listDraftsByRooms(roomIds: string[], from: number, to: number) {
+      const drafts = (serviceRef?.store.listDrafts() ?? []).filter(
+        (draft) =>
+          roomIds.includes(draft.groupRoomId) &&
+          draft.createdAt >= from &&
+          draft.createdAt < to,
+      );
+      const cache = new Map<string, ArchivedInbound[]>();
+      const result = [];
+      for (const draft of drafts) {
+        let messages = cache.get(draft.groupRoomId);
+        if (!messages) {
+          messages = await loadArchiveMessages(
+            draft.groupRoomId,
+            from - EVIDENCE_WINDOW_MS,
+            to + EVIDENCE_WINDOW_MS,
+          );
+          cache.set(draft.groupRoomId, messages);
+        }
+        result.push(buildEvidence(draft, messages));
+      }
+      return result;
+    },
+  };
+  ctx.provide('zhibanWecomAdmin', adminApi);
+
   // 患者域同样懒加载：wecom 可以先启动，患者插件就绪后自动接管
   const patientApi = (): {
     observeRooms: PatientSink['observeRooms'];
@@ -181,6 +374,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         logger: log,
       });
       archive.setSeq(store.getMeta<number>('archive_seq') ?? 0);
+      archiveRef = archive;
 
       let runtime: WecomRuntime | undefined;
       let confirmHandler: ((key: string) => void) | undefined;
@@ -210,7 +404,11 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         bot,
         archive,
         clock,
-        config: { initialSeq: maxDraftSeq(store.listDrafts()) },
+        config: {
+          initialSeq: maxDraftSeq(store.listDrafts()),
+          // #39：60 分钟升级时 1:1 推送给配置的主管
+          queue: { supervisorChatIds: config.supervisorChatIds },
+        },
         onAlert: (alert) => {
           ctx.emit('alert.created', alert);
           log(`告警 ${alert.kind}${alert.draftId ? ` draft=${alert.draftId}` : ''}`);

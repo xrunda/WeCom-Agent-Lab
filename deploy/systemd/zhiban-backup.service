@@ -1,0 +1,19 @@
+# #52 每日备份。需要读取 /var/lib/zhiban/dsh-demo（含凭据），因此以 root 运行。
+[Unit]
+Description=Zhiban daily backup
+Documentation=file:/opt/zhiban/app/docs/P1-deploy.md
+
+[Service]
+Type=oneshot
+User=root
+Environment=ZHIBAN_DSH_HOME=/var/lib/zhiban/dsh-demo
+Environment=ZHIBAN_MEDIA_DIR=/var/lib/zhiban/dsh-demo/zhiban/media
+Environment=ZHIBAN_BACKUP_DIR=/var/backups/zhiban
+Environment=ZHIBAN_BACKUP_RETENTION_DAYS=14
+ExecStart=/opt/zhiban/app/deploy/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+UMask=0077

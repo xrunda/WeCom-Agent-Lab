@@ -57,6 +57,50 @@ interface ActiveTurn {
   skipped: boolean;
   closed: boolean;
   revision?: RevisionRequest;
+  /** #40：沙盒回合，草稿回控制台而不是 C2 */
+  sandbox?: SandboxDraftSink;
+}
+
+/** #40 沙盒患者/群的最小视图，由控制台插件传入 */
+export interface SandboxPatientLike {
+  id: string;
+  tenantId: string;
+  displayName: string;
+  externalUserId: string;
+}
+
+export interface SandboxGroupLike {
+  id: string;
+  roomId: string;
+  name: string;
+}
+
+export interface SandboxTurnInput {
+  sessionId: string;
+  patient: SandboxPatientLike;
+  group: SandboxGroupLike;
+  text: string;
+  mediaIds: string[];
+  at: number;
+}
+
+export interface SandboxDraftInput {
+  sessionId: string;
+  patientId: string;
+  groupId: string;
+  groupName: string;
+  body: string;
+  inboundSummary: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  fallback: boolean;
+  advisorId?: string;
+  citedMemoryIds?: string[];
+  citedKnowledgeIds?: string[];
+}
+
+/** 由 zhiban-console 提供：沙盒草稿交回控制台，不进入 C2 队列 */
+export interface SandboxDraftSink {
+  enqueueDraft(input: SandboxDraftInput): { draftId: string; version: number };
 }
 
 export interface DraftGuardPort {
@@ -80,6 +124,8 @@ export interface PatientAgentRuntimeOptions {
   cancelSchedule?: (handle: unknown) => void;
   /** #37：草稿产出后的红线后校验；未安装 zhiban-guard 时为空 */
   guard?: DraftGuardPort;
+  /** 懒取控制台的沙盒接收端；控制台插件可能后加载 */
+  sandboxSink?: () => SandboxDraftSink | undefined;
 }
 
 const VERIFY_TEXT: Record<VerifyOutcome, string> = {
@@ -95,11 +141,12 @@ function normalize(text: string): string {
 
 export class PatientAgentRuntime {
   private readonly service: PatientService;
-  private readonly settings: TenantAgentSettings;
+  private settings: TenantAgentSettings;
   private readonly bridge: PatientBridge;
   private readonly sessions: PatientSessionPort;
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
+  private readonly sandboxSink?: () => SandboxDraftSink | undefined;
   private readonly merger: InboundMerger;
   private readonly turnTimeoutMs: number;
   private readonly now: () => number;
@@ -129,6 +176,7 @@ export class PatientAgentRuntime {
     this.sessions = options.sessions;
     this.emit = options.emit;
     this.logger = options.logger;
+    this.sandboxSink = options.sandboxSink;
     this.now = options.now ?? (() => Date.now());
     this.schedule =
       options.schedule ?? ((fn, delayMs) => setTimeout(fn, delayMs));
@@ -146,6 +194,24 @@ export class PatientAgentRuntime {
   /** 系统提示词由租户设置生成，插件启动时注册到 Agent 预设 */
   systemPrompt(): string {
     return buildSystemPrompt(this.settings);
+  }
+
+  /**
+   * #41 租户设置即时生效：人设字段下一轮回合使用。
+   * 已存在的 DSH 会话系统提示词不会重建，插件会额外注入一条设置更新上下文。
+   */
+  applySettings(
+    patch: Partial<Pick<TenantAgentSettings, 'agentName' | 'patientTerm' | 'tone'>>,
+  ): void {
+    if (typeof patch.agentName === 'string' && patch.agentName.trim() !== '') {
+      this.settings.agentName = patch.agentName.trim();
+    }
+    if (typeof patch.patientTerm === 'string' && patch.patientTerm.trim() !== '') {
+      this.settings.patientTerm = patch.patientTerm.trim();
+    }
+    if (typeof patch.tone === 'string' && patch.tone.trim() !== '') {
+      this.settings.tone = patch.tone.trim();
+    }
   }
 
   /** 插件卸载：取消合并定时器，丢弃未放行的批次 */
@@ -467,6 +533,125 @@ export class PatientAgentRuntime {
     }
   }
 
+  // ---------- 沙盒回合（#40） ----------
+
+  /**
+   * 体验中心的一轮：真 Agent / 真工具，草稿交给控制台沙盒。
+   * 不计入患者域统计，不进入 C2 队列，也不触发 SSE 的正式草稿事件。
+   */
+  async runSandboxTurn(input: SandboxTurnInput): Promise<void> {
+    const sink = this.sandboxSink?.();
+    if (!sink) throw new Error('SANDBOX_SINK_UNAVAILABLE');
+
+    const at = this.now();
+    const patient: Patient = {
+      id: input.patient.id,
+      tenantId: input.patient.tenantId,
+      displayName: input.patient.displayName,
+      externalUserId: input.patient.externalUserId,
+      tags: [],
+      consent: 'unknown',
+      status: 'serving',
+      demo: false,
+      accompaniedSince: at,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const group: ManagedGroup = {
+      id: input.group.id,
+      tenantId: input.patient.tenantId,
+      roomId: input.group.roomId,
+      name: input.group.name,
+      nameSource: 'config',
+      status: 'serving',
+      advisorId: this.settings.advisorId,
+      memberCount: 1,
+      externalMemberCount: 1,
+      lastActiveAt: at,
+      demo: false,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const speaker: Speaker = {
+      id: input.patient.externalUserId,
+      displayName: input.patient.displayName,
+      role: 'self',
+      isExternal: true,
+    };
+    const message: InboundMessage = {
+      msgid: `msg_sbx_${at}_${++this.turnSeq}`,
+      roomId: group.roomId,
+      from: speaker.id,
+      text: input.text,
+      msgtime: input.at,
+      ...(input.mediaIds.length > 0 ? { msgtype: 'image' as const } : {}),
+    };
+    const merged: MergedInbound = {
+      id: `sandbox_${++this.turnSeq}`,
+      roomId: group.roomId,
+      groupId: group.id,
+      groupName: group.name,
+      patientId: patient.id,
+      advisorId: this.settings.advisorId,
+      messages: [message],
+      speaker,
+      source: 'inbound',
+      mergedAt: at,
+      lastMessageAt: input.at,
+    };
+
+    const turn: ActiveTurn = {
+      id: merged.id,
+      sessionId: input.sessionId,
+      patient,
+      group,
+      messages: merged.messages,
+      speaker,
+      source: 'inbound',
+      startedAt: at,
+      replied: false,
+      skipped: false,
+      closed: false,
+      sandbox: sink,
+    };
+    this.activeBySession.set(turn.sessionId, turn);
+    this.activeByPatient.set(patient.id, turn);
+
+    let outcome: 'idle' | 'timeout' | 'error' = 'idle';
+    try {
+      await this.sessions.prompt(turn.sessionId, buildTurnPrompt(merged, this.settings));
+      outcome = await this.sessions.waitIdle(turn.sessionId, this.turnTimeoutMs);
+    } catch (error) {
+      outcome = 'error';
+      this.log(`沙盒回合失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    turn.closed = true;
+    this.activeBySession.delete(turn.sessionId);
+    this.activeByPatient.delete(patient.id);
+
+    if (!turn.replied && !turn.skipped) {
+      try {
+        sink.enqueueDraft({
+          sessionId: turn.sessionId,
+          patientId: patient.id,
+          groupId: group.id,
+          groupName: group.name,
+          body: fallbackBody(this.settings, patient.displayName),
+          inboundSummary: summarizeMessages(merged.messages) || '（无文字内容）',
+          riskLevel: 'low',
+          fallback: true,
+          advisorId: this.settings.advisorId,
+          citedMemoryIds: [],
+          citedKnowledgeIds: [],
+        });
+      } catch (error) {
+        this.log(`沙盒模板草稿失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+      this.log(`沙盒回合未产出工具调用（${outcome}），使用模板草稿`);
+    }
+  }
+
   // ---------- 工具回调 ----------
 
   async replyDraft(
@@ -499,6 +684,23 @@ export class PatientAgentRuntime {
         `草稿命中风险规则 ${review.hits.join(',')} patient=${turn.patient.id} ` +
           `risk=${riskLevel} guideOnly=${review.guideOnly}`,
       );
+    }
+    if (turn.sandbox) {
+      const result = turn.sandbox.enqueueDraft({
+        sessionId: turn.sessionId,
+        patientId: turn.patient.id,
+        groupId: turn.group.id,
+        groupName: turn.group.name,
+        body,
+        inboundSummary: input.inboundSummary,
+        riskLevel,
+        fallback: false,
+        advisorId: this.settings.advisorId,
+        citedMemoryIds: input.citedMemoryIds,
+        citedKnowledgeIds: input.citedKnowledgeIds,
+      });
+      turn.replied = true;
+      return result;
     }
     const revision = turn.revision;
     if (revision) {
@@ -582,6 +784,7 @@ export class PatientAgentRuntime {
     const turn = this.requireTurn(sessionId);
     if (turn.replied) throw new Error('ALREADY_REPLIED');
     turn.skipped = true;
+    if (turn.sandbox) return { skipped: true };
     this.service.store.bumpStat('skips');
     this.emit('patient.reply.skipped', {
       patientId: turn.patient.id,

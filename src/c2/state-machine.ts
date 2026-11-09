@@ -21,6 +21,8 @@ const TRANSITIONS: Record<DraftStatus, readonly DraftStatus[]> = {
     DRAFT_STATUS.DEAD_LETTER,
     // #56：顾问私聊发指令，Agent 产出新版本，重新进入队列
     DRAFT_STATUS.QUEUED,
+    // #39：管理员释放队列
+    DRAFT_STATUS.RELEASED,
   ],
   FAILED: [DRAFT_STATUS.QUEUED, DRAFT_STATUS.DEAD_LETTER],
   ACKNOWLEDGED: [
@@ -35,6 +37,7 @@ const TRANSITIONS: Record<DraftStatus, readonly DraftStatus[]> = {
   MISROUTE_ALERT: [],
   UNVERIFIED: [],
   DEAD_LETTER: [],
+  RELEASED: [],
 };
 
 const TERMINAL: ReadonlySet<DraftStatus> = new Set([
@@ -44,6 +47,7 @@ const TERMINAL: ReadonlySet<DraftStatus> = new Set([
   DRAFT_STATUS.MISROUTE_ALERT,
   DRAFT_STATUS.UNVERIFIED,
   DRAFT_STATUS.DEAD_LETTER,
+  DRAFT_STATUS.RELEASED,
 ]);
 
 /** 释放串行队列的状态：员工已处理，或草稿已死 */
@@ -55,6 +59,7 @@ const RELEASES_QUEUE: ReadonlySet<DraftStatus> = new Set([
   DRAFT_STATUS.MISROUTE_ALERT,
   DRAFT_STATUS.UNVERIFIED,
   DRAFT_STATUS.DEAD_LETTER,
+  DRAFT_STATUS.RELEASED,
 ]);
 
 export function canTransition(from: DraftStatus, to: DraftStatus): boolean {

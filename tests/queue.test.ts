@@ -188,6 +188,62 @@ test('长时间未处理会升级并告警', async () => {
   assert.ok(store.listAlerts().some((a) => a.kind === 'ESCALATED'));
 });
 
+test('升级时 1:1 推送给配置的主管，排除顾问本人且只推一次', async () => {
+  const { service, bot, clock } = prepare({
+    queue: { supervisorChatIds: ['sup_1', 'sup_2', 'chat_a1'] },
+  });
+  enqueue(service, 'D1');
+  await service.tick();
+
+  clock.advance(DEFAULT_QUEUE_CONFIG.escalateAfterMs);
+  await service.tick();
+
+  const supervisorTexts = () =>
+    bot.texts().filter((item) => item.chatId === 'sup_1' || item.chatId === 'sup_2');
+  assert.equal(supervisorTexts().length, 2);
+  const first = supervisorTexts()[0]!.message;
+  const content = first.msgtype === 'text' ? first.text.content : '';
+  assert.match(content, /升级/);
+  assert.match(content, /群 1 · 客户 1/);
+  // 不带草稿正文
+  assert.equal(content.includes('这是 D1 的回复正文'), false);
+  // 不重复推给顾问本人
+  assert.equal(
+    bot
+      .texts()
+      .some(
+        (item) =>
+          item.chatId === 'chat_a1' &&
+          item.message.msgtype === 'text' &&
+          item.message.text.content.includes('升级'),
+      ),
+    false,
+  );
+
+  clock.advance(60_000);
+  await service.tick();
+  assert.equal(supervisorTexts().length, 2);
+});
+
+test('未配置主管时不额外推送，只保留 ESCALATED 告警', async () => {
+  const { service, store, bot, clock } = prepare();
+  enqueue(service, 'D1');
+  await service.tick();
+
+  clock.advance(DEFAULT_QUEUE_CONFIG.escalateAfterMs);
+  await service.tick();
+
+  assert.ok(store.listAlerts().some((a) => a.kind === 'ESCALATED'));
+  assert.equal(
+    bot
+      .texts()
+      .filter(
+        (item) => item.message.msgtype === 'text' && item.message.text.content.includes('升级'),
+      ).length,
+    0,
+  );
+});
+
 test('忽略草稿会释放队列且不进入校验', async () => {
   const { service, store, bot } = prepare();
   enqueue(service, 'D1');

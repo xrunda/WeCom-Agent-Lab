@@ -1,6 +1,7 @@
 import { parseButtonKey } from './message.ts';
 import { SerialQueue } from './queue.ts';
 import type { PushResult, QueueConfig } from './queue.ts';
+import { applyTransition } from './state-machine.ts';
 import { Verifier, DEFAULT_VERIFIER_CONFIG } from './verifier.ts';
 import type { VerifierConfig } from './verifier.ts';
 import type {
@@ -270,6 +271,70 @@ export class C2Service {
     const parsed = parseButtonKey(key);
     if (!parsed) throw new Error(`INVALID_BUTTON_KEY ${key}`);
     return this.acknowledge(parsed.draftId, parsed.action, parsed.version);
+  }
+
+  /**
+   * #39 管理员释放串行队列：把当前阻塞的 PUSHED 草稿置为 RELEASED，
+   * 清空 active 后立即尝试推下一条。预算内的 nextDraftId 用于审计与 SSE。
+   */
+  async releaseQueue(
+    advisorId: string,
+    actor = 'admin',
+  ): Promise<{ releasedDraftId: string; nextDraftId: string | null }> {
+    const advisor = this.store.getAdvisor(advisorId);
+    if (!advisor) throw new Error(`ADVISOR_NOT_FOUND ${advisorId}`);
+
+    const activeId = this.store.getActiveDraft(advisorId);
+    const draft =
+      (activeId ? this.store.getDraft(activeId) : undefined) ??
+      this.store
+        .listDrafts()
+        .find((item) => item.advisorId === advisorId && item.status === 'PUSHED');
+    if (!draft) throw new Error(`NO_ACTIVE_DRAFT ${advisorId}`);
+    if (draft.status !== 'PUSHED') {
+      throw new Error(`DRAFT_NOT_PUSHED ${draft.id} status=${draft.status}`);
+    }
+
+    const now = this.clock.now();
+    applyTransition(draft, 'RELEASED');
+    draft.nextAttemptAt = Number.MAX_SAFE_INTEGER;
+    this.store.setActiveDraft(advisorId, undefined);
+    this.store.saveDraft(draft);
+    this.store.appendAudit({
+      at: now,
+      actor,
+      action: 'release_queue',
+      target: draft.id,
+      result: 'ok',
+    });
+
+    const pushed = await this.queue.tick();
+    const nextDraftId =
+      pushed.find((item) => item.advisorId === advisorId && item.pushed)?.draftId ??
+      this.store.getActiveDraft(advisorId) ??
+      this.store.listQueued(advisorId, this.clock.now())[0]?.id ??
+      null;
+    return { releasedDraftId: draft.id, nextDraftId };
+  }
+
+  /** #39 解除 ADVISOR_PAUSED：恢复 active 并清零连续错群计数 */
+  restoreAdvisor(advisorId: string, actor = 'admin'): Advisor {
+    const advisor = this.store.getAdvisor(advisorId);
+    if (!advisor) throw new Error(`ADVISOR_NOT_FOUND ${advisorId}`);
+    const updated: Advisor = {
+      ...advisor,
+      status: 'active',
+      consecutiveMisroutes: 0,
+    };
+    this.store.saveAdvisor(updated);
+    this.store.appendAudit({
+      at: this.clock.now(),
+      actor,
+      action: 'resume',
+      target: advisorId,
+      result: 'ok',
+    });
+    return updated;
   }
 
   /**

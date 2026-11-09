@@ -14,7 +14,12 @@ import { MemoryPatientStore } from '../../src/p1/patient-store.ts';
 import { PatientService } from '../../src/p1/patient-service.ts';
 import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
 import { PatientAgentRuntime } from '../../src/p1/runtime.ts';
-import type { DraftGuardPort } from '../../src/p1/runtime.ts';
+import type {
+  DraftGuardPort,
+  SandboxDraftSink,
+  SandboxPatientLike,
+  SandboxTurnInput,
+} from '../../src/p1/runtime.ts';
 import type { DraftReviewInput, DraftReviewResult } from '../../src/p1/guard.ts';
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type {
@@ -73,6 +78,23 @@ export interface PatientRuntimeApi {
   /** #37：给 zhiban-guard 的 escalate_to_human 反查患者 */
   patientForSession(sessionId: string): string | undefined;
   systemPrompt(): string;
+  /** #41：租户人设修改后立即应用到下一轮 */
+  applySettings(patch: { agentName?: string; patientTerm?: string; tone?: string }): void;
+  /** #40：体验中心沙盒（真 Agent / 真工具，草稿回控制台） */
+  sandboxEnsure(patient: SandboxPatientLike): Promise<string>;
+  sandboxReset(patient: SandboxPatientLike): Promise<string>;
+  sandboxTurn(input: SandboxTurnInput): Promise<void>;
+  sandboxInjectContext(sessionId: string, text: string): Promise<void>;
+  getPatient(id: string): { id: string; displayName: string } | undefined;
+  /** #59：按患者导出服务记录时，取患者与其绑定的服务群 */
+  getPatientGroups(id: string):
+    | {
+        patient: { id: string; displayName: string };
+        groups: Array<{ id: string; name: string; roomId: string }>;
+      }
+    | undefined;
+  /** #59：数据与安全页的患者存档同意状态统计 */
+  consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
 }
 
 /**
@@ -219,6 +241,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         mergeWindowMs: config.mergeWindowMs,
         mergeMaxWaitMs: config.mergeMaxWaitMs,
         turnTimeoutMs: config.turnTimeoutMs,
+        sandboxSink: () => ctx.get<SandboxDraftSink>('zhibanSandboxSink'),
       });
 
       for (const tool of buildReplyToolDefinitions({
@@ -227,6 +250,23 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       })) {
         ctx.tools.register(tool);
       }
+
+      const asSandboxPatient = (input: SandboxPatientLike): Patient => {
+        const at = Date.now();
+        return {
+          id: input.id,
+          tenantId: input.tenantId,
+          displayName: input.displayName,
+          externalUserId: input.externalUserId,
+          tags: [],
+          consent: 'unknown',
+          status: 'serving',
+          demo: false,
+          accompaniedSince: at,
+          createdAt: at,
+          updatedAt: at,
+        };
+      };
 
       const api: PatientRuntimeApi = {
         observeRooms: (rooms) => runtime!.observeRooms(rooms),
@@ -239,6 +279,50 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         stats: () => runtime!.stats(),
         patientForSession: (sessionId) => runtime!.patientForSession(sessionId),
         systemPrompt: () => runtime!.systemPrompt(),
+        applySettings: (patch) => {
+          runtime!.applySettings(patch);
+          const parts: string[] = [];
+          if (patch.agentName) parts.push(`助手名「${patch.agentName}」`);
+          if (patch.patientTerm) parts.push(`统一称呼「${patch.patientTerm}」`);
+          if (patch.tone) parts.push(`语气：${patch.tone}`);
+          if (parts.length === 0) return;
+          const note = `[租户设置更新] ${parts.join('；')}。后续回复按新设置。`;
+          // 系统提示词只在会话创建时注入一次；给已有会话补一条上下文，不唤醒回合
+          for (const record of store?.listSessions() ?? []) {
+            void sessions
+              .injectContext(record.sessionId, note)
+              .catch((error: unknown) => {
+                log(`设置更新注入失败：${error instanceof Error ? error.message : String(error)}`);
+              });
+          }
+        },
+        sandboxEnsure: async (patient) => (await sessions.ensure(asSandboxPatient(patient))).sessionId,
+        sandboxReset: async (patient) => (await sessions.reset(asSandboxPatient(patient))).sessionId,
+        sandboxTurn: (input) => runtime!.runSandboxTurn(input),
+        sandboxInjectContext: (sessionId, text) => sessions.injectContext(sessionId, text),
+        getPatient: (id) => {
+          const patient = store?.getPatient(id);
+          return patient ? { id: patient.id, displayName: patient.displayName } : undefined;
+        },
+        getPatientGroups: (id) => {
+          const patient = store?.getPatient(id);
+          if (!patient || patient.deletedAt !== undefined) return undefined;
+          const groups = service
+            .groupIdsFor(id)
+            .map((groupId) => store?.getGroup(groupId))
+            .filter((group): group is NonNullable<typeof group> => group !== undefined)
+            .map((group) => ({ id: group.id, name: group.name, roomId: group.roomId }));
+          return { patient: { id: patient.id, displayName: patient.displayName }, groups };
+        },
+        consentStats: () => {
+          const stats = { agreed: 0, unknown: 0, disagreed: 0, total: 0 };
+          for (const patient of store?.listPatients() ?? []) {
+            if (patient.deletedAt !== undefined) continue;
+            stats.total += 1;
+            stats[patient.consent] += 1;
+          }
+          return stats;
+        },
       };
       ctx.provide('zhibanPatient', api);
 
