@@ -290,3 +290,42 @@ export interface OnboardingRequestInput {
   note?: string;
   consentToContact: boolean;
 }
+
+/* ---------- #59：数据与安全 ---------- */
+
+export interface SecurityOverview {
+  deployment: {
+    dataRegion: string;
+    modelRegion: string;
+    modelService: string;
+    transport: string;
+    retentionNotice: string;
+    dataStores: string[];
+  };
+  retention: {
+    notice: string;
+    autoDelete: boolean;
+  };
+  roles: string[];
+  access: {
+    roles: Array<{ role: Role; label: string; permissions: string[] }>;
+  };
+  audit: {
+    enabled: boolean;
+    exportable: boolean;
+    retention: string;
+    events30d: number;
+    exports30d: number;
+    lastExportAt: number | null;
+  };
+  consent: {
+    agreed: number;
+    unknown: number;
+    disagreed: number;
+    total: number;
+  } | null;
+  pdf: {
+    fontConfigured: boolean;
+  };
+  generatedAt: number;
+}

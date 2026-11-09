@@ -12,6 +12,8 @@ import type { AgentStats, MergedInbound, Patient, PatientSessionRecord } from '.
 export interface PatientSessionPort {
   /** 首次服务时创建 DSH 工作区与长期会话；已有则复用 */
   ensure(patient: Patient): Promise<PatientSessionRecord>;
+  /** #40：沙盒重置，丢弃旧会话并建立全新上下文；可选，未实现时由调用方降级 */
+  reset?(patient: Patient): Promise<PatientSessionRecord>;
   /** 注入一条患者消息并唤醒一轮 Agent */
   prompt(sessionId: string, text: string): Promise<void>;
   /** 把核验结果 / 内部发言作为上下文注入，不唤醒回合 */

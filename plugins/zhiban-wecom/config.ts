@@ -28,6 +28,8 @@ export interface WecomPluginConfigInput {
   advisorChatId?: unknown;
   groupName?: unknown;
   groupChatId?: unknown;
+  /** #39：升级时 1:1 推送的主管（企微 userid），可空 */
+  supervisorChatIds?: unknown;
   mediaRootDir?: unknown;
   pollIntervalMs?: unknown;
   tickIntervalMs?: unknown;
@@ -55,6 +57,7 @@ export interface WecomPluginConfig {
   advisorChatId: string;
   groupName: string;
   groupChatId?: string;
+  supervisorChatIds: string[];
   mediaRootDir: string;
   pollIntervalMs: number;
   tickIntervalMs: number;
@@ -102,6 +105,17 @@ function boundedInt(value: unknown, field: string, min: number, max: number, fal
     throw new WecomConfigError('CONFIG_INVALID', `${field} 需为 ${min}–${max} 的整数`);
   }
   return value;
+}
+
+function optionalStringList(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new WecomConfigError('CONFIG_INVALID', `${field} 必须是数组`);
+  }
+  const items = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item !== '');
+  return [...new Set(items)];
 }
 
 function stringList(value: unknown, field: string): string[] {
@@ -190,6 +204,7 @@ export function parsePluginConfig(
     advisorChatId: requiredString(input.advisorChatId, 'advisorChatId'),
     groupName: requiredString(input.groupName, 'groupName'),
     groupChatId: optionalString(input.groupChatId, 'groupChatId'),
+    supervisorChatIds: optionalStringList(input.supervisorChatIds, 'supervisorChatIds'),
     mediaRootDir: requiredString(input.mediaRootDir, 'mediaRootDir'),
     pollIntervalMs: boundedInt(input.pollIntervalMs, 'pollIntervalMs', 1_000, 300_000, DEFAULTS.pollIntervalMs),
     tickIntervalMs: boundedInt(input.tickIntervalMs, 'tickIntervalMs', 1_000, 60_000, DEFAULTS.tickIntervalMs),

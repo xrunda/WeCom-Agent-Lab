@@ -1,0 +1,22 @@
+# #52 看门狗：每 5 分钟由 timer 触发一次。
+# 四项检查中任一项连续异常 10 分钟，通过企微机器人 webhook 通知运维；恢复后再通知一次。
+[Unit]
+Description=Zhiban Health Agent watchdog
+Documentation=file:/opt/zhiban/app/docs/P1-deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=zhiban
+Group=zhiban
+Environment=DSH_HOME=/var/lib/zhiban/dsh-demo
+EnvironmentFile=-/etc/zhiban/watchdog.env
+ExecStart=/usr/bin/node --experimental-strip-types /opt/zhiban/app/src/ops/watchdog.ts --once
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/zhiban/state
+UMask=0027

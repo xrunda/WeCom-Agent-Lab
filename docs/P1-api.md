@@ -543,11 +543,15 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ### `GET /drafts/{draftId}/evidence.pdf`
 
-角色：admin / supervisor（viewer `403`）。响应 `200 application/pdf`。内容：客户原话（含图片缩略图）、各版草稿、实发正文、存档 msgid 与时间、核验结果、操作人；页脚导出人与时间。写审计 `evidence.export`。
+角色：admin / supervisor（viewer `403`）。响应 `200 application/pdf`（`content-disposition: attachment`，`cache-control: no-store`）。内容：客户原话（含图片缩略图）、全部草稿版本与改稿要求、实发正文、存档 msgid 与时间、核验结果、引用与操作人；页脚导出人与生成时间。写审计 `evidence.export`。
+
+错误：`404 NOT_FOUND`（草稿不存在）、`502 UPSTREAM_UNAVAILABLE`（企微插件未就绪或部署机缺少中文字体）。
 
 ### `GET /patients/{id}/records.pdf?from=&to=`
 
-角色：admin / supervisor。按患者导出服务记录 PDF（默认最近 30 天）。写审计 `records.export`。
+角色：admin / supervisor（viewer `403`）。按患者导出服务记录 PDF：默认最近 30 天，单次最多 200 条并在 PDF 中标注截断；`from` / `to` 接受毫秒时间戳或 ISO 8601，`from >= to` 返回 `422`。写审计 `records.export`。
+
+错误：`404 NOT_FOUND`（患者不存在）、`502 UPSTREAM_UNAVAILABLE`（患者插件或企微插件未就绪、缺少中文字体）。
 
 ---
 
@@ -1000,24 +1004,31 @@ Agent 回合异步进行，结果通过 SSE `sandbox.*` 推送；无 SSE 时用 
 
 ### `GET /settings/security`
 
-角色：全部。响应 `200`：
+角色：全部（`tenant.read`）。响应 `200`：
 
 ```json
 {
   "deployment": {
     "dataRegion": "中国大陆（腾讯云）",
     "modelRegion": "中国大陆",
-    "transport": "HTTPS / TLS 1.2+",
-    "retentionNotice": "按合同约定；当前演示环境不自动删除"
+    "modelService": "DeepSeek（境内）",
+    "transport": "HTTPS（Secure Cookie）",
+    "retentionNotice": "按合同约定；当前演示环境不自动删除",
+    "dataStores": ["DSH 领域存储（业务数据与审计）", "沙盒与图片文件：/srv/zhiban/media", "企微会话存档（原文与实发核验）"]
   },
+  "retention": { "notice": "按合同约定；当前演示环境不自动删除", "autoDelete": false },
   "roles": ["admin", "supervisor", "viewer"],
-  "audit": { "enabled": true, "exportable": true, "retention": "不自动删除" },
+  "access": { "roles": [{ "role": "viewer", "label": "只读", "permissions": ["tenant.read"] }] },
+  "audit": { "enabled": true, "exportable": true, "retention": "不自动删除", "events30d": 42, "exports30d": 3, "lastExportAt": 1762646400000 },
   "consent": { "agreed": 6, "unknown": 3, "disagreed": 1, "total": 10 },
+  "pdf": { "fontConfigured": true },
   "generatedAt": 1762646400000
 }
 ```
 
-内容必须是真实部署事实；`retentionNotice` 直接来自 `tenant.settings`。
+内容必须是真实部署事实：`deployment` 来自 zhiban-console 插件配置（`deployment.region` / `deployment.modelRegion` / `deployment.modelService`），`deployment.transport` 按 `cookieSecure` 判定；`retentionNotice` 直接来自 `tenant.settings`；`consent` 来自患者领域实时统计（患者插件未就绪时为 `null`）；`audit` 计数取最近 30 天的审计事件与导出动作（`evidence.export` / `records.export` / `audit.export`）；`pdf.fontConfigured` 表示部署机是否找到可用于 PDF 的中文字体。
+
+相对 P1 初版契约，本接口新增了 `deployment.modelService` / `dataStores`、`retention`、`access`、`audit` 的近 30 天计数与 `pdf` 字段；原有字段保持不变。
 
 ### `GET /settings/onboarding`
 

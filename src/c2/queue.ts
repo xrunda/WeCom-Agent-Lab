@@ -8,6 +8,11 @@ export interface QueueConfig {
   retryBackoffMs: number;
   remindAfterMs: number;
   escalateAfterMs: number;
+  /**
+   * #39：升级时 1:1 推送的主管会话（企微 userid / 与机器人的 1:1 chatId）。
+   * 为空时只产生 `ESCALATED` 告警，不额外推送。
+   */
+  supervisorChatIds: string[];
 }
 
 export const DEFAULT_QUEUE_CONFIG: QueueConfig = {
@@ -15,6 +20,7 @@ export const DEFAULT_QUEUE_CONFIG: QueueConfig = {
   retryBackoffMs: 60_000,
   remindAfterMs: 15 * 60_000,
   escalateAfterMs: 60 * 60_000,
+  supervisorChatIds: [],
 };
 
 export interface PushResult {
@@ -170,6 +176,7 @@ export class SerialQueue {
         'ESCALATED',
         `草稿 ${draft.id} 超过 ${Math.round(this.config.escalateAfterMs / 60000)} 分钟未处理，已升级`,
       );
+      this.notifySupervisors(advisor, draft);
       return;
     }
 
@@ -203,6 +210,22 @@ export class SerialQueue {
     };
     this.store.emitAlert(alert);
     this.onAlert?.(alert);
+  }
+
+  /**
+   * #39：升级时把通知 1:1 推给配置的主管。
+   * 只带群名与客户名，不带消息正文；推送失败只影响通知，不影响队列状态。
+   */
+  private notifySupervisors(advisor: Advisor, draft: Draft): void {
+    const targets = this.config.supervisorChatIds.filter(
+      (chatId) => chatId !== '' && chatId !== advisor.chatId,
+    );
+    if (targets.length === 0) return;
+    const minutes = Math.round(this.config.escalateAfterMs / 60_000);
+    const text = `升级：${advisor.name} 的草稿超过 ${minutes} 分钟未处理（${draft.groupName} · ${draft.customerName}）`;
+    for (const chatId of targets) {
+      void this.bot.sendText(chatId, text).catch(() => undefined);
+    }
   }
 
   private audit(

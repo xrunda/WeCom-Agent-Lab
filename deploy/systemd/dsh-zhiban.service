@@ -1,0 +1,35 @@
+# #52 生产/demo DSH Host。按实际 profile、端口与安装路径调整。
+# 凭据只放在 /etc/zhiban/*.env（0600），不写进 unit 或仓库。
+[Unit]
+Description=Zhiban Health Agent DSH Host
+Documentation=file:/opt/zhiban/app/docs/P1-deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zhiban
+Group=zhiban
+Environment=HOME=/var/lib/zhiban
+Environment=DSH_HOME=/var/lib/zhiban/dsh-demo
+Environment=ZHIBAN_ENV=demo
+EnvironmentFile=-/etc/zhiban/dsh.env
+EnvironmentFile=-/etc/zhiban/demo.env
+# `command -v dsh` 的实际路径（#28 服务器上为 /usr/bin/dsh）
+ExecStart=/usr/bin/dsh --profile zhiban-demo --no-open --host 127.0.0.1 --port 3080
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+LimitNOFILE=65536
+
+# 最小权限；/var/lib/zhiban 之外只读
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/zhiban
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
