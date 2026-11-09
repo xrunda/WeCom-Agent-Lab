@@ -44,6 +44,7 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       icon: <HeartOutlined />,
     },
     {
+      key: 'service',
       name: '服务中心',
       icon: <CustomerServiceOutlined />,
       children: [
@@ -53,6 +54,7 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       ],
     },
     {
+      key: 'operations',
       name: '客户运营',
       icon: <ShopOutlined />,
       children: [
@@ -61,6 +63,7 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       ],
     },
     {
+      key: 'team',
       name: '团队',
       icon: <IdcardOutlined />,
       children: [
@@ -69,6 +72,7 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       ],
     },
     {
+      key: 'intelligence',
       name: '智能配置',
       icon: <RobotOutlined />,
       children: [
@@ -93,6 +97,7 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       icon: <DeploymentUnitOutlined />,
     },
     {
+      key: 'settings',
       name: '系统设置',
       icon: <SettingOutlined />,
       children: [
