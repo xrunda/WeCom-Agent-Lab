@@ -255,7 +255,11 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         bot,
         archive,
         clock,
-        config: { initialSeq: maxDraftSeq(store.listDrafts()) },
+        config: {
+          initialSeq: maxDraftSeq(store.listDrafts()),
+          // #39：60 分钟升级时 1:1 推送给配置的主管
+          queue: { supervisorChatIds: config.supervisorChatIds },
+        },
         onAlert: (alert) => {
           ctx.emit('alert.created', alert);
           log(`告警 ${alert.kind}${alert.draftId ? ` draft=${alert.draftId}` : ''}`);

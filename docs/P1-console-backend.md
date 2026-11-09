@@ -11,7 +11,7 @@
 | Issue | 已实现 |
 |---|---|
 | #41 | 账号密码登录、HttpOnly Cookie 会话（7 天）、登录限流、角色 `admin / supervisor / viewer / platform`、逐接口鉴权、`/zhiban/api` 前缀注册、租户读取/修改（保存即生效）、SSE 事件转发、审计查询与 CSV 导出、账号管理、平台账号对租户接口一律 404 |
-| #39 | `alert.created` 入库（九种告警）、列表/未解决计数/详情、备注后解决、释放串行队列、恢复被暂停顾问、全操作审计、60 分钟超时升级（升级发生在 C2 串行队列，本包只消费 `ESCALATED` 事件） |
+| #39 | `alert.created` 入库（九种告警）、列表/未解决计数/详情、备注后解决、释放串行队列、恢复被暂停顾问、全操作审计、60 分钟超时升级（C2 串行队列产生 `ESCALATED` 并按配置 1:1 推送主管，控制台消费并展示） |
 | #40 | 每账号一个沙盒患者与会话、真 Agent/插件回合、四种动作（verified / edit_sent / misroute / unverified）、草稿不进入 C2、SSE 逐步推送、每账号每天 100 轮、重置、图片上传与读取 |
 
 未包含（由其他工作包负责）：患者/群/知识库/看板等其余 P1 接口、前端页面、企微真实通道的联调。
@@ -84,6 +84,7 @@ src/p1/
 - `allowedOrigins` 为空时只接受与 `Host` 同源、或无 `Origin` 的请求（curl / 服务端调用）。
 - 沙盒图片默认写到工作目录 `.zhiban-console-media/`（已加入 `.gitignore`），生产建议显式配置 `mediaRootDir` 到持久盘。
 - 沙盒每日上限以租户时区的自然日计算；`PATCH /tenant` 修改 `timezone` 后立即切换。
+- `zhiban-wecom` 插件配置另有可选项 `supervisorChatIds: ["<主管企微 userid>"]`，用于 60 分钟升级时 1:1 推送；不配置则只产生告警。
 
 ## 4. 关键链路的实现口径
 
@@ -118,7 +119,8 @@ src/p1/
 - 正文不进入日志；入库时防御性截断到 200 字，审计只记录备注长度。
 - `resolve` 备注必填（≤ 200 字），处理后不可重复；`release-queue` / `restore-advisor` 需要 `advisor.operate`。
 - 队列释放与顾问恢复经 `zhibanWecomAdmin`：未安装企微插件返回 `502 UPSTREAM_UNAVAILABLE`，`NO_ACTIVE_DRAFT` 等映射为 `409` / `404`。
-- 60 分钟升级阈值仍由 C2 串行队列配置；控制台只展示与处理 `ESCALATED`。
+- 60 分钟升级阈值仍由 C2 串行队列配置；到点后 C2 产生 `ESCALATED` 告警，并按 `zhiban-wecom` 配置的 `supervisorChatIds`（企微 userid，可多个）1:1 推送主管，推送文案只含群名与客户名、不含正文。控制台只展示与处理 `ESCALATED`。
+- `supervisorChatIds` 为空时只产生告警、不推送；主管需先与机器人建立 1:1 会话（`chatId` 可用 userid），否则企微侧发送会失败，但不影响队列状态。
 
 ### 4.5 沙盒
 
@@ -159,6 +161,7 @@ npm test
 | 路由前缀、401/403/404/405、错误体、Origin、幂等缓存 | `tests/console-http.test.ts` | ✅ |
 | 租户字段校验、`modelName` 只读、设置合并 | `tests/console-tenant.test.ts` | ✅ |
 | 告警入库/去重/列表/计数/解决/释放/恢复/错误映射 | `tests/console-alerts.test.ts` | ✅ |
+| 60 分钟升级按配置 1:1 推送主管、去重、不带正文 | `tests/queue.test.ts`、`tests/wecom-plugin-config.test.ts` | ✅ |
 | C2 释放队列推下一条、恢复顾问、`RELEASED` 终态 | `tests/console-admin-ops.test.ts` | ✅ |
 | 沙盒会话/配额/四动作/重置/记忆/图片 | `tests/sandbox.test.ts` | ✅ |
 | 沙盒回合走真运行时、草稿进 sink、不计统计、设置即时生效 | `tests/sandbox-runtime.test.ts` | ✅ |
@@ -180,7 +183,7 @@ npm test
 | R5 | 沙盒四种动作 | 依次点「照发 / 改写后发 / 发到别的群 / 只点已发送」 | 结果分别为 `verified / edit_sent / misroute / unverified`；重复点击返回 409；无正式草稿进入 C2 |
 | R6 | 每日 100 轮 | 用测试账号连续发起至第 101 轮（或把 `sandbox.dailyLimit` 临时调小） | 第 101 次返回 `429 LIMIT_EXCEEDED`；次日按租户时区自动恢复 |
 | R7 | 队列释放 / 恢复顾问 | 造一条阻塞的 `PUSHED` 草稿与一条暂停顾问告警，分别调用 `release-queue`、`restore-advisor` | 原草稿变 `RELEASED`，下一条被推送；顾问恢复 `active` 且连续错群计数清零；审计有记录 |
-| R8 | 告警升级 | 让草稿超过 C2 配置的升级阈值 | 60 分钟（或测试配置）后产生升级告警，控制台可见并可备注解决 |
+| R8 | 告警升级 | 配置 `supervisorChatIds`，让草稿超过 C2 配置的升级阈值 | 60 分钟（或测试配置）后主管企微收到 1:1 升级消息（不含正文）；控制台出现升级告警，可备注解决 |
 | R9 | 账号与权限 | 用 `viewer` 登录，逐个点击写操作 | 后端返回 403；只读接口正常；平台账号看不到租户与告警数据 |
 | R10 | 媒体持久化 | 上传 JPG/PNG，重启 DSH 后再次读取 | 文件仍在 `mediaRootDir`；`GET /media/:id` 正常；非本账号无法读取他人沙盒图片 |
 | R11 | 数据重启恢复 | 登录、处理告警、创建沙盒会话后重启 DSH | 账号/会话（未过期）/告警/审计/沙盒配额仍在；`dailyLimit` 剩余数不重置 |
