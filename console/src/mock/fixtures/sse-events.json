@@ -1,0 +1,139 @@
+[
+  {
+    "id": "evt_01",
+    "type": "draft.created",
+    "at": 1794186760000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1001",
+      "patientId": "pat_01",
+      "groupId": "grp_01",
+      "advisorId": "adv_01",
+      "source": "inbound",
+      "riskLevel": "low",
+      "status": "QUEUED"
+    }
+  },
+  {
+    "id": "evt_02",
+    "type": "draft.pushed",
+    "at": 1794186780000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1001",
+      "advisorId": "adv_01",
+      "status": "PUSHED",
+      "cardTaskId": "task_1001"
+    }
+  },
+  {
+    "id": "evt_03",
+    "type": "draft.acked",
+    "at": 1794186960000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1001",
+      "advisorId": "adv_01",
+      "ackAction": "sent"
+    }
+  },
+  {
+    "id": "evt_04",
+    "type": "draft.verified",
+    "at": 1794187140000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1001",
+      "outcome": "verified",
+      "matchedGroupName": "糖友-张女士",
+      "similarity": 1.0
+    }
+  },
+  {
+    "id": "evt_05",
+    "type": "memory.created",
+    "at": 1794187170000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "memoryId": "mem_01",
+      "patientId": "pat_01",
+      "category": "dietary_taboo",
+      "subject": "self"
+    }
+  },
+  {
+    "id": "evt_06",
+    "type": "draft.verified",
+    "at": 1794197820000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1007",
+      "outcome": "misroute",
+      "matchedGroupName": "作息-周先生",
+      "similarity": 0.99
+    }
+  },
+  {
+    "id": "evt_07",
+    "type": "draft.created",
+    "at": 1794205200000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1009",
+      "patientId": "pat_01",
+      "groupId": "grp_01",
+      "advisorId": "adv_01",
+      "source": "proactive",
+      "riskLevel": "high",
+      "status": "QUEUED"
+    }
+  },
+  {
+    "id": "evt_08",
+    "type": "draft.revised",
+    "at": 1794205440000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "draftId": "draft_1009",
+      "version": 2,
+      "instruction": "亲切一点，称呼张姐"
+    }
+  },
+  {
+    "id": "evt_09",
+    "type": "alert.created",
+    "at": 1794205560000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "id": "alt_05",
+      "kind": "escalate",
+      "severity": "critical",
+      "status": "open",
+      "title": "升级给主管",
+      "draftId": "draft_1009",
+      "advisorId": "adv_01"
+    }
+  },
+  {
+    "id": "evt_10",
+    "type": "system.status",
+    "at": 1794207600000,
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "sandbox": false,
+    "data": {
+      "archive": "green",
+      "bot": "green",
+      "host": "green",
+      "seat": "green"
+    }
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "acc_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "username": "admin",
+    "displayName": "林主管",
+    "role": "admin",
+    "status": "active",
+    "lastLoginAt": 1794185700000,
+    "createdAt": 1788228300000,
+    "updatedAt": 1794185700000,
+    "deletedAt": null
+  },
+  {
+    "id": "acc_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "username": "supervisor",
+    "displayName": "周组长",
+    "role": "supervisor",
+    "status": "active",
+    "lastLoginAt": 1794186600000,
+    "createdAt": 1788310800000,
+    "updatedAt": 1794186600000,
+    "deletedAt": null
+  },
+  {
+    "id": "acc_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "username": "viewer",
+    "displayName": "陈审计",
+    "role": "viewer",
+    "status": "active",
+    "lastLoginAt": 1794128400000,
+    "createdAt": 1791612000000,
+    "updatedAt": 1794128400000,
+    "deletedAt": null
+  }
+]

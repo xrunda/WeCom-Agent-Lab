@@ -1,0 +1,98 @@
+[
+  {
+    "id": "knw_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "饮食建议",
+    "title": "晚餐建议在 19 点前完成",
+    "content": "晚餐尽量安排在 19 点前，给睡前留出 3 小时以上的消化时间。",
+    "enabled": true,
+    "hits": 12,
+    "createdAt": 1790816400000,
+    "updatedAt": 1790816400000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "饮食建议",
+    "title": "控糖人群优先选择低升糖主食",
+    "content": "糙米、燕麦、杂粮饭可以替代部分白米白面，注意控制总量。",
+    "enabled": true,
+    "hits": 9,
+    "createdAt": 1790817000000,
+    "updatedAt": 1790817000000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "饮食建议",
+    "title": "海鲜过敏者注意复合调味料",
+    "content": "蚝油、虾酱、部分火锅底料含海鲜成分，点餐时要主动询问。",
+    "enabled": true,
+    "hits": 4,
+    "createdAt": 1790906400000,
+    "updatedAt": 1790906400000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "作息管理",
+    "title": "固定起床时间比固定入睡时间更容易坚持",
+    "content": "先固定每天起床时间，入睡时间会逐步稳定。",
+    "enabled": true,
+    "hits": 6,
+    "createdAt": 1790989200000,
+    "updatedAt": 1790989200000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "作息管理",
+    "title": "睡前 1 小时减少屏幕使用",
+    "content": "睡前减少强光刺激，有助于入睡。",
+    "enabled": true,
+    "hits": 5,
+    "createdAt": 1790989800000,
+    "updatedAt": 1790989800000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "运动建议",
+    "title": "餐后 30 分钟散步 15–20 分钟",
+    "content": "餐后适度散步有助于餐后血糖管理，量力而行。",
+    "enabled": true,
+    "hits": 3,
+    "createdAt": 1791075600000,
+    "updatedAt": 1791075600000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_07",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "情绪支持",
+    "title": "先回应情绪，再给建议",
+    "content": "面对焦虑或疲惫的表达，先共情，再给出一两个可执行的小建议。",
+    "enabled": true,
+    "hits": 2,
+    "createdAt": 1791162000000,
+    "updatedAt": 1791162000000,
+    "deletedAt": null
+  },
+  {
+    "id": "knw_08",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "category": "用药安全",
+    "title": "不主动建议调整任何药物剂量",
+    "content": "涉及药物的问题，一律建议咨询医生，不给出停药、减药、换药建议。",
+    "enabled": true,
+    "hits": 1,
+    "createdAt": 1791162600000,
+    "updatedAt": 1791162600000,
+    "deletedAt": null
+  }
+]

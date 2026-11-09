@@ -1,0 +1,122 @@
+[
+  {
+    "id": "act_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "draftId": "draft_1001",
+    "tool": "reply_draft",
+    "summary": "生成第 1 版草稿并推送",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1794186760000,
+    "sandbox": false
+  },
+  {
+    "id": "act_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "draftId": null,
+    "tool": "memory_write",
+    "summary": "新增饮食禁忌：对海鲜过敏",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1789521600000,
+    "sandbox": false
+  },
+  {
+    "id": "act_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_01",
+    "draftId": null,
+    "tool": "memory_write",
+    "summary": "新增健康目标：控糖",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1789610400000,
+    "sandbox": false
+  },
+  {
+    "id": "act_04",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "draftId": "draft_1002",
+    "tool": "reply_draft",
+    "summary": "生成第 1 版草稿并推送",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1794188430000,
+    "sandbox": false
+  },
+  {
+    "id": "act_05",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_02",
+    "draftId": null,
+    "tool": "memory_write",
+    "summary": "新增作息：经常凌晨 1 点后入睡",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1790346600000,
+    "sandbox": false
+  },
+  {
+    "id": "act_06",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_04",
+    "draftId": "pln_03",
+    "tool": "schedule_create",
+    "summary": "创建计划：三天后回访睡眠情况",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1794205200000,
+    "sandbox": false
+  },
+  {
+    "id": "act_07",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_03",
+    "draftId": "draft_1007",
+    "tool": "reply_skip",
+    "summary": "图片消息暂不支持自动草稿",
+    "result": "skipped",
+    "errorCode": null,
+    "createdAt": 1794197340000,
+    "sandbox": false
+  },
+  {
+    "id": "act_08",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_05",
+    "draftId": "draft_1011",
+    "tool": "escalate_to_human",
+    "summary": "涉及急症信号，升级人工",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1794210030000,
+    "sandbox": false
+  },
+  {
+    "id": "act_09",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_06",
+    "draftId": "meal_03",
+    "tool": "meal_log_write",
+    "summary": "记录晚餐：小米粥、鸡蛋羹",
+    "result": "success",
+    "errorCode": null,
+    "createdAt": 1794048060000,
+    "sandbox": false
+  },
+  {
+    "id": "act_10",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "patientId": "pat_06",
+    "draftId": "draft_1014",
+    "tool": "reply_draft",
+    "summary": "模型超时，回退模板草稿",
+    "result": "failed",
+    "errorCode": "MODEL_TIMEOUT",
+    "createdAt": 1794184220000,
+    "sandbox": false
+  }
+]

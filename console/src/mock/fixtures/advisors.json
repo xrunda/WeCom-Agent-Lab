@@ -1,0 +1,47 @@
+[
+  {
+    "id": "adv_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "wecomUserId": "li.guwen",
+    "name": "李顾问",
+    "status": "active",
+    "seatExpireAt": 1825603200000,
+    "chatBound": true,
+    "online": true,
+    "queueDepth": 2,
+    "consecutiveMisroutes": 0,
+    "pausedAt": null,
+    "createdAt": 1788228600000,
+    "updatedAt": 1794210000000
+  },
+  {
+    "id": "adv_02",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "wecomUserId": "wang.guwen",
+    "name": "王顾问",
+    "status": "active",
+    "seatExpireAt": 1825603200000,
+    "chatBound": true,
+    "online": true,
+    "queueDepth": 0,
+    "consecutiveMisroutes": 0,
+    "pausedAt": null,
+    "createdAt": 1788228720000,
+    "updatedAt": 1794207600000
+  },
+  {
+    "id": "adv_03",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "wecomUserId": "zhao.guwen",
+    "name": "赵顾问",
+    "status": "paused",
+    "seatExpireAt": 1825603200000,
+    "chatBound": true,
+    "online": false,
+    "queueDepth": 0,
+    "consecutiveMisroutes": 2,
+    "pausedAt": 1794201000000,
+    "createdAt": 1789434000000,
+    "updatedAt": 1794201000000
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "obr_01",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "contactName": "赵经理",
+    "contactPhone": "138****0000",
+    "contactTitle": "运营负责人",
+    "expectedAdvisors": 5,
+    "expectedPatients": 200,
+    "note": "希望下月上线，先接入两个服务群试点。",
+    "consentToContact": true,
+    "status": "submitted",
+    "createdBy": "acc_01",
+    "createdAt": 1794193200000,
+    "handledBy": null,
+    "handledAt": null
+  }
+]

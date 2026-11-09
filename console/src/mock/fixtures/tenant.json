@@ -1,0 +1,24 @@
+{
+  "id": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+  "name": "安康健康管理中心",
+  "agentName": "小安",
+  "agentAvatar": null,
+  "patientTerm": "患者",
+  "tone": "亲切、专业、简洁，先回应情绪再给建议，单条不超过 150 字",
+  "timezone": "Asia/Shanghai",
+  "settings": {
+    "archiveSeatPriceYuan": 900,
+    "writeMinutesPerDraft": 3,
+    "mergeWindowSeconds": 30,
+    "quietHours": {
+      "start": "21:00",
+      "end": "08:00"
+    },
+    "proactivePerHour": 6,
+    "modelName": "deepseek-v4.1-flash",
+    "memoryInjectLimit": 30,
+    "retentionNotice": "按合同约定；当前演示环境不自动删除"
+  },
+  "createdAt": 1788228000000,
+  "updatedAt": 1794186000000
+}

@@ -1,0 +1,75 @@
+[
+  {
+    "id": "spk_health_care",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "健康调理服务",
+    "description": "面向健康管理机构的通用服务包：长期记忆、主动关怀、健康红线、知识问答、餐食识别。",
+    "status": "enabled",
+    "skillIds": [
+      "skl_zhiban-wecom",
+      "skl_zhiban-memory",
+      "skl_zhiban-care",
+      "skl_zhiban-guard",
+      "skl_zhiban-knowledge",
+      "skl_meal-vision"
+    ],
+    "knowledgeCount": 8,
+    "ruleCount": 7,
+    "updatedAt": 1794186000000
+  },
+  {
+    "id": "spk_weight_metabolism",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "体重与代谢管理",
+    "description": "即将上线",
+    "status": "coming_soon",
+    "skillIds": [],
+    "knowledgeCount": 0,
+    "ruleCount": 0,
+    "updatedAt": 1794186000000
+  },
+  {
+    "id": "spk_chronic_followup",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "慢病随访",
+    "description": "即将上线",
+    "status": "coming_soon",
+    "skillIds": [],
+    "knowledgeCount": 0,
+    "ruleCount": 0,
+    "updatedAt": 1794186000000
+  },
+  {
+    "id": "spk_postpartum",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "产后修复",
+    "description": "即将上线",
+    "status": "coming_soon",
+    "skillIds": [],
+    "knowledgeCount": 0,
+    "ruleCount": 0,
+    "updatedAt": 1794186000000
+  },
+  {
+    "id": "spk_aesthetic_aftercare",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "医美术后护理",
+    "description": "即将上线",
+    "status": "coming_soon",
+    "skillIds": [],
+    "knowledgeCount": 0,
+    "ruleCount": 0,
+    "updatedAt": 1794186000000
+  },
+  {
+    "id": "spk_tcm",
+    "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
+    "name": "中医调理",
+    "description": "即将上线",
+    "status": "coming_soon",
+    "skillIds": [],
+    "knowledgeCount": 0,
+    "ruleCount": 0,
+    "updatedAt": 1794186000000
+  }
+]
