@@ -18,6 +18,7 @@ import {
 import type { PatientService } from './patient-service.ts';
 import type { PatientSessionPort, RuntimeStats } from './session-port.ts';
 import type { PatientBridge } from './session-port.ts';
+import type { DraftReviewInput, DraftReviewResult } from './guard.ts';
 import type {
   AgentCapabilities,
   AgentReplyDraftInput,
@@ -107,6 +108,12 @@ export interface SandboxDraftSink {
   enqueueDraft(input: SandboxDraftInput): { draftId: string; version: number };
 }
 
+export interface DraftGuardPort {
+  review(input: DraftReviewInput): DraftReviewResult;
+  /** 草稿入队后回填 draftId（guard 未实现时忽略） */
+  linkDraft?(alertId: string, draftId: string): void;
+}
+
 export interface PatientAgentRuntimeOptions {
   service: PatientService;
   settings: TenantAgentSettings;
@@ -120,6 +127,8 @@ export interface PatientAgentRuntimeOptions {
   now?: () => number;
   schedule?: (fn: () => void, delayMs: number) => unknown;
   cancelSchedule?: (handle: unknown) => void;
+  /** #37：草稿产出后的红线后校验；未安装 zhiban-guard 时为空 */
+  guard?: DraftGuardPort;
   /** #35：长期记忆注入 */
   memory?: PatientMemoryPort;
   /** #35 / #36：已安装的能力，决定系统提示词里出现哪些工具约定 */
@@ -166,6 +175,7 @@ export class PatientAgentRuntime {
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, delayMs: number) => unknown;
   private readonly cancelSchedule: (handle: unknown) => void;
+  private readonly guard?: DraftGuardPort;
   private readonly memory?: PatientMemoryPort;
   private readonly capabilities?: () => AgentCapabilities;
   private readonly maxProactivePerHour: number;
@@ -174,6 +184,8 @@ export class PatientAgentRuntime {
   private readonly activeBySession = new Map<string, ActiveTurn>();
   private readonly activeByPatient = new Map<string, ActiveTurn>();
   private readonly queuedMessages = new Map<string, InboundMessage[]>();
+  /** #37：最近一次入站文本，改稿回合没有新消息时用于急症复核；不落盘、不进日志 */
+  private readonly lastInboundText = new Map<string, string>();
   private readonly groupContext = new Map<string, GroupContextItem[]>();
   /** #36：顾问 → 最近一小时内已入队的主动草稿时间 */
   private readonly proactiveFiredAt = new Map<string, number[]>();
@@ -203,6 +215,7 @@ export class PatientAgentRuntime {
       options.cancelSchedule ??
       ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.turnTimeoutMs = options.turnTimeoutMs ?? 15_000;
+    this.guard = options.guard;
     this.memory = options.memory;
     this.capabilities = options.capabilities;
     this.maxProactivePerHour = options.maxProactivePerHour ?? 6;
@@ -246,11 +259,17 @@ export class PatientAgentRuntime {
     this.activeBySession.clear();
     this.activeByPatient.clear();
     this.queuedMessages.clear();
+    this.lastInboundText.clear();
     this.groupContext.clear();
   }
 
   stats(): RuntimeStats {
     return { ...this.service.store.stats(), ...this.localStats };
+  }
+
+  /** #37：escalate_to_human 用会话 id 反查患者；只覆盖进行中的回合 */
+  patientForSession(sessionId: string): string | undefined {
+    return this.activeBySession.get(sessionId)?.patient.id;
   }
 
   // ---------- 群发现 ----------
@@ -512,6 +531,16 @@ export class PatientAgentRuntime {
     const patient = this.service.store.getPatient(merged.patientId);
     const group = this.service.store.getGroup(merged.groupId);
     if (!patient || !group) return undefined;
+
+    if (merged.messages.length > 0) {
+      this.lastInboundText.set(
+        merged.patientId,
+        merged.messages
+          .map((message) => message.text)
+          .join('\n')
+          .slice(0, 4000),
+      );
+    }
 
     let record;
     try {
@@ -795,15 +824,41 @@ export class PatientAgentRuntime {
     input: AgentReplyDraftInput,
   ): Promise<{ draftId: string; version: number }> {
     const turn = this.requireTurn(sessionId);
+    // #37：草稿产出后先过红线校验再入队；未安装 zhiban-guard 时保持原样
+    const review = this.guard?.review({
+      body: input.body,
+      riskLevel: input.riskLevel,
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      sessionId,
+      source: turn.source,
+      inboundText:
+        turn.messages.length > 0
+          ? turn.messages
+              .map((message) => message.text)
+              .join('\n')
+              .slice(0, 4000)
+          : turn.revision
+            ? this.lastInboundText.get(turn.patient.id)
+            : undefined,
+    });
+    const body = review?.guideOnly && review.referralBody ? review.referralBody : input.body;
+    const riskLevel = review?.riskLevel ?? input.riskLevel;
+    if (review && review.hits.length > 0) {
+      this.log(
+        `草稿命中风险规则 ${review.hits.join(',')} patient=${turn.patient.id} ` +
+          `risk=${riskLevel} guideOnly=${review.guideOnly}`,
+      );
+    }
     if (turn.sandbox) {
       const result = turn.sandbox.enqueueDraft({
         sessionId: turn.sessionId,
         patientId: turn.patient.id,
         groupId: turn.group.id,
         groupName: turn.group.name,
-        body: input.body,
+        body,
         inboundSummary: input.inboundSummary,
-        riskLevel: input.riskLevel,
+        riskLevel,
         fallback: false,
         advisorId: this.settings.advisorId,
         citedMemoryIds: input.citedMemoryIds,
@@ -815,9 +870,9 @@ export class PatientAgentRuntime {
     const revision = turn.revision;
     if (revision) {
       const result = await this.bridge.reviseDraft(revision.draftId, {
-        body: input.body,
+        body,
         inboundSummary: input.inboundSummary,
-        riskLevel: input.riskLevel,
+        riskLevel,
         instruction: revision.instruction,
         citedMemoryIds: input.citedMemoryIds,
         citedKnowledgeIds: input.citedKnowledgeIds,
@@ -834,6 +889,7 @@ export class PatientAgentRuntime {
         version: result.version,
         instruction: revision.instruction,
       });
+      this.afterGuard(review, turn, result.draftId);
       this.log(`改稿完成 ${result.draftId} → 第 ${result.version} 版`);
       return result;
     }
@@ -849,8 +905,8 @@ export class PatientAgentRuntime {
       inboundMessageIds: messageIds(turn.messages),
       mediaIds: mediaPaths(turn.messages),
       inboundSummary: input.inboundSummary,
-      body: input.body,
-      riskLevel: input.riskLevel,
+      body,
+      riskLevel,
       source: turn.source,
       fallback: false,
       citedMemoryIds: input.citedMemoryIds,
@@ -867,9 +923,30 @@ export class PatientAgentRuntime {
       advisorId: group.advisorId ?? this.settings.advisorId,
       source: turn.source,
       fallback: false,
-      riskLevel: input.riskLevel,
+      riskLevel,
     });
+    this.afterGuard(review, turn, result.draftId);
     return result;
+  }
+
+  /** #37：命中规则后通知顾问；只带规则名与等级，不带正文。 */
+  private afterGuard(review: DraftReviewResult | undefined, turn: ActiveTurn, draftId: string): void {
+    if (!review || review.hits.length === 0) return;
+    if (review.alertId) this.guard?.linkDraft?.(review.alertId, draftId);
+    this.emit('draft.guard.hit', {
+      draftId,
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      ruleIds: review.hits,
+      ruleNames: review.hitNames,
+      riskLevel: review.riskLevel,
+      guideOnly: review.guideOnly,
+      escalated: review.escalate,
+    });
+    const suffix = review.guideOnly ? '；正文已改为就医引导' : '';
+    void this.notify(
+      `⚠️ 草稿命中风险规则：${review.hitNames.join('、')}；风险等级 ${review.riskLevel}${suffix}。请重点审核。`,
+    );
   }
 
   async replySkip(sessionId: string, _input: AgentReplySkipInput): Promise<{ skipped: true }> {

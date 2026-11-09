@@ -14,7 +14,13 @@ import { MemoryPatientStore } from '../../src/p1/patient-store.ts';
 import { PatientService } from '../../src/p1/patient-service.ts';
 import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
 import { PatientAgentRuntime } from '../../src/p1/runtime.ts';
-import type { SandboxDraftSink, SandboxPatientLike, SandboxTurnInput } from '../../src/p1/runtime.ts';
+import type {
+  DraftGuardPort,
+  SandboxDraftSink,
+  SandboxPatientLike,
+  SandboxTurnInput,
+} from '../../src/p1/runtime.ts';
+import type { DraftReviewInput, DraftReviewResult } from '../../src/p1/guard.ts';
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runtime.ts';
 import type {
@@ -78,6 +84,8 @@ export interface PatientRuntimeApi {
     sessionId: string,
   ): { patientId: string; sourceMsgId?: string; defaultSubject: 'self' | 'family' | 'unknown' } | undefined;
   stats(): RuntimeStats;
+  /** #37：给 zhiban-guard 的 escalate_to_human 反查患者 */
+  patientForSession(sessionId: string): string | undefined;
   systemPrompt(): string;
   /** #41：租户人设修改后立即应用到下一轮 */
   applySettings(patch: { agentName?: string; patientTerm?: string; tone?: string }): void;
@@ -162,6 +170,35 @@ export class LazyPatientBridge implements PatientBridge {
   }
 }
 
+/**
+ * 懒加载 zhiban-guard 的草稿门禁（#37）。
+ * guard 未安装时返回「未命中」，草稿按原样入队，不阻塞患者流程。
+ */
+export class LazyDraftGuard implements DraftGuardPort {
+  private readonly resolve: () => DraftGuardPort | undefined;
+
+  constructor(resolve: () => DraftGuardPort | undefined) {
+    this.resolve = resolve;
+  }
+
+  review(input: DraftReviewInput): DraftReviewResult {
+    const guard = this.resolve();
+    if (guard) return guard.review(input);
+    return {
+      riskLevel: input.riskLevel,
+      hits: [],
+      hitNames: [],
+      actions: [],
+      escalate: false,
+      guideOnly: false,
+    };
+  }
+
+  linkDraft(alertId: string, draftId: string): void {
+    this.resolve()?.linkDraft?.(alertId, draftId);
+  }
+}
+
 export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
   const config = parsePatientConfig(rawConfig);
   const log = (line: string): void => ctx.logger?.info?.(`[zhiban-patient] ${line}`);
@@ -213,6 +250,10 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       const bridge = new LazyPatientBridge(
         () => ctx.get<PatientBridge>('zhibanWecom'),
       );
+      // #37：zhiban-guard 未安装时不做红线校验（直通）
+      const guard = new LazyDraftGuard(
+        () => ctx.get<DraftGuardPort>('zhibanGuard'),
+      );
       // #35：zhiban-memory 未安装时返回空，提示词里也不出现记忆工具约定
       const memory = new LazyMemoryPort(() =>
         ctx.get<PatientMemoryPort>('zhibanMemory'),
@@ -226,6 +267,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         service,
         settings: config.settings,
         bridge,
+        guard,
         sessions,
         emit: (type, data) => {
           ctx.emit(type, data);
@@ -276,6 +318,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         patientContextForSession: (sessionId) =>
           runtime!.patientContextForSession(sessionId),
         stats: () => runtime!.stats(),
+        patientForSession: (sessionId) => runtime!.patientForSession(sessionId),
         systemPrompt: () => runtime!.systemPrompt(),
         applySettings: (patch) => {
           runtime!.applySettings(patch);

@@ -5,6 +5,7 @@ import type { PatientSnapshot } from '../src/p1/patient-store.ts';
 import { PatientService } from '../src/p1/patient-service.ts';
 import type { PatientBridge, PatientSessionPort, ReviseAgentDraftInput } from '../src/p1/session-port.ts';
 import { PatientAgentRuntime } from '../src/p1/runtime.ts';
+import type { DraftGuardPort } from '../src/p1/runtime.ts';
 import type {
   AgentCapabilities,
   Patient,
@@ -86,6 +87,7 @@ export interface FakeEnqueue {
   inboundMessageIds: string[];
   mediaIds: string[];
   citedMemoryIds: string[];
+  citedKnowledgeIds: string[];
 }
 
 export class FakeBridge implements PatientBridge {
@@ -171,6 +173,7 @@ export class FakeBridge implements PatientBridge {
 export function setupRuntime(
   options: {
     requireConsentForTurn?: boolean;
+    guard?: DraftGuardPort;
     memory?: PatientMemoryPort;
     capabilities?: () => AgentCapabilities;
     maxProactivePerHour?: number;
@@ -185,6 +188,7 @@ export function setupRuntime(
     service: base.service,
     settings: SETTINGS,
     bridge,
+    guard: options.guard,
     sessions,
     emit: (type, data) => events.push({ type, data }),
     logger: (line) => logs.push(line),
