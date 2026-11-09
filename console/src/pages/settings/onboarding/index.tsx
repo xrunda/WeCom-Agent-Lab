@@ -24,7 +24,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
 import { updateTenant } from '../../../mock/api.ts';
@@ -72,6 +72,7 @@ export default function OnboardingSettingsPage() {
   const [price, setPrice] = useState<number>(900);
   const [savingPrice, setSavingPrice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [submitted, setSubmitted] = useState<OnboardingRequest | null>(null);
   const [form] = Form.useForm<ApplyFormValues>();
 
@@ -107,7 +108,7 @@ export default function OnboardingSettingsPage() {
   }, [monthValue, onlineAgents, advisors]);
 
   const savePrice = async () => {
-    if (!price || price < 1) return;
+    if (!price || price < 1 || price > 100000 || !Number.isInteger(price)) return;
     setSavingPrice(true);
     try {
       await updateTenant({ settings: { archiveSeatPriceYuan: price } });
@@ -121,6 +122,8 @@ export default function OnboardingSettingsPage() {
   };
 
   const submit = async (values: ApplyFormValues) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     const input: OnboardingRequestInput = {
       contactName: values.contactName,
       contactPhone: values.contactPhone,
@@ -138,6 +141,7 @@ export default function OnboardingSettingsPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '提交失败，请稍后重试');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -238,7 +242,8 @@ export default function OnboardingSettingsPage() {
                     min={1}
                     max={1000}
                     value={advisors}
-                    onChange={(next) => setAdvisors(next ?? 1)}
+                    onChange={(next) => setAdvisors(Math.round(next ?? 1))}
+                    precision={0}
                     suffix="人"
                     style={{ width: 180 }}
                   />
@@ -249,7 +254,8 @@ export default function OnboardingSettingsPage() {
                     min={1}
                     max={1000000}
                     value={patients}
-                    onChange={(next) => setPatients(next ?? 1)}
+                    onChange={(next) => setPatients(Math.round(next ?? 1))}
+                    precision={0}
                     suffix="人"
                     style={{ width: 200 }}
                   />
@@ -262,7 +268,8 @@ export default function OnboardingSettingsPage() {
                       max={100000}
                       value={price}
                       disabled={!canConfigurePrice}
-                      onChange={(next) => setPrice(next ?? 1)}
+                      onChange={(next) => setPrice(Math.round(next ?? 1))}
+                      precision={0}
                       suffix="元/人/年"
                       style={{ width: 210 }}
                     />
@@ -342,7 +349,6 @@ export default function OnboardingSettingsPage() {
                   initialValues={{
                     expectedAdvisors: advisors,
                     expectedPatients: patients,
-                    consentToContact: true,
                   }}
                   onFinish={(values) => void submit(values)}
                 >
@@ -372,14 +378,14 @@ export default function OnboardingSettingsPage() {
                       name="expectedAdvisors"
                       rules={[{ required: true, message: '请填写预计顾问人数' }]}
                     >
-                      <InputNumber min={1} max={1000} suffix="人" style={{ width: '100%' }} />
+                      <InputNumber min={1} max={1000} precision={0} suffix="人" style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item
                       label="预计服务人数"
                       name="expectedPatients"
                       rules={[{ required: true, message: '请填写预计服务人数' }]}
                     >
-                      <InputNumber min={1} max={1000000} suffix="人" style={{ width: '100%' }} />
+                      <InputNumber min={1} max={1000000} precision={0} suffix="人" style={{ width: '100%' }} />
                     </Form.Item>
                   </div>
                   <Form.Item label="备注" name="note">

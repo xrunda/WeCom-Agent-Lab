@@ -157,6 +157,13 @@ export async function listOnboardingRequests(
   if (!isMockMode) {
     return apiRequest(`/settings/onboarding/requests${toQuery({ status })}`);
   }
+  const session = await getSession();
+  if (!session) {
+    throw new ApiError('UNAUTHORIZED', '请先登录', 401);
+  }
+  if (session.account.role !== 'admin') {
+    throw new ApiError('FORBIDDEN', '仅管理员可查看开通申请', 403);
+  }
   const items = loadRequests()
     .filter((item) => (status ? item.status === status : true))
     .sort((a, b) => b.createdAt - a.createdAt);

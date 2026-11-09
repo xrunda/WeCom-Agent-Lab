@@ -98,6 +98,25 @@ describe('WP-M 开通正式服务 mock', () => {
     });
   });
 
+  it('未登录或非管理员不能查看开通申请列表', async () => {
+    await expect(listOnboardingRequests()).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      status: 401,
+    });
+
+    await login('viewer', MOCK_PASSWORD);
+    await expect(listOnboardingRequests()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+    });
+
+    await login('supervisor', MOCK_PASSWORD);
+    await expect(listOnboardingRequests()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+    });
+  });
+
   it('缺姓名、未同意联系或人数越界时拒绝提交', async () => {
     await login('admin', MOCK_PASSWORD);
     await expect(

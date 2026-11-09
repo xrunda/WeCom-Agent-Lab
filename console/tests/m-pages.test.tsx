@@ -108,6 +108,9 @@ describe('WP-M 开通正式服务', () => {
     fireEvent.change(screen.getByPlaceholderText('用于我方负责人联系'), {
       target: { value: '13800000000' },
     });
+    const consent = screen.getByRole('checkbox');
+    expect(consent).not.toBeChecked();
+    fireEvent.click(consent);
     fireEvent.click(screen.getByRole('button', { name: /提交申请/ }));
 
     expect(await screen.findByText('申请已提交')).toBeInTheDocument();
@@ -115,6 +118,22 @@ describe('WP-M 开通正式服务', () => {
     expect(items).toHaveLength(1);
     expect(items[0].contactName).toBe('赵经理');
     expect(items[0].expectedAdvisors).toBe(5);
+  });
+
+  it('未勾选联系同意时不能提交', async () => {
+    await renderAt('/settings/onboarding');
+
+    fireEvent.change(await screen.findByPlaceholderText('如：赵经理'), {
+      target: { value: '赵经理' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('用于我方负责人联系'), {
+      target: { value: '13800000000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /提交申请/ }));
+
+    expect(await screen.findByText('需同意我方联系后才能提交')).toBeInTheDocument();
+    const { items } = await listOnboardingRequests();
+    expect(items).toHaveLength(0);
   });
 
   it('只读账号可浏览但不能提交申请', async () => {
