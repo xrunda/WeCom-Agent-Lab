@@ -1,32 +1,19 @@
 import accountsFixture from './fixtures/accounts.json';
 import tenantFixture from './fixtures/tenant.json';
+import { ApiError, apiRequest, isMockMode } from './http.ts';
 import type { Account, PatientTerm, Session, Tenant, TenantSettings } from '../types.ts';
 import { PATIENT_TERMS } from '../types.ts';
 
+export { ApiError, isMockMode } from './http.ts';
+
 const SESSION_KEY = 'zhiban.console.session';
 const TENANT_KEY = 'zhiban.console.tenant';
-const API_BASE = import.meta.env.VITE_API_BASE || '/zhiban/api';
 
 /** mock 模式下的统一演示密码；真实模式不会用到 */
 export const MOCK_PASSWORD = 'zhiban-demo';
 
-/** mock 模式：默认开启；部署时设 VITE_API_MODE=real 切到真实接口 */
-export const isMockMode = import.meta.env.VITE_API_MODE !== 'real';
-
 const accounts = accountsFixture as unknown as Account[];
 const tenantSeed = tenantFixture as unknown as Tenant;
-
-export class ApiError extends Error {
-  readonly code: string;
-  readonly status: number;
-
-  constructor(code: string, message: string, status = 400) {
-    super(message);
-    this.name = 'ApiError';
-    this.code = code;
-    this.status = status;
-  }
-}
 
 const ROLE_PERMISSIONS: Record<Account['role'], string[]> = {
   admin: [
@@ -168,31 +155,7 @@ function mockSession(account: Account): Session {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    ...init,
-    headers,
-  });
-
-  if (response.status === 204) return undefined as T;
-
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: { code?: string; message?: string } }
-    | T
-    | null;
-
-  if (!response.ok) {
-    const error = payload && !Array.isArray(payload) ? (payload as { error?: { code?: string; message?: string } }).error : undefined;
-    throw new ApiError(
-      error?.code || 'INTERNAL',
-      error?.message || `请求失败（HTTP ${response.status}）`,
-      response.status,
-    );
-  }
-
-  return payload as T;
+  return apiRequest<T>(path, init);
 }
 
 export async function login(username: string, password: string): Promise<Session> {
