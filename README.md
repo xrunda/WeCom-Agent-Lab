@@ -1,8 +1,11 @@
-# WeCom-Agent-Lab
+# 知伴健康 Agent（WeCom-Agent-Lab）
 
-企业微信**平台能力与权限边界**验证（技术 PoC）。当前只执行 **M1**，不涉及七通业务、健康数据、自建模型或业务后端。
+**一人一 Agent，长期记得你。** 面向健康管理机构的私域服务平台：每位患者一个专属健康 Agent，长期记忆、主动关怀；顾问把关后发出，系统通过企业微信会话存档核验确实送达。底座为 DSH 插件。
 
-- 需求文档：[PRD.md](./PRD.md)（v0.5）
+> 当前阶段：**P1 演示版**开发中（GitHub 里程碑 P1-M0～M3）。下文的 M1 结论作为平台约束保留。
+
+- **产品需求：[PRD.md](./PRD.md)（v1.0，知伴健康 Agent）** · P1 范围：[docs/P1-scope.md](./docs/P1-scope.md)
+- M1 需求（已归档）：[docs/archive/PRD-M1-v0.5.md](./docs/archive/PRD-M1-v0.5.md)
 - 能力矩阵：[docs/M1-capability-matrix.md](./docs/M1-capability-matrix.md)
 - 测试计划：[docs/M1-test-plan.md](./docs/M1-test-plan.md)
 - 测试报告：[docs/M1-test-report.md](./docs/M1-test-report.md)
@@ -13,7 +16,7 @@
 - **C2 平台验证记录**：[docs/C2-0-verification-log.md](./docs/C2-0-verification-log.md)
 - **业务侧产品设计交接**（给接手的产品 Agent 读）：[docs/HANDOFF-C2-business-product.md](./docs/HANDOFF-C2-business-product.md)
 
-## M1 要回答的唯一问题
+## 历史：M1 要回答的唯一问题
 
 > 在一个真实的**外部客户群**里，能否同时存在外部联系人、内部员工和**可交互的 AI 机器人**，并由系统以官方方式读取消息、在**同一个群**发送消息？
 

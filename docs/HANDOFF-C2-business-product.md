@@ -3,7 +3,7 @@
 > 读者：接手**业务侧产品能力设计**的 Agent（做产品规划，不写代码）
 > 日期：2026-11-09
 > 仓库：`WeCom-Agent-Lab`，分支 `main`，基线提交 `55ee99d`（未推送远端）
-> 配套文档：[PRD.md](../PRD.md) · [docs/C2-architecture.md](./C2-architecture.md) · [docs/C2-0-verification-log.md](./C2-0-verification-log.md) · [ISSUES.md](../ISSUES.md)
+> 配套文档：[PRD.md](../PRD.md)（v1.0；本文写于 v0.5 时期，M1 版见 [archive](./archive/PRD-M1-v0.5.md)） · [docs/C2-architecture.md](./C2-architecture.md) · [docs/C2-0-verification-log.md](./C2-0-verification-log.md) · [ISSUES.md](../ISSUES.md)
 
 ---
 
