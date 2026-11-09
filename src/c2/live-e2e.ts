@@ -42,6 +42,7 @@ import { WeComArchiveAdapter } from './adapters/wecom-archive.ts';
 import { WeComBotAdapter } from './adapters/wecom-bot.ts';
 import type { InboundEvent, InboundMessage } from './adapters/wecom-bot.ts';
 import { MemoryStore } from './memory.ts';
+import { senderType, tailId } from './redact.ts';
 import { C2Service } from './service.ts';
 import { ArchiveTrigger } from './trigger.ts';
 import type { ComposedDraft, ComposeInput } from './trigger.ts';
@@ -110,6 +111,9 @@ const archive = new WeComArchiveAdapter({
   privateKeyPath: ARCHIVE_KEY,
   configPath: ARCHIVE_CONFIG,
   initialSeq: readInitialSeq(),
+  // 联调脚本只绑定一个已知测试群，视为服务群；
+  // 生产默认为非服务群（正文不落库），真实判定由 #33 注入。
+  isServiceGroup: () => true,
   logger: (line) => log(line),
 });
 
@@ -245,7 +249,7 @@ function ensureAdvisor(userid: string): void {
     name: GROUP_NAME,
     advisorId: userid,
   });
-  log(`已登记顾问 ${userid}，绑定群 roomid=${ROOM_ID} name=${GROUP_NAME}`);
+  log(`已登记顾问 ${tailId(userid)}，绑定群 roomid=${tailId(ROOM_ID)} name=${GROUP_NAME}`);
 }
 
 /** 启动时把 seq 游标追到最新，避免从 0 开始时每轮只前进几百条 */
@@ -290,11 +294,11 @@ async function discoverRoomId(): Promise<string> {
     throw new Error('未配置 ARCHIVE_ROOM_ID，且存档里没有群消息可用来发现群，请手动指定');
   }
   if (ranked.length === 1) {
-    log(`自动发现群 roomid=${ranked[0][0]}`);
+    log(`自动发现群 roomid=${tailId(ranked[0][0])}`);
     return ranked[0][0];
   }
-  log(`存档里有 ${ranked.length} 个群，取最近活跃的：${ranked[0][0]}`);
-  log(`  其他群（要指定就设 ARCHIVE_ROOM_ID）：${ranked.slice(1).map(([id]) => id).join('、')}`);
+  log(`存档里有 ${ranked.length} 个群，取最近活跃的：${tailId(ranked[0][0])}`);
+  log(`  其他群（要指定就设 ARCHIVE_ROOM_ID）：${ranked.slice(1).map(([id]) => tailId(id)).join('、')}`);
   return ranked[0][0];
 }
 
@@ -322,11 +326,11 @@ function correctRoomId(): void {
 
   const matches = rooms.filter((room) => editDistance(room, ROOM_ID) === 1);
   if (matches.length === 1) {
-    log(`roomid 与存档相差 1 个字符，已按存档校正：${ROOM_ID} → ${matches[0]}`);
+    log(`roomid 与存档相差 1 个字符，已按存档校正：${tailId(ROOM_ID)} → ${tailId(matches[0])}`);
     ROOM_ID = matches[0];
     return;
   }
-  log(`roomid 未在存档中找到，存档里的群：${rooms.join('、')}`);
+  log(`roomid 未在存档中找到，存档里的群：${rooms.map((room) => tailId(room)).join('、')}`);
 }
 
 /** 两个 id 的第一个差异位置与码点，用来抓不可见字符/形近字符 */
@@ -359,24 +363,24 @@ function logTargetRoom(): void {
     perRoom.set(key, (perRoom.get(key) ?? 0) + 1);
   }
   log(
-    `存档缓存 ${cached.length} 条：${[...perRoom].map(([k, v]) => `${k}×${v}`).join('，') || '空'}`,
+    `存档缓存 ${cached.length} 条：${[...perRoom].map(([k, v]) => `${tailId(k)}×${v}`).join('，') || '空'}`,
   );
 
   const inRoom = cached.filter((record) => (record.roomid ?? '') === ROOM_ID);
   if (inRoom.length === 0) {
-    log(`目标群 ${ROOM_ID} 在缓存里没有消息`);
+    log(`目标群 ${tailId(ROOM_ID)} 在缓存里没有消息`);
     for (const room of perRoom.keys()) {
       if (room === '(单聊)') continue;
-      log(`  与缓存群 ${room} 对比：${describeDiff(room, ROOM_ID)}`);
+      log(`  与缓存群 ${tailId(room)} 对比：${describeDiff(room, ROOM_ID)}`);
     }
-    log(`  参数原文：${JSON.stringify(ROOM_ID)}`);
+    log(`  参数长度：${ROOM_ID.length}`);
     return;
   }
   log(`目标群消息 ${inRoom.length} 条，最近 5 条：`);
   for (const record of inRoom.slice(-5)) {
     log(
-      `  action=${record.action ?? '-'} from=${record.from ?? '-'} msgtype=${record.msgtype} ` +
-        `msgtime=${record.msgtime} msgid=${record.msgid}`,
+      `  action=${record.action ?? '-'} sender=${senderType(record.from, record.action)} ` +
+        `msgtype=${record.msgtype} msgtime=${record.msgtime} msgid=${tailId(record.msgid)}`,
     );
   }
 }
@@ -392,7 +396,7 @@ async function resolveAdvisor(): Promise<string> {
     if (existsSync(ADVISOR_FILE)) {
       const saved = readFileSync(ADVISOR_FILE, 'utf8').trim();
       if (saved) {
-        log(`使用上次记录的顾问 userid=${saved}`);
+        log(`使用上次记录的顾问 userid=${tailId(saved)}`);
         return saved;
       }
     }
@@ -413,14 +417,14 @@ async function resolveAdvisor(): Promise<string> {
 
   if (senders.size === 1) {
     const [userid] = senders;
-    log(`从存档推断顾问 userid=${userid}`);
+    log(`从存档推断顾问 userid=${tailId(userid)}`);
     return rememberAdvisor(userid);
   }
   logTargetRoom();
   throw new Error(
     senders.size === 0
       ? '无法从存档推断顾问：该群没有 action=send 的消息，请设置 ADVISOR_USERID'
-      : `存档里出现多个发送者（${[...senders].join('、')}），请设置 ADVISOR_USERID`,
+      : `存档里出现多个发送者（${[...senders].map((id) => tailId(id)).join('、')}），请设置 ADVISOR_USERID`,
   );
 }
 
@@ -438,7 +442,7 @@ function rememberAdvisor(userid: string): string {
  * 不再需要员工私聊机器人；这里只记录，不生成草稿。
  */
 async function handleMessage(message: InboundMessage): Promise<void> {
-  log(`收到私聊消息 userid=${message.userid} chattype=${message.chattype}（忽略：草稿由存档触发）`);
+  log(`收到私聊消息 userid=${tailId(message.userid)} chattype=${message.chattype}（忽略：草稿由存档触发）`);
 }
 
 /** 简易规则：把客户原话回显成一条测试回复。真实场景应替换为规则引擎/生成。 */
@@ -479,7 +483,7 @@ async function adoptRoomIdFromArchive(): Promise<void> {
   if (matches.length !== 1) return;
 
   const next = matches[0];
-  log(`roomid 与存档相差 1 个字符，按存档校正：${ROOM_ID} → ${next}`);
+  log(`roomid 与存档相差 1 个字符，按存档校正：${tailId(ROOM_ID)} → ${tailId(next)}`);
   ROOM_ID = next;
   triggerConfig.roomIds = [ROOM_ID];
 
@@ -492,7 +496,7 @@ async function adoptRoomIdFromArchive(): Promise<void> {
   GROUP_NAME_SOURCE = resolveGroupNameSource();
 
   service.bindGroup({ roomId: ROOM_ID, name: GROUP_NAME, advisorId });
-  log(`已重新绑定群 roomid=${ROOM_ID}（群名「${GROUP_NAME}」）`);
+  log(`已重新绑定群 roomid=${tailId(ROOM_ID)}（群名「${GROUP_NAME}」）`);
 }
 
 /**
@@ -538,7 +542,7 @@ async function triggerLoop(): Promise<void> {
           ruleIds: ['archive-trigger'],
           riskLevel: event.draft.riskLevel,
         });
-        log(`草稿 ${draft.id} 已入队 ← 客户 ${event.message.from}`);
+        log(`草稿 ${draft.id} 已入队 ← sender=${senderType(event.message.from, event.message.action)}`);
       } catch (error) {
         log('入队失败：', errorMessage(error));
       }
@@ -605,7 +609,7 @@ async function loop(): Promise<void> {
       if (push.pushed) log(`推送 ${push.draftId} 成功`);
     }
     for (const res of result.verified) {
-      log(`校验结果 ${res.outcome}${res.matchedMsgId ? ` msgid=${res.matchedMsgId}` : ''}`);
+      log(`校验结果 ${res.outcome}${res.matchedMsgId ? ` msgid=${tailId(res.matchedMsgId)}` : ''}`);
       const draft = res.draftId ? store.getDraft(res.draftId) : undefined;
       if (draft) await notify(verifyMessage(draft, res));
     }
@@ -733,9 +737,9 @@ await adapter.connect();
 persistSeq();
 
 log('C2 端到端联调已启动');
-log(`顾问 userid：${advisorId}`);
+log(`顾问 userid：${tailId(advisorId)}`);
 log(`存档：${ARCHIVE_BIN}（seq=${archive.getSeq()}）`);
-log(`群 roomid：${ROOM_ID}`);
+log(`群 roomid：${tailId(ROOM_ID)}`);
 log(`触发：每 ${Math.round(TRIGGER_INTERVAL_MS / 1000)} 秒拉一次存档，只处理启动之后的客户消息`);
 log(
   `校验节奏：首次 ${Math.round(VERIFY_DELAY_MS / 1000)} 秒，重试每 ${Math.round(

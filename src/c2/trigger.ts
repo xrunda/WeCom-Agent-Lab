@@ -8,6 +8,7 @@
  * 也不负责推送——这样离线测试可以只测「该不该生成草稿」。
  */
 import type { ArchivePort, Clock, Store } from './ports.ts';
+import { describeMessageMeta } from './redact.ts';
 import type { ArchivedInbound, CustomerGroup, RiskLevel } from './types.ts';
 
 export interface ComposeInput {
@@ -97,18 +98,18 @@ export class ArchiveTrigger {
 
       const group = this.store.getGroup(message.roomid);
       if (!group || group.status !== 'mapped') {
-        this.log(`跳过 ${message.msgid}：群 ${message.roomid} 未绑定`);
+        this.log(`跳过 ${describeMessageMeta({ ...message, msgtype: 'text' })}：群未绑定`);
         continue;
       }
 
       const draft = this.compose({ group, message });
       if (!draft) {
-        this.log(`跳过 ${message.msgid}：原文为空，compose 返回空`);
+        this.log(`跳过 ${describeMessageMeta({ ...message, msgtype: 'text' })}：原文为空，compose 返回空`);
         continue;
       }
 
       events.push({ group, message, draft });
-      this.log(`命中客户消息 ${message.msgid} ← ${message.from}（群 ${group.name}）`);
+      this.log(`命中客户消息 ${describeMessageMeta({ ...message, msgtype: 'text' })}`);
     }
 
     this.trimSeen();
