@@ -46,8 +46,8 @@
 
 .value-strip-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .value-item {
@@ -75,6 +75,82 @@
 
 .value-item-label {
   color: rgba(236, 254, 255, 0.7);
+  font-size: 12px;
+}
+
+.value-item-main {
+  min-width: 0;
+}
+
+.value-item-value-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.value-item-config {
+  color: rgba(236, 254, 255, 0.6) !important;
+  padding-inline: 2px !important;
+}
+
+.value-item-config:hover {
+  color: #fff !important;
+}
+
+.value-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(204, 251, 241, 0.22);
+  color: rgba(236, 254, 255, 0.72);
+  font-size: 12px;
+}
+
+.value-breakdown strong {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.value-breakdown-sep {
+  color: rgba(204, 251, 241, 0.35);
+}
+
+.value-minutes-editor {
+  width: 220px;
+}
+
+.value-minutes-hint {
+  margin: 8px 0 0;
+  color: var(--zb-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 开通引导卡片 */
+.value-onboarding-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid #ccfbf1;
+  border-radius: var(--zb-radius);
+  background: linear-gradient(90deg, #f0fdfa 0%, #ffffff 70%);
+}
+
+.value-onboarding-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.value-onboarding-hint {
+  color: var(--zb-muted);
   font-size: 12px;
 }
 
@@ -252,7 +328,7 @@
 
 @media (max-width: 1180px) {
   .value-strip-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .kpi-grid {

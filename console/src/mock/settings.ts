@@ -66,7 +66,7 @@ async function actor(): Promise<{ id: string | null; name: string }> {
   };
 }
 
-async function recordAudit(input: {
+export async function recordAudit(input: {
   action: string;
   targetType: string;
   targetId: string | null;

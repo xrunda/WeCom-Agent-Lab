@@ -1,0 +1,190 @@
+.onboarding-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 16px;
+  align-items: start;
+}
+
+.onboarding-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.onboarding-aside {
+  position: sticky;
+  top: 84px;
+}
+
+.onboarding-card-hint {
+  margin: 4px 0 12px !important;
+  font-size: 12px;
+}
+
+/* 前置条件 */
+.onboarding-prereqs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-prereq {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--zb-line);
+  border-radius: 12px;
+  background: #fbfdfc;
+}
+
+.onboarding-prereq-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #0f766e;
+  font-size: 16px;
+}
+
+.onboarding-prereq-main {
+  min-width: 0;
+}
+
+.onboarding-prereq-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-prereq-head .ant-tag {
+  margin-inline-end: 0;
+  font-size: 11px;
+}
+
+.onboarding-materials {
+  margin-top: 6px;
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.onboarding-materials .ant-tag {
+  margin-inline-end: 4px;
+  font-size: 11px;
+}
+
+/* 计算器 */
+.onboarding-calc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.onboarding-calc-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.onboarding-calc-results {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.onboarding-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f0fdfa 0%, #ffffff 100%);
+  border: 1px solid #ccfbf1;
+}
+
+.onboarding-result-label {
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.onboarding-result-value {
+  color: #0f766e;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboarding-result-text {
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.onboarding-result-time {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.onboarding-result-hint {
+  color: var(--zb-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* 申请 */
+.onboarding-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.onboarding-success {
+  padding: 12px 4px;
+  text-align: center;
+}
+
+.onboarding-success-icon {
+  color: #0f766e;
+  font-size: 38px;
+}
+
+.onboarding-side-notes {
+  font-size: 12px;
+}
+
+.onboarding-side-notes .anticon {
+  margin-right: 4px;
+}
+
+@media (max-width: 1180px) {
+  .onboarding-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .onboarding-aside {
+    position: static;
+  }
+
+  .onboarding-calc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .onboarding-prereqs,
+  .onboarding-calc-results,
+  .onboarding-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

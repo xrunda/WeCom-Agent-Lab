@@ -5,8 +5,6 @@ import {
   ClockCircleOutlined,
   DatabaseOutlined,
   FileTextOutlined,
-  HeartOutlined,
-  RiseOutlined,
   RobotOutlined,
   TeamOutlined,
   ThunderboltOutlined,
@@ -19,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { EChart } from '../../components/EChart.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
+import { ValueBar } from './ValueBar.tsx';
 import { useTerm } from '../../auth/AuthContext.tsx';
 import {
   getDashboardKpis,
@@ -32,11 +31,11 @@ import type {
   DashboardRecentItem,
   DashboardValue,
 } from '../../types.ts';
-import { formatMinutes, formatPercent, formatRelative } from '../../utils/format.ts';
+import { formatPercent, formatRelative } from '../../utils/format.ts';
 import '../wp-l.css';
 import './dashboard.css';
 
-const { Paragraph, Text, Title } = Typography;
+const { Paragraph, Text } = Typography;
 
 const RANGE_LABELS: Record<DashboardRange, string> = {
   today: '今日',
@@ -174,49 +173,12 @@ export default function DashboardPage() {
       }}
     >
       <div className="dashboard-stack">
-        <section className="value-strip">
-          <div className="value-strip-head">
-            <div>
-              <Text className="value-strip-eyebrow">价值速览 · {rangeLabel}</Text>
-              <Title level={4} className="value-strip-title">
-                每一条草稿，都在为顾问省时间
-              </Title>
-            </div>
-            <Text className="value-strip-formula" title={value.adoption.rateFormula}>
-              采纳率 = {value.adoption.rateFormula}
-            </Text>
-          </div>
-          <div className="value-strip-grid">
-            <div className="value-item">
-              <RiseOutlined />
-              <div>
-                <div className="value-item-value">{formatPercent(value.adoption.rate)}</div>
-                <div className="value-item-label">草稿采纳率</div>
-              </div>
-            </div>
-            <div className="value-item">
-              <ClockCircleOutlined />
-              <div>
-                <div className="value-item-value">{formatMinutes(value.savedMinutes)}</div>
-                <div className="value-item-label">节省写作时间</div>
-              </div>
-            </div>
-            <div className="value-item">
-              <HeartOutlined />
-              <div>
-                <div className="value-item-value">{value.proactiveCareCount}</div>
-                <div className="value-item-label">{rangeLabel}主动关怀</div>
-              </div>
-            </div>
-            <div className="value-item">
-              <CheckCircleOutlined />
-              <div>
-                <div className="value-item-value">{formatPercent(value.verificationPassRate)}</div>
-                <div className="value-item-label">核验通过率</div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <ValueBar
+          value={value}
+          rangeLabel={rangeLabel}
+          onRefresh={() => void load(range)}
+          onOpenOnboarding={() => navigate('/settings/onboarding')}
+        />
 
         <div className="kpi-grid">
           <div className="zb-kpi-card">
