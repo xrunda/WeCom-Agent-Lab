@@ -1,0 +1,330 @@
+:root {
+  --zb-primary: #0f766e;
+  --zb-primary-deep: #115e59;
+  --zb-ink: #0f172a;
+  --zb-muted: #64748b;
+  --zb-line: #e2e8f0;
+  --zb-bg: #f6f8fb;
+  --zb-surface: #ffffff;
+  --zb-radius: 16px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--zb-bg);
+  color: var(--zb-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--zb-bg);
+}
+
+/* ---------- 品牌 ---------- */
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 17px;
+  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.28);
+}
+
+.brand-mark-large {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 28px;
+}
+
+.brand-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-title-main {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--zb-ink);
+}
+
+.brand-title-sub {
+  font-size: 11px;
+  color: var(--zb-muted);
+}
+
+.sider-tenant {
+  margin: 8px 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--zb-line);
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sider-tenant-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sider-tenant-agent {
+  font-size: 11px;
+  color: var(--zb-muted);
+}
+
+.menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.menu-soon-tag {
+  margin-inline-end: 0;
+  font-size: 10px;
+  line-height: 16px;
+  padding-inline: 5px;
+}
+
+.mode-tag {
+  margin-inline-end: 0;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.term-control {
+  padding: 2px 10px 2px 8px;
+  border: 1px solid var(--zb-line);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--zb-muted);
+}
+
+.term-control-label {
+  font-size: 12px;
+}
+
+.avatar-trigger {
+  cursor: pointer;
+}
+
+.console-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.placeholder-card {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--zb-radius);
+}
+
+.sample-data-tag {
+  font-weight: 600;
+}
+
+/* ---------- 登录页 ---------- */
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
+  background:
+    radial-gradient(circle at 8% 4%, rgba(20, 184, 166, 0.14), transparent 34%),
+    radial-gradient(circle at 88% 92%, rgba(15, 118, 110, 0.12), transparent 38%),
+    #f7fafc;
+}
+
+.login-brand {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px clamp(32px, 6vw, 96px);
+  overflow: hidden;
+  background:
+    linear-gradient(150deg, #0b3b3a 0%, #0f766e 52%, #14b8a6 100%);
+  color: #ecfeff;
+}
+
+.login-brand::after {
+  content: '';
+  position: absolute;
+  inset: auto -12% -28% 18%;
+  height: 60%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  filter: blur(4px);
+}
+
+.login-brand-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 520px;
+}
+
+.login-title {
+  color: #fff !important;
+  margin: 24px 0 14px !important;
+  font-size: clamp(34px, 3.4vw, 48px) !important;
+  letter-spacing: -0.02em;
+}
+
+.login-subtitle {
+  color: rgba(236, 254, 255, 0.86) !important;
+  font-size: 18px;
+  line-height: 1.75;
+  margin-bottom: 40px !important;
+}
+
+.login-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 48px;
+  display: grid;
+  gap: 18px;
+}
+
+.login-features li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.login-features li .anticon {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  font-size: 18px;
+  color: #99f6e4;
+}
+
+.login-brand-footnote {
+  color: rgba(236, 254, 255, 0.62) !important;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.login-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px clamp(24px, 5vw, 80px);
+}
+
+.login-card {
+  width: min(100%, 420px);
+  padding: 10px 8px 4px;
+  border-radius: 22px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.1);
+}
+
+.login-card-head {
+  margin-bottom: 22px;
+}
+
+.login-demo-hint,
+.login-error {
+  margin-bottom: 18px;
+}
+
+.login-demo-hint .ant-tag {
+  margin-inline-end: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.login-card .ant-form-item {
+  margin-bottom: 18px;
+}
+
+.login-card-foot {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ---------- C 档介绍页 ---------- */
+.coming-soon .ant-result {
+  padding: 28px 16px 8px;
+}
+
+.coming-soon-card {
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: left;
+  border-radius: var(--zb-radius);
+  background: #fff;
+}
+
+.coming-soon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--zb-primary-deep);
+  background: #ccfbf1;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1024px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-brand {
+    padding: 40px 28px 48px;
+    align-items: flex-start;
+  }
+
+  .login-features {
+    margin-bottom: 28px;
+  }
+
+  .login-panel {
+    padding: 32px 20px 48px;
+  }
+}
+
+@media (max-width: 640px) {
+  .console-footer {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .term-control-label {
+    display: none;
+  }
+}
