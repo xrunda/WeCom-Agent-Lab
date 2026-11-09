@@ -310,6 +310,10 @@ export interface SandboxDraft {
   status: SandboxDraftStatus;
   riskLevel: 'low' | 'medium' | 'high';
   inboundSummary: string;
+  /** #64：模板降级，评测报告据此判定回合失败 */
+  fallback?: boolean;
+  /** #55：本轮图片类型 */
+  mediaKinds?: string[];
   createdAt: number;
   updatedAt: number;
   sandbox: true;

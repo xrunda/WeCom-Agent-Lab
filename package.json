@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.ts",
+    "eval:drafts": "node eval/drafts/run.ts",
     "demo": "node src/c2/cli.ts",
     "bot:test": "node experiments/minimal/aibot-push.mjs",
     "bot:live": "node src/c2/bot-live.ts",

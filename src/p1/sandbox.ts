@@ -65,6 +65,8 @@ export interface SandboxSinkDraftInput {
   inboundSummary: string;
   riskLevel: 'low' | 'medium' | 'high';
   fallback: boolean;
+  /** #55 / #64：图片类型，沙盒状态与评测报告使用 */
+  mediaKinds?: string[];
   advisorId?: string;
   citedMemoryIds?: string[];
   citedKnowledgeIds?: string[];
@@ -336,6 +338,10 @@ export class SandboxService implements SandboxSinkPort {
       status: 'PUSHED',
       riskLevel: input.riskLevel,
       inboundSummary: input.inboundSummary,
+      ...(input.fallback ? { fallback: true } : {}),
+      ...(input.mediaKinds && input.mediaKinds.length > 0
+        ? { mediaKinds: [...input.mediaKinds] }
+        : {}),
       createdAt: at,
       updatedAt: at,
       sandbox: true,

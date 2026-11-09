@@ -117,6 +117,8 @@ export interface SandboxDraftInput {
   inboundSummary: string;
   riskLevel: 'low' | 'medium' | 'high';
   fallback: boolean;
+  /** #55 / #64：图片类型，控制台沙盒展示与评测使用 */
+  mediaKinds?: string[];
   advisorId?: string;
   citedMemoryIds?: string[];
   citedKnowledgeIds?: string[];
@@ -913,6 +915,7 @@ export class PatientAgentRuntime {
           inboundSummary: summarizeMessages(merged.messages) || '（无文字内容）',
           riskLevel: hasImages ? 'medium' : 'low',
           fallback: true,
+          mediaKinds: hasImages ? ['image'] : [],
           advisorId: this.settings.advisorId,
           citedMemoryIds: [],
           citedKnowledgeIds: [],
@@ -972,6 +975,7 @@ export class PatientAgentRuntime {
         inboundSummary: input.inboundSummary,
         riskLevel,
         fallback: false,
+        mediaKinds: this.draftMediaKinds(turn),
         advisorId: this.settings.advisorId,
         citedMemoryIds: input.citedMemoryIds,
         citedKnowledgeIds: input.citedKnowledgeIds,
