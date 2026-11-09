@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { MOCK_PASSWORD, login, resetMockState, updateTenant } from '../src/mock/api.ts';
+import { MOCK_PASSWORD, getTenant, login, resetMockState, updateTenant } from '../src/mock/api.ts';
 import { getDashboardValue } from '../src/mock/dashboard.ts';
+import {
+  MOCK_EXPORT_NOTICE,
+  exportDraftEvidencePdf,
+  exportPatientRecordsPdf,
+} from '../src/mock/exports.ts';
+import { listPatients } from '../src/mock/patients.ts';
+import { getSecurityOverview } from '../src/mock/security.ts';
 import {
   getOnboardingInfo,
   listOnboardingRequests,
@@ -134,5 +141,51 @@ describe('WP-M 开通正式服务 mock', () => {
 
     const list = await listOnboardingRequests();
     expect(list.items).toHaveLength(0);
+  });
+});
+
+describe('#59 数据与安全 mock', () => {
+  it('部署口径、留存说明与患者同意统计来自当前 mock 状态', async () => {
+    const [overview, tenant, patients] = await Promise.all([
+      getSecurityOverview(),
+      getTenant(),
+      listPatients({ pageSize: 1000 }),
+    ]);
+
+    expect(overview.deployment.dataRegion).toBe('中国大陆境内');
+    expect(overview.deployment.modelRegion).toBe('中国大陆境内');
+    expect(overview.deployment.modelService).toContain(tenant.settings.modelName);
+    expect(overview.deployment.transport).toContain('HTTP');
+    expect(overview.retention.notice).toBe(tenant.settings.retentionNotice);
+    expect(overview.retention.autoDelete).toBe(false);
+
+    expect(overview.consent?.total).toBe(patients.items.length);
+    const counted =
+      (overview.consent?.agreed ?? 0) +
+      (overview.consent?.unknown ?? 0) +
+      (overview.consent?.disagreed ?? 0);
+    expect(counted).toBe(overview.consent?.total);
+    expect(overview.pdf.fontConfigured).toBe(false);
+  });
+
+  it('角色矩阵与账号页一致：只读角色没有导出权限', async () => {
+    const overview = await getSecurityOverview();
+    const viewer = overview.access.roles.find((role) => role.role === 'viewer');
+    expect(viewer).toBeDefined();
+    expect(viewer!.permissions).not.toContain('draft.export');
+    expect(viewer!.permissions).not.toContain('export');
+    const admin = overview.access.roles.find((role) => role.role === 'admin');
+    expect(admin!.permissions).toContain('*');
+  });
+
+  it('演示模式不生成 PDF，明确报 MOCK_ONLY 而不是伪造下载', async () => {
+    await expect(exportDraftEvidencePdf('draft_1')).rejects.toMatchObject({
+      code: 'MOCK_ONLY',
+      message: MOCK_EXPORT_NOTICE,
+      status: 501,
+    });
+    await expect(
+      exportPatientRecordsPdf('pat_1', { from: 1, to: 2 }),
+    ).rejects.toMatchObject({ code: 'MOCK_ONLY', status: 501 });
   });
 });

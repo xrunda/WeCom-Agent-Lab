@@ -78,6 +78,15 @@ export interface PatientRuntimeApi {
   sandboxTurn(input: SandboxTurnInput): Promise<void>;
   sandboxInjectContext(sessionId: string, text: string): Promise<void>;
   getPatient(id: string): { id: string; displayName: string } | undefined;
+  /** #59：按患者导出服务记录时，取患者与其绑定的服务群 */
+  getPatientGroups(id: string):
+    | {
+        patient: { id: string; displayName: string };
+        groups: Array<{ id: string; name: string; roomId: string }>;
+      }
+    | undefined;
+  /** #59：数据与安全页的患者存档同意状态统计 */
+  consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
 }
 
 /**
@@ -252,6 +261,25 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         getPatient: (id) => {
           const patient = store?.getPatient(id);
           return patient ? { id: patient.id, displayName: patient.displayName } : undefined;
+        },
+        getPatientGroups: (id) => {
+          const patient = store?.getPatient(id);
+          if (!patient || patient.deletedAt !== undefined) return undefined;
+          const groups = service
+            .groupIdsFor(id)
+            .map((groupId) => store?.getGroup(groupId))
+            .filter((group): group is NonNullable<typeof group> => group !== undefined)
+            .map((group) => ({ id: group.id, name: group.name, roomId: group.roomId }));
+          return { patient: { id: patient.id, displayName: patient.displayName }, groups };
+        },
+        consentStats: () => {
+          const stats = { agreed: 0, unknown: 0, disagreed: 0, total: 0 };
+          for (const patient of store?.listPatients() ?? []) {
+            if (patient.deletedAt !== undefined) continue;
+            stats.total += 1;
+            stats[patient.consent] += 1;
+          }
+          return stats;
         },
       };
       ctx.provide('zhibanPatient', api);

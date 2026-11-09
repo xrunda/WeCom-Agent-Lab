@@ -38,6 +38,17 @@ export interface ConsoleConfig {
     mediaRootDir: string;
     dailyLimit: number;
   };
+  /** 部署事实，用于「数据与安全」页；不填时按境内部署的默认口径展示 */
+  deployment: {
+    region: string;
+    modelRegion: string;
+    modelService: string;
+  };
+  /** 服务端 PDF 字体；不填时按环境变量与常见系统字体查找 */
+  pdf: {
+    fontPath?: string;
+    fontFamily?: string;
+  };
 }
 
 const DEFAULT_TONE = '亲切、专业、简洁，不超过 150 字';
@@ -109,6 +120,8 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
     throw new Error('allowedOrigins 必须是字符串数组');
   }
   const sandboxRaw = object.sandbox === undefined ? {} : asObject(object.sandbox);
+  const deploymentRaw = object.deployment === undefined ? {} : asObject(object.deployment);
+  const pdfRaw = object.pdf === undefined ? {} : asObject(object.pdf);
   const sessionTtlRaw = object.sessionTtlMs;
   if (sessionTtlRaw !== undefined && (typeof sessionTtlRaw !== 'number' || sessionTtlRaw <= 0)) {
     throw new Error('sessionTtlMs 必须是正数');
@@ -145,6 +158,15 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
         typeof sandboxRaw.dailyLimit === 'number' && sandboxRaw.dailyLimit > 0
           ? Math.floor(sandboxRaw.dailyLimit)
           : 100,
+    },
+    deployment: {
+      region: optionalString(deploymentRaw.region, '中国大陆境内'),
+      modelRegion: optionalString(deploymentRaw.modelRegion, '中国大陆境内'),
+      modelService: optionalString(deploymentRaw.modelService, 'DeepSeek（境内）'),
+    },
+    pdf: {
+      fontPath: optionalString(pdfRaw.fontPath, '') || undefined,
+      fontFamily: optionalString(pdfRaw.fontFamily, '') || undefined,
     },
   };
 }

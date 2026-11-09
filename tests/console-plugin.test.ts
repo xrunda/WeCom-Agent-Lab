@@ -1,13 +1,16 @@
 /**
- * #41 / #39 / #40 插件装配单测：用假 DSH 上下文验证路由端到端。
+ * #41 / #39 / #40 / #59 插件装配单测：用假 DSH 上下文验证路由端到端。
  *
- * 不启动真实宿主、不连接企微；存储用内存领域表，患者 Agent 用假实现。
+ * 不启动真实宿主、不连接企微；存储用内存领域表，患者 Agent 与企微只读入口用假实现。
+ * PDF 断言依赖部署机上的中文字体：没有字体时只验证 502 降级，不伪造成功。
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
+import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
+import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
 
 const ADMIN_PASSWORD = 'AdminPass123';
 const PLATFORM_PASSWORD = 'PlatformPass123';
@@ -138,6 +141,14 @@ interface PatientApi {
   sandboxTurn(input: unknown): Promise<void>;
   sandboxInjectContext(sessionId: string, text: string): Promise<void>;
   getPatient(id: string): { id: string; displayName: string } | undefined;
+  /** #59：数据安全页 / 服务记录导出 */
+  consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
+  getPatientGroups?(id: string):
+    | {
+        patient: { id: string; displayName: string };
+        groups: Array<{ id: string; name: string; roomId: string }>;
+      }
+    | undefined;
 }
 
 class FakeConsoleContext {
@@ -557,4 +568,200 @@ test('未知路径 404、错误方法 405；卸载时释放路由', async () => 
   assert.equal(wrongMethod.status, 405);
 
   await ctx.cleanup?.();
+});
+
+// ---------- #59 数据与安全 / 证据链导出 ----------
+
+function draftSource(overrides: Partial<EvidenceDraftSource> = {}): EvidenceDraftSource {
+  return {
+    id: 'draft_1',
+    advisorId: 'adv_1',
+    advisorName: '陈顾问',
+    groupRoomId: 'room_1',
+    groupName: '康养服务群',
+    customerName: '张女士',
+    inboundSummary: '客户询问晚餐怎么吃',
+    inboundMessageIds: ['m_in_1'],
+    mediaIds: [],
+    body: '晚餐清淡一点，避开海鲜。',
+    version: 2,
+    revisions: [
+      { version: 1, body: '晚餐清淡一点。', createdBy: 'agent', createdAt: 1_700_000_000_000 },
+      {
+        version: 2,
+        body: '晚餐清淡一点，避开海鲜。',
+        instruction: '加上忌口提醒',
+        createdBy: 'staff',
+        createdAt: 1_700_000_100_000,
+      },
+    ],
+    status: 'VERIFIED',
+    riskLevel: 'low',
+    sentVersion: 2,
+    verification: {
+      outcome: 'VERIFIED',
+      matchedMsgId: 'm_sent_1',
+      matchedRoomId: 'room_1',
+      similarity: 1,
+      checkedAt: 1_700_000_200_000,
+    },
+    ackAction: 'sent',
+    ackAt: 1_700_000_200_000,
+    createdAt: 1_700_000_000_000,
+    pushedAt: 1_700_000_050_000,
+    citedMemoryIds: [],
+    citedKnowledgeIds: ['kb_1'],
+    inbound: [
+      {
+        msgid: 'm_in_1',
+        from: 'wx_customer',
+        text: '晚上能吃海鲜吗？',
+        msgtime: 1_700_000_000_000,
+      },
+    ],
+    sent: { msgid: 'm_sent_1', text: '晚餐清淡一点，避开海鲜。', msgtime: 1_700_000_200_000 },
+    ...overrides,
+  };
+}
+
+function installEvidencePorts(ctx: FakeConsoleContext): void {
+  ctx.provide('zhibanWecomAdmin', {
+    async getDraftEvidence(draftId: string) {
+      return draftId === 'draft_1' ? draftSource() : undefined;
+    },
+    async listDraftsByRooms() {
+      return [draftSource()];
+    },
+  });
+  ctx.patientApi.consentStats = () => ({ agreed: 2, unknown: 1, disagreed: 0, total: 3 });
+  ctx.patientApi.getPatientGroups = (id) =>
+    id === 'pat_1'
+      ? {
+          patient: { id: 'pat_1', displayName: '张女士' },
+          groups: [{ id: 'grp_1', name: '康养服务群', roomId: 'room_1' }],
+        }
+      : undefined;
+}
+
+test('数据与安全页：部署事实、留存口径、同意统计、角色与导出计数来自实时数据', async () => {
+  const { ctx, call } = await start();
+  installEvidencePorts(ctx);
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const forbidden = await call('GET', '/zhiban/api/settings/security');
+  assert.equal(forbidden.status, 401);
+
+  const res = await call('GET', '/zhiban/api/settings/security', { cookie: admin.cookie });
+  assert.equal(res.status, 200);
+  const body = res.json() as {
+    deployment: {
+      dataRegion: string;
+      modelRegion: string;
+      modelService: string;
+      transport: string;
+      dataStores: string[];
+    };
+    retention: { notice: string; autoDelete: boolean };
+    consent: { agreed: number; unknown: number; disagreed: number; total: number };
+    access: { roles: Array<{ role: string; permissions: string[] }> };
+    audit: { events30d: number; exports30d: number; lastExportAt: number | null };
+    pdf: { fontConfigured: boolean };
+  };
+  assert.equal(body.deployment.dataRegion, '中国大陆境内');
+  assert.equal(body.deployment.modelService, 'DeepSeek（境内）');
+  assert.match(body.deployment.transport, /HTTP/); // 测试配置 cookieSecure:false
+  assert.ok(body.deployment.dataStores.length >= 2);
+  assert.equal(body.retention.notice, '按合同约定；当前演示环境不自动删除');
+  assert.equal(body.retention.autoDelete, false);
+  assert.deepEqual(body.consent, { agreed: 2, unknown: 1, disagreed: 0, total: 3 });
+  assert.deepEqual(
+    body.access.roles.map((role) => role.role),
+    ['admin', 'supervisor', 'viewer'],
+  );
+  assert.equal(body.access.roles.find((role) => role.role === 'viewer')!.permissions.includes('export'), false);
+  assert.equal(body.audit.exports30d, 0);
+  assert.equal(body.pdf.fontConfigured, resolvePdfFont({}) !== undefined);
+
+  // 只读账号可看页面，但不能导出
+  const created = await call('POST', '/zhiban/api/accounts', {
+    cookie: admin.cookie,
+    body: { username: 'viewer.sec', displayName: '只读二号', role: 'viewer', password: 'ViewerPass123' },
+  });
+  assert.equal(created.status, 201);
+  const viewer = await login(call, 'viewer.sec', 'ViewerPass123');
+  const viewerOverview = await call('GET', '/zhiban/api/settings/security', { cookie: viewer.cookie });
+  assert.equal(viewerOverview.status, 200);
+
+  const viewerExport = await call('GET', '/zhiban/api/drafts/draft_1/evidence.pdf', {
+    cookie: viewer.cookie,
+  });
+  assert.equal(viewerExport.status, 403);
+});
+
+test('证据链 PDF：权限、404、字体缺失降级与导出审计', async () => {
+  const { ctx, call } = await start();
+  installEvidencePorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const unauth = await call('GET', '/zhiban/api/drafts/draft_1/evidence.pdf');
+  assert.equal(unauth.status, 401);
+
+  const unknown = await call('GET', '/zhiban/api/drafts/draft_404/evidence.pdf', { cookie });
+  assert.equal(unknown.status, 404);
+  assert.equal((unknown.json() as { error: { code: string } }).error.code, 'NOT_FOUND');
+
+  const font = resolvePdfFont({});
+  const pdf = await call('GET', '/zhiban/api/drafts/draft_1/evidence.pdf', { cookie });
+  if (!font) {
+    assert.equal(pdf.status, 502);
+    assert.equal((pdf.json() as { error: { code: string } }).error.code, 'UPSTREAM_UNAVAILABLE');
+  } else {
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers['content-type'], 'application/pdf');
+    assert.match(String(pdf.headers['content-disposition']), /filename="evidence-draft_1\.pdf"/);
+    assert.match(pdf.body, /^%PDF-1\./);
+  }
+
+  const audit = await call('GET', '/zhiban/api/audit?action=evidence.export', { cookie });
+  assert.equal((audit.json() as { total: number }).total, font ? 1 : 0);
+});
+
+test('证据链 PDF：企微插件未就绪时返回 502，不产生审计', async () => {
+  const { call } = await start();
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const res = await call('GET', '/zhiban/api/drafts/draft_1/evidence.pdf', { cookie });
+  assert.equal(res.status, 502);
+  assert.equal((res.json() as { error: { code: string } }).error.code, 'UPSTREAM_UNAVAILABLE');
+  const audit = await call('GET', '/zhiban/api/audit?action=evidence.export', { cookie });
+  assert.equal((audit.json() as { total: number }).total, 0);
+});
+
+test('患者服务记录 PDF：时间范围校验、404、导出审计与文件名', async () => {
+  const { ctx, call } = await start();
+  installEvidencePorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const unknown = await call('GET', '/zhiban/api/patients/pat_404/records.pdf', { cookie });
+  assert.equal(unknown.status, 404);
+
+  const invalid = await call('GET', '/zhiban/api/patients/pat_1/records.pdf?from=2000&to=1000', {
+    cookie,
+  });
+  assert.equal(invalid.status, 422);
+  assert.equal((invalid.json() as { error: { code: string } }).error.code, 'VALIDATION_FAILED');
+
+  const font = resolvePdfFont({});
+  const pdf = await call('GET', '/zhiban/api/patients/pat_1/records.pdf', { cookie });
+  if (!font) {
+    assert.equal(pdf.status, 502);
+  } else {
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers['content-type'], 'application/pdf');
+    assert.match(String(pdf.headers['content-disposition']), /filename="records-pat_1\.pdf"/);
+    assert.match(pdf.body, /^%PDF-1\./);
+  }
+
+  const audit = await call('GET', '/zhiban/api/audit?action=records.export', { cookie });
+  assert.equal((audit.json() as { total: number }).total, font ? 1 : 0);
 });
