@@ -127,7 +127,7 @@ export interface Speaker {
   isExternal: boolean;
 }
 
-/** 合并窗口结束后交给 Agent 的一批输入 */
+/** 合并窗口结束后交给 Agent 的一批输入；主动计划回合没有 messages */
 export interface MergedInbound {
   /** 进程内批次 id */
   id: string;
@@ -138,9 +138,23 @@ export interface MergedInbound {
   advisorId: string;
   messages: InboundMessage[];
   speaker: Speaker;
-  source: 'inbound';
+  source: 'inbound' | 'proactive';
+  /** #36：主动计划回合的触发原因 */
+  proactive?: { planId: string; title: string };
   mergedAt: number;
   lastMessageAt: number;
+}
+
+/** #35 每轮注入记忆；插件未安装时 available() 为 false */
+export interface PatientMemoryPort {
+  available(): boolean;
+  render(patientId: string): string[];
+}
+
+/** #35 / #36 能力开关，用于系统提示词里的工具约定 */
+export interface AgentCapabilities {
+  memory: boolean;
+  care: boolean;
 }
 
 /** Agent 通过 reply_draft 工具提交的草稿 */

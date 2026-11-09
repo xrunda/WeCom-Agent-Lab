@@ -5,7 +5,13 @@ import type { PatientSnapshot } from '../src/p1/patient-store.ts';
 import { PatientService } from '../src/p1/patient-service.ts';
 import type { PatientBridge, PatientSessionPort, ReviseAgentDraftInput } from '../src/p1/session-port.ts';
 import { PatientAgentRuntime } from '../src/p1/runtime.ts';
-import type { Patient, PatientSessionRecord, TenantAgentSettings } from '../src/p1/types.ts';
+import type {
+  AgentCapabilities,
+  Patient,
+  PatientMemoryPort,
+  PatientSessionRecord,
+  TenantAgentSettings,
+} from '../src/p1/types.ts';
 
 export const TENANT = 'tn_test';
 
@@ -79,6 +85,7 @@ export interface FakeEnqueue {
   inboundSummary: string;
   inboundMessageIds: string[];
   mediaIds: string[];
+  citedMemoryIds: string[];
 }
 
 export class FakeBridge implements PatientBridge {
@@ -161,7 +168,14 @@ export class FakeBridge implements PatientBridge {
   bindGroup(): void {}
 }
 
-export function setupRuntime(options: { requireConsentForTurn?: boolean } = {}) {
+export function setupRuntime(
+  options: {
+    requireConsentForTurn?: boolean;
+    memory?: PatientMemoryPort;
+    capabilities?: () => AgentCapabilities;
+    maxProactivePerHour?: number;
+  } = {},
+) {
   const base = setupPatient(options);
   const sessions = new FakeSessions();
   const bridge = new FakeBridge();
@@ -179,6 +193,9 @@ export function setupRuntime(options: { requireConsentForTurn?: boolean } = {}) 
     now: () => base.clock.now(),
     schedule: () => 1,
     cancelSchedule: () => undefined,
+    memory: options.memory,
+    capabilities: options.capabilities,
+    maxProactivePerHour: options.maxProactivePerHour,
   });
   return { ...base, sessions, bridge, runtime, events, logs };
 }

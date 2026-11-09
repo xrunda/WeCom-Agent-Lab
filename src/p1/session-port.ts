@@ -79,6 +79,10 @@ export interface RuntimeStats extends AgentStats {
   contextMessages: number;
   revisions: number;
   duplicatesSkipped: number;
+  /** #36 */
+  proactiveDrafts: number;
+  proactiveSkipped: number;
+  proactiveDeferred: number;
 }
 
 export type { MergedInbound };

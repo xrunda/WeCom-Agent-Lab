@@ -19,12 +19,14 @@ import type { PatientService } from './patient-service.ts';
 import type { PatientSessionPort, RuntimeStats } from './session-port.ts';
 import type { PatientBridge } from './session-port.ts';
 import type {
+  AgentCapabilities,
   AgentReplyDraftInput,
   AgentReplySkipInput,
   InboundMessage,
   ManagedGroup,
   MergedInbound,
   Patient,
+  PatientMemoryPort,
   RouteDecision,
   Speaker,
   TenantAgentSettings,
@@ -55,6 +57,9 @@ interface ActiveTurn {
   replied: boolean;
   skipped: boolean;
   closed: boolean;
+  /** 本轮产出的草稿 id；改写时为新版本 */
+  draftId?: string;
+  draftVersion?: number;
   revision?: RevisionRequest;
 }
 
@@ -71,7 +76,25 @@ export interface PatientAgentRuntimeOptions {
   now?: () => number;
   schedule?: (fn: () => void, delayMs: number) => unknown;
   cancelSchedule?: (handle: unknown) => void;
+  /** #35：长期记忆注入 */
+  memory?: PatientMemoryPort;
+  /** #35 / #36：已安装的能力，决定系统提示词里出现哪些工具约定 */
+  capabilities?: () => AgentCapabilities;
+  /** #36：同一顾问每小时最多主动草稿数，默认 6 */
+  maxProactivePerHour?: number;
 }
+
+export type ProactiveTurnInput = {
+  patientId: string;
+  planId: string;
+  title: string;
+};
+
+export type ProactiveTurnResult =
+  | { status: 'draft'; draftId: string; version: number }
+  | { status: 'skipped' }
+  | { status: 'deferred'; retryAt: number; reason: 'ACTIVE_TURN' | 'HOURLY_LIMIT' }
+  | { status: 'failed'; reason: string };
 
 const VERIFY_TEXT: Record<VerifyOutcome, string> = {
   VERIFIED: '✅ 已核验：草稿正文已在群里找到',
@@ -96,17 +119,25 @@ export class PatientAgentRuntime {
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, delayMs: number) => unknown;
   private readonly cancelSchedule: (handle: unknown) => void;
+  private readonly memory?: PatientMemoryPort;
+  private readonly capabilities?: () => AgentCapabilities;
+  private readonly maxProactivePerHour: number;
 
   private readonly flushTimers = new Map<string, unknown>();
   private readonly activeBySession = new Map<string, ActiveTurn>();
   private readonly activeByPatient = new Map<string, ActiveTurn>();
   private readonly queuedMessages = new Map<string, InboundMessage[]>();
   private readonly groupContext = new Map<string, GroupContextItem[]>();
+  /** #36：顾问 → 最近一小时内已入队的主动草稿时间 */
+  private readonly proactiveFiredAt = new Map<string, number[]>();
   private readonly localStats = {
     mergedBatches: 0,
     contextMessages: 0,
     revisions: 0,
     duplicatesSkipped: 0,
+    proactiveDrafts: 0,
+    proactiveSkipped: 0,
+    proactiveDeferred: 0,
   };
   private turnSeq = 0;
 
@@ -124,6 +155,9 @@ export class PatientAgentRuntime {
       options.cancelSchedule ??
       ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.turnTimeoutMs = options.turnTimeoutMs ?? 15_000;
+    this.memory = options.memory;
+    this.capabilities = options.capabilities;
+    this.maxProactivePerHour = options.maxProactivePerHour ?? 6;
     this.merger = new InboundMerger({
       windowMs: options.mergeWindowMs ?? 30_000,
       maxWaitMs: options.mergeMaxWaitMs ?? 120_000,
@@ -132,7 +166,10 @@ export class PatientAgentRuntime {
 
   /** 系统提示词由租户设置生成，插件启动时注册到 Agent 预设 */
   systemPrompt(): string {
-    return buildSystemPrompt(this.settings);
+    return buildSystemPrompt(
+      this.settings,
+      this.capabilities?.() ?? { memory: false, care: false },
+    );
   }
 
   /** 插件卸载：取消合并定时器，丢弃未放行的批次 */
@@ -194,6 +231,108 @@ export class PatientAgentRuntime {
       if (messages.length === 0) continue;
       await this.runBatch(messages);
     }
+  }
+
+  // ---------- 主动计划回合（#36） ----------
+
+  /**
+   * 计划到期后由 zhiban-care 调用。
+   * 优先级：患者正在回合中时顺延，不抢资源；同一顾问每小时主动草稿数超限也顺延。
+   */
+  async startProactiveTurn(input: ProactiveTurnInput): Promise<ProactiveTurnResult> {
+    const patient = this.service.store.getPatient(input.patientId);
+    if (!patient) return { status: 'failed', reason: 'PATIENT_NOT_FOUND' };
+    if (patient.status !== 'serving') return { status: 'failed', reason: 'PATIENT_NOT_SERVING' };
+    if (patient.consent === 'disagreed') return { status: 'failed', reason: 'CONSENT_DISAGREED' };
+
+    const bindings = [...this.service.store.listBindingsByPatient(patient.id)].sort(
+      (a, b) => Number(b.isPrimary) - Number(a.isPrimary),
+    );
+    const binding = bindings[0];
+    const group = binding ? this.service.store.getGroup(binding.groupId) : undefined;
+    if (!group) return { status: 'failed', reason: 'GROUP_NOT_FOUND' };
+    if (group.status !== 'serving') return { status: 'failed', reason: 'GROUP_NOT_SERVING' };
+
+    const now = this.now();
+    const advisorId = group.advisorId ?? this.settings.advisorId;
+
+    // 患者提问优先：回合中、排队中，或还有消息在连发合并窗口内，都先让路
+    const inboundPending = bindings.some((item) => {
+      const bound = this.service.store.getGroup(item.groupId);
+      return bound ? this.merger.pending(bound.roomId) > 0 : false;
+    });
+    if (this.activeByPatient.has(patient.id) || this.queuedMessages.has(patient.id) || inboundPending) {
+      this.localStats.proactiveDeferred += 1;
+      return { status: 'deferred', reason: 'ACTIVE_TURN', retryAt: now + 30_000 };
+    }
+
+    const fired = (this.proactiveFiredAt.get(advisorId) ?? []).filter(
+      (at) => at > now - 3_600_000,
+    );
+    this.proactiveFiredAt.set(advisorId, fired);
+    if (fired.length >= this.maxProactivePerHour) {
+      this.localStats.proactiveDeferred += 1;
+      const oldest = fired[0] ?? now;
+      return { status: 'deferred', reason: 'HOURLY_LIMIT', retryAt: oldest + 3_600_000 + 1_000 };
+    }
+
+    const speaker: Speaker = {
+      id: patient.externalUserId ?? patient.id,
+      displayName: patient.displayName,
+      role: 'self',
+      isExternal: true,
+    };
+    const merged: MergedInbound = {
+      id: `proactive_${++this.turnSeq}`,
+      roomId: group.roomId,
+      groupId: group.id,
+      groupName: group.name,
+      patientId: patient.id,
+      advisorId,
+      messages: [],
+      speaker,
+      source: 'proactive',
+      proactive: { planId: input.planId, title: input.title },
+      mergedAt: now,
+      lastMessageAt: now,
+    };
+    this.emit('patient.proactive.started', {
+      patientId: patient.id,
+      groupId: group.id,
+      planId: input.planId,
+    });
+    this.log(`主动计划触发回合 patient=${patient.id} plan=${input.planId}`);
+
+    const turn = await this.executeTurn(merged);
+    if (!turn) return { status: 'failed', reason: 'SESSION_FAILED' };
+    if (turn.skipped) {
+      this.localStats.proactiveSkipped += 1;
+      return { status: 'skipped' };
+    }
+    if (turn.replied && turn.draftId) {
+      this.localStats.proactiveDrafts += 1;
+      const stamps = this.proactiveFiredAt.get(advisorId) ?? [];
+      stamps.push(now);
+      this.proactiveFiredAt.set(advisorId, stamps.filter((at) => at > now - 3_600_000));
+      return { status: 'draft', draftId: turn.draftId, version: turn.draftVersion ?? 1 };
+    }
+    return { status: 'failed', reason: 'NO_DRAFT' };
+  }
+
+  /** #35：记忆工具用会话 id 找患者与当前消息 */
+  patientContextForSession(sessionId: string):
+    | { patientId: string; sourceMsgId?: string; defaultSubject: 'self' | 'family' | 'unknown' }
+    | undefined {
+    const turn = this.activeBySession.get(sessionId);
+    if (!turn) return undefined;
+    const role = turn.speaker.role;
+    const defaultSubject =
+      turn.source === 'proactive' ? 'self' : role === 'self' ? 'self' : role === 'family' ? 'family' : 'unknown';
+    return {
+      patientId: turn.patient.id,
+      sourceMsgId: turn.messages.at(-1)?.msgid,
+      defaultSubject,
+    };
   }
 
   private scheduleFlush(roomId: string): void {
@@ -300,18 +439,29 @@ export class PatientAgentRuntime {
     await this.executeTurn(merged);
   }
 
-  private async executeTurn(merged: MergedInbound, revision?: RevisionRequest): Promise<void> {
+  private async executeTurn(
+    merged: MergedInbound,
+    revision?: RevisionRequest,
+  ): Promise<ActiveTurn | undefined> {
     const patient = this.service.store.getPatient(merged.patientId);
     const group = this.service.store.getGroup(merged.groupId);
-    if (!patient || !group) return;
+    if (!patient || !group) return undefined;
 
     let record;
     try {
       record = await this.sessions.ensure(patient);
     } catch (error) {
       this.log(`患者会话创建失败：${error instanceof Error ? error.message : String(error)}`);
-      await this.fallback(merged, undefined, group);
-      return;
+      if (merged.source === 'proactive') {
+        this.emit('patient.proactive.failed', {
+          patientId: patient.id,
+          planId: merged.proactive?.planId,
+          reason: 'SESSION_FAILED',
+        });
+      } else {
+        await this.fallback(merged, undefined, group);
+      }
+      return undefined;
     }
 
     const turn: ActiveTurn = {
@@ -336,6 +486,8 @@ export class PatientAgentRuntime {
       revisionInstruction: revision?.instruction,
       groupContext: this.groupContext.get(patient.id),
       currentVersion: revision?.currentVersion,
+      proactive: merged.proactive ? { reason: `计划到期：${merged.proactive.title}` } : undefined,
+      memoryLines: this.memory?.available() ? this.memory.render(patient.id) : undefined,
     });
 
     let outcome: 'idle' | 'timeout' | 'error' = 'idle';
@@ -363,6 +515,14 @@ export class PatientAgentRuntime {
           patientId: patient.id,
           reason: outcome,
         });
+      } else if (turn.source === 'proactive') {
+        // 主动计划不套模板：模板正文是「已收到您的消息」，对主动关怀不合适
+        this.log(`主动回合未产出工具调用（${outcome}）patient=${patient.id}`);
+        this.emit('patient.proactive.failed', {
+          patientId: patient.id,
+          planId: merged.proactive?.planId,
+          reason: outcome,
+        });
       } else {
         this.log(`回合未产出工具调用（${outcome}），使用模板草稿 patient=${patient.id}`);
         await this.fallback(merged, turn, group);
@@ -370,6 +530,7 @@ export class PatientAgentRuntime {
     }
 
     await this.drainQueue(patient, group);
+    return turn;
   }
 
   private async drainQueue(patient: Patient, group: ManagedGroup): Promise<void> {
@@ -421,7 +582,11 @@ export class PatientAgentRuntime {
         citedMemoryIds: [],
         citedKnowledgeIds: [],
       });
-      if (turn) turn.replied = true;
+      if (turn) {
+        turn.replied = true;
+        turn.draftId = result.draftId;
+        turn.draftVersion = result.version;
+      }
       this.service.store.bumpStat('fallbacks');
       this.emit('draft.created', {
         draftId: result.draftId,
@@ -456,6 +621,8 @@ export class PatientAgentRuntime {
         citedKnowledgeIds: input.citedKnowledgeIds,
       });
       turn.replied = true;
+      turn.draftId = result.draftId;
+      turn.draftVersion = result.version;
       this.localStats.revisions += 1;
       this.service.store.bumpStat('replies');
       this.emit('draft.revised', {
@@ -488,6 +655,8 @@ export class PatientAgentRuntime {
       citedKnowledgeIds: input.citedKnowledgeIds,
     });
     turn.replied = true;
+    turn.draftId = result.draftId;
+    turn.draftVersion = result.version;
     this.service.store.bumpStat('replies');
     this.emit('draft.created', {
       draftId: result.draftId,
