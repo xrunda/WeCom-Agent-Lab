@@ -1,0 +1,7 @@
+.group-row-pending > td {
+  background: #fffbeb !important;
+}
+
+.group-row-pending:hover > td {
+  background: #fef3c7 !important;
+}
