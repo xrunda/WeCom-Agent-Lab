@@ -26,6 +26,19 @@ export type AckAction = 'sent' | 'skipped';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 
+/** 草稿来源：#34 服务流据此区分「患者提问」与「Agent 主动」 */
+export type DraftSource = 'inbound' | 'proactive';
+
+/** 草稿的一个版本；#56 顾问改稿后追加，body 永远等于最大 version 的正文 */
+export interface DraftRevision {
+  version: number;
+  body: string;
+  /** 顾问改稿指令；v1 为空 */
+  instruction?: string;
+  createdBy: 'agent' | 'staff';
+  createdAt: number;
+}
+
 export type AdvisorStatus = 'active' | 'paused' | 'left';
 
 export type GroupStatus = 'mapped' | 'unassigned' | 'disabled';
@@ -66,6 +79,10 @@ export interface Draft {
   /** 客户这条消息发出（落存档）的时刻，卡片上显示成「客户 · 22:26」 */
   lastInboundAt?: number;
   inboundMessageId: string;
+  /** 合并窗口内的全部消息 id（#63）；v1 时至少一条，proactive 时为空数组 */
+  inboundMessageIds?: string[];
+  /** 本条输入附带的图片路径（#54 / #63） */
+  mediaIds?: string[];
   /** 客户原文摘要，只进卡片，不进正文 */
   inboundSummary: string;
   /** 要发出去的正文 */
@@ -73,6 +90,19 @@ export interface Draft {
   ruleIds: string[];
   riskLevel: RiskLevel;
   status: DraftStatus;
+  /** 当前版本号，从 1 开始（#56） */
+  version?: number;
+  /** 版本历史；body 永远等于最大 version 的正文 */
+  revisions?: DraftRevision[];
+  /** #34：inbound（患者提问）/ proactive（Agent 主动） */
+  source?: DraftSource;
+  /** 模板降级草稿（模型超时 / 报错 / 未调工具） */
+  fallback?: boolean;
+  /** 核验匹配到的实发版本 */
+  sentVersion?: number;
+  /** Agent 声明的引用，供详情页与质检使用 */
+  citedMemoryIds?: string[];
+  citedKnowledgeIds?: string[];
   createdAt: number;
   queuedAt: number;
   nextAttemptAt: number;
@@ -88,6 +118,8 @@ export interface Draft {
   nextVerifyAt?: number;
   verification?: VerificationResult;
   errorCode?: string;
+  /** #56：产生当前版本的改稿指令，卡片上显示「按你的要求：…」 */
+  revisionInstruction?: string;
 }
 
 export type VerifyOutcome =

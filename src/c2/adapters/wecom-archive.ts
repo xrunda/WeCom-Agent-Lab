@@ -290,6 +290,43 @@ export class WeComArchiveAdapter implements ArchivePort {
     return result;
   }
 
+  /**
+   * #63：返回群内全部文字/图片消息（含内部员工），用于「顾问直接回复」的上下文同步。
+   * 与 listInboundMessages 的区别只有不排除发送者、不做 wm 判断。
+   */
+  async listGroupMessages(params: {
+    roomIds: string[];
+    since: number;
+    until: number;
+    includeMedia?: boolean;
+  }): Promise<ArchivedInbound[]> {
+    await this.pull();
+
+    const rooms = new Set(params.roomIds);
+    const result: ArchivedInbound[] = [];
+    for (const record of this.cache) {
+      const roomid = record.roomid ?? '';
+      if (!this.isServiceGroup(roomid) || !rooms.has(roomid)) continue;
+      if (record.msgtype !== 'text' && !(params.includeMedia && record.msgtype === 'image')) continue;
+      if (record.msgtime < params.since || record.msgtime > params.until) continue;
+      const media = record as ArchiveRecord & ArchiveMediaFields;
+      result.push({
+        msgid: record.msgid,
+        roomid,
+        from: record.from,
+        text: record.text?.content ?? '',
+        msgtime: record.msgtime,
+        action: record.action,
+        msgtype: record.msgtype,
+        mediaPath: media.mediaPath,
+        mediaMd5: media.mediaMd5,
+        mediaSize: media.mediaSize,
+        mediaFailed: media.mediaFailed,
+      });
+    }
+    return result;
+  }
+
   /** 缓存里的全部消息，调试用 */
   listCached(): ArchiveRecord[] {
     return [...this.cache];
