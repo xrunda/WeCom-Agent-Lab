@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Zhiban model cost report daily
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+AccuracySec=1min
+Persistent=true
+Unit=zhiban-report.service
+
+[Install]
+WantedBy=timers.target

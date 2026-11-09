@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Zhiban watchdog every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=30s
+Persistent=true
+Unit=zhiban-watchdog.service
+
+[Install]
+WantedBy=timers.target
