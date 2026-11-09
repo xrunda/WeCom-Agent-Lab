@@ -25,7 +25,9 @@ import SettingsOnboardingPage from './pages/settings/onboarding/index.tsx';
 import SettingsSecurityPage from './pages/settings/security/index.tsx';
 import SettingsWecomPage from './pages/settings/wecom/index.tsx';
 import ShiftsPage from './pages/shifts/index.tsx';
+import SkillDetailPage from './pages/skills/skill-detail.tsx';
 import SkillsPage from './pages/skills/index.tsx';
+import SolutionDetailPage from './pages/solutions/solution-detail.tsx';
 import SolutionsPage from './pages/solutions/index.tsx';
 
 function RequireAuth() {
@@ -67,8 +69,10 @@ export default function App() {
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/scripts" element={<ScriptsPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/skills/:skillId" element={<SkillDetailPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/solutions" element={<SolutionsPage />} />
+          <Route path="/solutions/:solutionId" element={<SolutionDetailPage />} />
           <Route path="/settings/agent" element={<SettingsAgentPage />} />
           <Route path="/settings/wecom" element={<SettingsWecomPage />} />
           <Route path="/settings/model" element={<SettingsModelPage />} />
