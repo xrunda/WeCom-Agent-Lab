@@ -244,3 +244,49 @@ export interface AuditFilters {
   page?: number;
   pageSize?: number;
 }
+
+/* ---------- WP-M：价值看板与开通正式服务 ---------- */
+
+export interface OnboardingPrerequisite {
+  id: string;
+  title: string;
+  owner: 'customer' | 'both';
+  days: number;
+  materials: string[];
+}
+
+export interface OnboardingInfo {
+  prerequisites: OnboardingPrerequisite[];
+  timeline: { minWorkdays: number; maxWorkdays: number; summary: string };
+  pricing: { archiveSeatPriceYuan: number; platformFeeText: string; currency: string };
+  entryPoints: string[];
+}
+
+export type OnboardingRequestStatus = 'submitted' | 'contacted' | 'closed';
+
+export interface OnboardingRequest {
+  id: string;
+  tenantId: string;
+  contactName: string;
+  contactPhone: string;
+  contactTitle: string | null;
+  expectedAdvisors: number;
+  expectedPatients: number;
+  note: string | null;
+  consentToContact: boolean;
+  status: OnboardingRequestStatus;
+  createdBy: string;
+  createdAt: number;
+  handledBy: string | null;
+  handledAt: number | null;
+}
+
+export interface OnboardingRequestInput {
+  contactName: string;
+  contactPhone: string;
+  contactTitle?: string;
+  expectedAdvisors: number;
+  expectedPatients: number;
+  note?: string;
+  consentToContact: boolean;
+}
