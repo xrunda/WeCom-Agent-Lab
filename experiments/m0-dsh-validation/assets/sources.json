@@ -1,0 +1,54 @@
+{
+  "purpose": "M0 #28 看图摸底。仅用于内部验证，不包含任何患者或真实用户图片。",
+  "downloadedAt": "2026-11-09",
+  "images": [
+    {
+      "file": "01-ramen.jpg",
+      "subject": "一碗汤面",
+      "source": "https://commons.wikimedia.org/wiki/File:Ramen_Bowl_2.jpg",
+      "download": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Ramen_Bowl_2.jpg/1280px-Ramen_Bowl_2.jpg",
+      "author": "Shisma",
+      "license": "CC BY 4.0"
+    },
+    {
+      "file": "02-caesar-salad.jpg",
+      "subject": "鸡肉凯撒沙拉",
+      "source": "https://commons.wikimedia.org/wiki/File:Caesar-salad.jpg",
+      "download": "https://upload.wikimedia.org/wikipedia/commons/8/85/Caesar-salad.jpg",
+      "author": "Telluride",
+      "license": "CC BY-SA 3.0"
+    },
+    {
+      "file": "03-margherita-pizza.jpg",
+      "subject": "玛格丽特披萨",
+      "source": "https://commons.wikimedia.org/wiki/File:Margherita_pizza_on_plate.jpg",
+      "download": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Margherita_pizza_on_plate.jpg/1280px-Margherita_pizza_on_plate.jpg",
+      "author": "Shisma",
+      "license": "CC BY 4.0"
+    },
+    {
+      "file": "04-sushi-platter.jpg",
+      "subject": "寿司拼盘",
+      "source": "https://commons.wikimedia.org/wiki/File:Sushi_platter.jpg",
+      "download": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Sushi_platter.jpg/1280px-Sushi_platter.jpg",
+      "author": "chidorian",
+      "license": "CC BY-SA 2.0"
+    },
+    {
+      "file": "05-dim-sum.jpg",
+      "subject": "泰国街头蒸点心展示柜",
+      "source": "https://commons.wikimedia.org/wiki/File:Dim_sum_steamer.jpg",
+      "download": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Dim_sum_steamer.jpg/1280px-Dim_sum_steamer.jpg",
+      "author": "Alpha",
+      "license": "CC BY-SA 2.0"
+    },
+    {
+      "file": "06-lab-report-synthetic.png",
+      "subject": "虚构化验单",
+      "source": "本地生成",
+      "author": "zhiban M0 validation",
+      "license": "仅用于本项目测试",
+      "note": "图中的人名、机构、数值均为虚构；抬头和页脚均标注「虚构数据，仅用于识图测试」。"
+    }
+  ]
+}

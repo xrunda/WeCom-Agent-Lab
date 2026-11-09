@@ -1,0 +1,31 @@
+[Unit]
+Description=DSH Web (zhiban profile)
+Documentation=file:///opt/zhiban/repo/docs/P1-M0-dsh-validation.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zhiban
+Group=zhiban
+WorkingDirectory=/var/lib/zhiban
+Environment=HOME=/var/lib/zhiban
+Environment=DSH_HOME=/var/lib/zhiban/dsh
+Environment=NODE_ENV=production
+# DeepSeek API Key 通过部署侧环境文件提供；不要把 Key 写进本文件。
+# 文件权限：root:root 0600，内容由项目负责人手动创建。
+EnvironmentFile=-/etc/zhiban/dsh.env
+ExecStart=/usr/local/bin/dsh --profile zhiban --no-open --host 127.0.0.1 --port 3080
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/zhiban
+
+[Install]
+WantedBy=multi-user.target
