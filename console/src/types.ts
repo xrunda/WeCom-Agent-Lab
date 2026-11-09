@@ -47,3 +47,200 @@ export interface Session {
   permissions: string[];
   serverTime: number;
 }
+
+/* ---------- WP-L：知识 / 规则 / 话术 ---------- */
+
+export interface KnowledgeEntry {
+  id: string;
+  tenantId: string;
+  category: string;
+  title: string;
+  content: string;
+  enabled: boolean;
+  hits: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+}
+
+export type RiskRuleKind = 'redline' | 'keyword';
+export type RiskLevel = 'high' | 'medium' | 'low';
+export type RiskAction = 'flag' | 'escalate';
+
+export interface RiskRule {
+  id: string;
+  tenantId: string;
+  kind: RiskRuleKind;
+  name: string;
+  keywords: string[];
+  riskLevel: RiskLevel;
+  action: RiskAction;
+  enabled: boolean;
+  builtin: boolean;
+  hitCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScriptTemplate {
+  id: string;
+  tenantId: string;
+  category: string;
+  title: string;
+  content: string;
+  tags: string[];
+  enabled: boolean;
+  sample: boolean;
+}
+
+/* ---------- WP-L：技能与方案包 ---------- */
+
+export type SkillStatus = 'enabled' | 'disabled' | 'coming_soon';
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  version: string | null;
+  status: SkillStatus;
+  pluginId: string | null;
+  capabilities: string[];
+  tier: 'A' | 'B' | 'C';
+}
+
+export interface SolutionPack {
+  id: string;
+  tenantId: string;
+  name: string;
+  description: string;
+  status: 'enabled' | 'coming_soon';
+  skillIds: string[];
+  knowledgeCount: number;
+  ruleCount: number;
+  updatedAt: number;
+}
+
+/* ---------- WP-L：工作台 / 报表 ---------- */
+
+export type DashboardRange = 'today' | 'week' | 'month';
+
+export interface DashboardKpis {
+  range: DashboardRange;
+  onlineAgents: number;
+  proactiveToday: number;
+  memoriesToday: number;
+  draftsToday: number;
+  verificationPassRate: number;
+  avgResponseSeconds: number;
+  openAlerts: number;
+  computedAt: number;
+}
+
+export interface DashboardValue {
+  range: DashboardRange;
+  from: number;
+  to: number;
+  adoption: {
+    original: number;
+    revised: number;
+    edited: number;
+    sentTotal: number;
+    rate: number;
+    rateFormula: string;
+  };
+  savedMinutes: number;
+  savedMinutesBasis: string;
+  minutesPerDraft: number;
+  proactiveCareCount: number;
+  verificationPassRate: number;
+  patientsPerAdvisor: number;
+  computedAt: number;
+}
+
+export interface DashboardRecentItem {
+  id: string;
+  patientName: string;
+  advisorName: string;
+  groupName: string;
+  preview: string;
+  outcome: 'verified' | 'edit_sent' | 'misroute' | 'unverified' | 'pending';
+  at: number;
+  sandbox: boolean;
+}
+
+/* ---------- WP-L：设置 / 账号 / 审计 ---------- */
+
+export interface WecomChannelStatus {
+  status: 'green' | 'yellow' | 'red';
+  message: string;
+}
+
+export interface WecomStatus {
+  archive: WecomChannelStatus & {
+    lastPolledAt: number | null;
+    lastSeq: number | null;
+    lagSeconds: number | null;
+  };
+  bot: WecomChannelStatus & {
+    connectedSince: number | null;
+    lastDisconnectAt: number | null;
+  };
+  host: WecomChannelStatus & {
+    uptimeSeconds: number | null;
+    version: string | null;
+  };
+  seat: {
+    purchased: number;
+    expiresAt: number | null;
+    message: string;
+  };
+  checkedAt: number;
+}
+
+export interface ModelStatus {
+  model: string;
+  callsToday: number;
+  avgLatencyMs: number;
+  fallbackCount: number;
+  estimatedCostYuanToday: number;
+  updatedAt: number;
+}
+
+export interface PermissionMatrix {
+  roles: Array<{
+    role: Role;
+    label: string;
+    permissions: string[];
+  }>;
+}
+
+export interface AuditEvent {
+  id: string;
+  tenantId: string;
+  actorType: 'account' | 'system' | 'agent';
+  actorId: string | null;
+  actorName: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  result: 'success' | 'failure';
+  detail: Record<string, unknown> | null;
+  errorCode: string | null;
+  ip: string;
+  at: number;
+  sandbox: boolean;
+}
+
+export interface AuditFilters {
+  actorType?: AuditEvent['actorType'];
+  actorId?: string;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  result?: AuditEvent['result'];
+  from?: number;
+  to?: number;
+  sandbox?: boolean;
+  page?: number;
+  pageSize?: number;
+}

@@ -1,0 +1,220 @@
+/* WP-L 配置与展示页共用样式 */
+.zb-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.zb-page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--zb-ink);
+  letter-spacing: -0.01em;
+}
+
+.zb-page-desc {
+  margin: 6px 0 0;
+  color: var(--zb-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.zb-page-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.zb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.zb-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.zb-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--zb-ink);
+}
+
+.zb-section-hint {
+  color: var(--zb-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.zb-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.zb-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.zb-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.zb-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.zb-kpi-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--zb-line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 16px 18px;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zb-kpi-card::after {
+  content: '';
+  position: absolute;
+  right: -28px;
+  bottom: -34px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.zb-kpi-label {
+  color: var(--zb-muted);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.zb-kpi-value {
+  color: var(--zb-ink);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.zb-kpi-unit {
+  margin-left: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--zb-muted);
+}
+
+.zb-kpi-hint {
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.zb-muted {
+  color: var(--zb-muted);
+}
+
+.zb-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zb-status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.zb-status-dot.green {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+}
+
+.zb-status-dot.yellow {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.zb-status-dot.red {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
+.zb-note {
+  padding: 12px 14px;
+  border: 1px solid #ccfbf1;
+  border-radius: 12px;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.zb-empty-block {
+  padding: 36px 0;
+}
+
+.zb-card {
+  border-radius: var(--zb-radius);
+}
+
+.zb-card .ant-card-head {
+  border-bottom-color: #eef2f7;
+}
+
+/* 分类树 */
+.zb-side-card .ant-tree {
+  background: transparent;
+}
+
+.zb-side-card .ant-tree-node-content-wrapper {
+  border-radius: 8px;
+}
+
+.zb-side-card .ant-tree-title {
+  font-size: 13px;
+}
+
+.zb-tree-count {
+  margin-left: 6px;
+  color: var(--zb-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1100px) {
+  .zb-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zb-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .zb-grid-2,
+  .zb-grid-3,
+  .zb-grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
