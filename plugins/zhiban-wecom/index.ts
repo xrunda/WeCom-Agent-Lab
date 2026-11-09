@@ -125,6 +125,51 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   };
   ctx.provide('zhibanWecom', wecomBridge);
 
+  // #39：控制台的队列释放 / 顾问恢复入口。方法内部懒取 service，
+  // 让控制台插件先加载也不会拿到半初始化的实例。
+  const adminApi = {
+    async releaseQueue(advisorId: string, actor = 'admin') {
+      const result = await requireService().releaseQueue(advisorId, actor);
+      ctx.emit('draft.released', {
+        draftId: result.releasedDraftId,
+        advisorId,
+        nextDraftId: result.nextDraftId,
+      });
+      return result;
+    },
+    restoreAdvisor(advisorId: string, actor = 'admin') {
+      const advisor = requireService().restoreAdvisor(advisorId, actor);
+      ctx.emit('advisor.updated', {
+        id: advisor.id,
+        name: advisor.name,
+        status: advisor.status,
+        consecutiveMisroutes: advisor.consecutiveMisroutes,
+      });
+      return {
+        id: advisor.id,
+        name: advisor.name,
+        status: advisor.status,
+        consecutiveMisroutes: advisor.consecutiveMisroutes,
+      };
+    },
+    getDraft(draftId: string) {
+      const draft = serviceRef?.store.getDraft(draftId);
+      if (!draft) return undefined;
+      return {
+        id: draft.id,
+        summary: draft.inboundSummary,
+        status: draft.status,
+        riskLevel: draft.riskLevel,
+      };
+    },
+    getAdvisor(advisorId: string) {
+      const advisor = serviceRef?.store.getAdvisor(advisorId);
+      if (!advisor) return undefined;
+      return { id: advisor.id, name: advisor.name, status: advisor.status };
+    },
+  };
+  ctx.provide('zhibanWecomAdmin', adminApi);
+
   // 患者域同样懒加载：wecom 可以先启动，患者插件就绪后自动接管
   const patientApi = (): {
     observeRooms: PatientSink['observeRooms'];
