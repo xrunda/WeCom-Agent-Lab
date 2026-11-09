@@ -9,9 +9,13 @@
 // 用法：
 //   ./archive_dump <seq> <limit> <私钥pem路径> [config.txt]
 //   ./archive_dump 0 100 ./private_key.pem config.txt
+//   ./archive_dump media --json <indexbuf> <sdkfileid> [config.txt]
+//   ./archive_dump media --json "" SD KFILEID config.txt
 // 说明：
 //   config.txt 第 1 行 corpid，第 2 行 会话存档 Secret（与 tool_testSdk 一致）
 //   私钥为后台「会话内容存档 → 消息加密公钥」配套的 RSA 私钥，PEM 格式（PKCS#1 / PKCS#8 均可）
+//   media 子命令每次只取一片（≤512K），输出 {"data":"<base64>","isFinish":bool,"nextIndexbuf":"..."}；
+//   indexbuf 传空串取第一片，之后传上一片返回的 nextIndexbuf。
 
 #include <cctype>
 #include <cstdio>
@@ -47,6 +51,32 @@ static std::vector<unsigned char> base64_decode(const std::string &in) {
     if (!s.empty() && s.back() == '=') pad++;
     if (s.size() > 1 && s[s.size() - 2] == '=') pad++;
     out.resize((size_t)n - pad);
+    return out;
+}
+
+static const char *BASE64_CHARS =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string base64_encode(const unsigned char *buf, size_t len) {
+    if (len == 0) return "";
+    std::string out;
+    out.reserve(4 * ((len + 2) / 3));
+    size_t i = 0;
+    for (; i + 2 < len; i += 3) {
+        unsigned int v = (buf[i] << 16) | (buf[i + 1] << 8) | buf[i + 2];
+        out.push_back(BASE64_CHARS[(v >> 18) & 0x3f]);
+        out.push_back(BASE64_CHARS[(v >> 12) & 0x3f]);
+        out.push_back(BASE64_CHARS[(v >> 6) & 0x3f]);
+        out.push_back(BASE64_CHARS[v & 0x3f]);
+    }
+    if (i < len) {
+        unsigned int v = buf[i] << 16;
+        if (i + 1 < len) v |= buf[i + 1] << 8;
+        out.push_back(BASE64_CHARS[(v >> 18) & 0x3f]);
+        out.push_back(BASE64_CHARS[(v >> 12) & 0x3f]);
+        out.push_back(i + 1 < len ? BASE64_CHARS[(v >> 6) & 0x3f] : '=');
+        out.push_back('=');
+    }
     return out;
 }
 
@@ -137,9 +167,11 @@ int main(int argc, char **argv) {
     if (pos.size() < 3) {
         fprintf(stderr,
                 "用法: %s [--json] <seq> <limit> <私钥pem路径> [config.txt]\n"
+                "      %s media --json <indexbuf> <sdkfileid> [config.txt]\n"
                 "例:   %s 0 100 ./private_key.pem config.txt\n"
-                "      %s --json 0 100 ./private_key.pem config.txt\n",
-                argv[0], argv[0], argv[0]);
+                "      %s --json 0 100 ./private_key.pem config.txt\n"
+                "      %s media --json \"\" SD_FILEID config.txt\n",
+                argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -161,6 +193,55 @@ int main(int argc, char **argv) {
     if (corpid.empty() || secret.empty()) {
         fprintf(stderr, "配置不完整：需要第 1 行 corpid、第 2 行 secret\n");
         return 2;
+    }
+
+    // media 子命令：media --json <indexbuf> <sdkfileid> [config.txt]
+    // 每次只拉一片，由调用方（src/c2/media.ts）循环拼接到 isFinish。
+    if (pos[0] == "media") {
+        std::string indexbuf = pos[1];
+        std::string sdkfileid = pos[2];
+
+        WeWorkFinanceSdk_t *mediaSdk =
+            static_cast<WeWorkFinanceSdk_t *>(NewSdk());
+        if (!mediaSdk) {
+            fprintf(stderr, "NewSdk 失败\n");
+            return 3;
+        }
+        if (Init(mediaSdk, corpid.c_str(), secret.c_str()) != 0) {
+            fprintf(stderr, "Init 失败\n");
+            DestroySdk(mediaSdk);
+            return 3;
+        }
+
+        MediaData_t *media = NewMediaData();
+        if (!media) {
+            fprintf(stderr, "NewMediaData 失败\n");
+            DestroySdk(mediaSdk);
+            return 3;
+        }
+        // 注意：官方头文件的参数顺序是 (sdk, indexbuf, sdkfileid, ...)
+        int ret = GetMediaData(mediaSdk, indexbuf.c_str(), sdkfileid.c_str(), "",
+                               "", 5, media);
+        if (ret != 0) {
+            fprintf(stderr, "GetMediaData 失败 ret=%d\n", ret);
+            FreeMediaData(media);
+            DestroySdk(mediaSdk);
+            return 3;
+        }
+
+        int dataLen = GetDataLen(media);
+        char *data = GetData(media);
+        std::string encoded =
+            base64_encode((const unsigned char *)data,
+                          dataLen > 0 ? (size_t)dataLen : 0);
+        char *next = GetOutIndexBuf(media);
+        int finished = IsMediaDataFinish(media);
+        printf("{\"data\":\"%s\",\"isFinish\":%s,\"nextIndexbuf\":\"%s\"}\n",
+               encoded.c_str(), finished ? "true" : "false",
+               next ? next : "");
+        FreeMediaData(media);
+        DestroySdk(mediaSdk);
+        return 0;
     }
 
     FILE *kp = fopen(keyPath.c_str(), "r");

@@ -114,7 +114,7 @@ export interface SentMessage {
   msgtime: number;
 }
 
-/** 存档里的客户侧消息：群聊中、发送者不是员工本人的文字消息 */
+/** 存档里的客户侧消息：群聊中、发送者不是员工本人的消息 */
 export interface ArchivedInbound {
   msgid: string;
   roomid: string;
@@ -123,6 +123,14 @@ export interface ArchivedInbound {
   text: string;
   msgtime: number;
   action?: 'send' | 'recv';
+  /** 存档消息类型；P1 只会为 text / image 生成记录 */
+  msgtype?: string;
+  /** #54：图片落盘后的本地路径；未启用媒体或下载失败时为空 */
+  mediaPath?: string;
+  mediaMd5?: string;
+  mediaSize?: number;
+  /** #54：下载失败（重试后）标记；消息仍保留在服务流中 */
+  mediaFailed?: boolean;
 }
 
 export interface AuditEvent {
@@ -141,7 +149,13 @@ export type AlertKind =
   | 'MISROUTE'
   | 'ADVISOR_PAUSED'
   | 'ESCALATED'
-  | 'UNVERIFIED';
+  | 'UNVERIFIED'
+  /** #32：停机超过阈值，期间消息不生成草稿 */
+  | 'DOWNTIME'
+  /** #65：demo 实例的长连接被服务端关闭（可能被开发实例顶掉） */
+  | 'BOT_DISCONNECTED'
+  /** #32：领域存储写入失败 */
+  | 'PERSIST_FAILED';
 
 export interface Alert {
   kind: AlertKind;

@@ -23,12 +23,14 @@ export interface ArchivePort {
     until: number;
   }): Promise<SentMessage[]>;
 
-  /** 拉取指定群里的客户侧文字消息（发送者不是 excludeSender） */
+  /** 拉取指定群里的客户侧消息（发送者不是 excludeSender） */
   listInboundMessages(params: {
     roomIds: string[];
     excludeSender: string;
     since: number;
     until: number;
+    /** #54：是否包含图片消息；缺省只返回文字 */
+    includeMedia?: boolean;
   }): Promise<ArchivedInbound[]>;
 }
 

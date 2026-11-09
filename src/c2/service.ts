@@ -20,6 +20,8 @@ export interface ServiceConfig {
   verifier?: Partial<VerifierConfig>;
   /** 草稿正文硬上限，超过直接拒绝 */
   maxBodyChars?: number;
+  /** 重启后从已有草稿的最大序号继续，避免 id 冲突 */
+  initialSeq?: number;
 }
 
 const DEFAULT_MAX_BODY_CHARS = 1000;
@@ -77,6 +79,7 @@ export class C2Service {
     this.clock = deps.clock;
     this.config = deps.config ?? {};
     this.maxBodyChars = this.config.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS;
+    this.seq = this.config.initialSeq ?? 0;
 
     this.queue = new SerialQueue({
       store: this.store,

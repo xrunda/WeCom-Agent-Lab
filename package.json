@@ -15,7 +15,9 @@
     "bot:e2e": "node src/c2/live-e2e.ts"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.5",
+    "ws": "^8.18.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -14,6 +14,11 @@ import { execFile } from 'node:child_process';
 import type { ArchivePort } from '../ports.ts';
 import { describeMessageMeta, tailId } from '../redact.ts';
 import type { ArchivedInbound, SentMessage } from '../types.ts';
+import {
+  ArchiveDumpMediaSource,
+  MediaDownloader,
+  type MediaDownloaderConfig,
+} from '../media.ts';
 
 /** 存档解出来的消息（只声明 C2 用到的字段，其余透传） */
 export interface ArchiveRecord {
@@ -28,7 +33,31 @@ export interface ArchiveRecord {
   msgtime: number;
   msgtype: string;
   text?: { content: string };
+  /** 图片消息的媒体元数据（#54） */
+  image?: { sdkfileid?: string; md5?: string; filesize?: number; [key: string]: unknown };
   [key: string]: unknown;
+}
+
+/** 图片落盘后写回缓存记录的字段，供服务流读取 */
+export interface ArchiveMediaFields {
+  mediaPath?: string;
+  mediaMd5?: string;
+  mediaSize?: number;
+  mediaFailed?: boolean;
+}
+
+export interface WeComArchiveMediaConfig {
+  /** 媒体落盘根目录：<root>/<roomid>/<msgid>.<ext> */
+  rootDir: string;
+  /** archive_dump 路径；与 binaryPath 相同 */
+  binaryPath?: string;
+  /** archive_dump 的 corpid/secret 配置文件 */
+  configPath?: string;
+  retries?: number;
+  maxBytes?: number;
+  retryDelayMs?: number;
+  /** 测试注入 */
+  downloader?: MediaDownloader;
 }
 
 export interface WeComArchiveConfig {
@@ -53,6 +82,8 @@ export interface WeComArchiveConfig {
    * 真实判定（外部成员）由 #33 注入。
    */
   isServiceGroup?: (roomId: string) => boolean;
+  /** #54：图片拉取配置；缺省只登记图片类型，不下载 */
+  media?: WeComArchiveMediaConfig;
   logger?: (message: string) => void;
   /** 测试注入：返回 archive_dump 的 stdout */
   run?: (args: string[]) => Promise<string>;
@@ -91,6 +122,25 @@ export const DEFAULT_ARCHIVE_CONFIG = {
   timeoutMs: 30_000,
 };
 
+function buildMediaDownloader(
+  media: WeComArchiveMediaConfig,
+  config: WeComArchiveConfig,
+): MediaDownloader {
+  if (media.downloader) return media.downloader;
+  const downloaderConfig: MediaDownloaderConfig = {
+    rootDir: media.rootDir,
+    maxBytes: media.maxBytes,
+    retries: media.retries,
+    retryDelayMs: media.retryDelayMs,
+  };
+  const source = new ArchiveDumpMediaSource({
+    binaryPath: media.binaryPath ?? config.binaryPath,
+    configPath: media.configPath ?? config.configPath,
+    timeoutMs: config.timeoutMs,
+  });
+  return new MediaDownloader(source, downloaderConfig);
+}
+
 export class WeComArchiveAdapter implements ArchivePort {
   private readonly config: WeComArchiveConfig;
   private readonly batchSize: number;
@@ -98,6 +148,7 @@ export class WeComArchiveAdapter implements ArchivePort {
   private readonly cacheLimit: number;
   private readonly run: (args: string[]) => Promise<string>;
   private readonly isServiceGroup: (roomId: string) => boolean;
+  private readonly media?: MediaDownloader;
 
   private seq: number;
   private cache: ArchiveRecord[] = [];
@@ -113,6 +164,7 @@ export class WeComArchiveAdapter implements ArchivePort {
     this.isServiceGroup = config.isServiceGroup ?? (() => false);
     this.seq = config.initialSeq ?? 0;
     this.run = config.run ?? ((args) => this.exec(args));
+    this.media = config.media ? buildMediaDownloader(config.media, config) : undefined;
   }
 
   /** 当前游标，持久化后可在重启时恢复 */
@@ -133,7 +185,7 @@ export class WeComArchiveAdapter implements ArchivePort {
     for (let i = 0; i < this.maxBatches; i += 1) {
       const before = this.seq;
       const out = await this.fetch(this.seq);
-      added += this.remember(out.messages);
+      added += await this.remember(out.messages);
       this.seq = Math.max(this.seq, out.nextSeq);
 
       if (out.messages.length < this.batchSize) break;
@@ -177,6 +229,8 @@ export class WeComArchiveAdapter implements ArchivePort {
     excludeSender: string;
     since: number;
     until: number;
+    /** #54：是否把图片消息也返回（默认只返回文字，保持原有触发逻辑不变） */
+    includeMedia?: boolean;
   }): Promise<ArchivedInbound[]> {
     await this.pull();
 
@@ -193,7 +247,7 @@ export class WeComArchiveAdapter implements ArchivePort {
         reject(record, '非服务群');
         continue;
       }
-      if (record.msgtype !== 'text') {
+      if (record.msgtype !== 'text' && !(params.includeMedia && record.msgtype === 'image')) {
         reject(record, `msgtype=${record.msgtype}`);
         continue;
       }
@@ -218,6 +272,7 @@ export class WeComArchiveAdapter implements ArchivePort {
         reject(record, `晚于本轮轮询时刻 ${record.msgtime - params.until}ms`);
         continue;
       }
+      const media = record as ArchiveRecord & ArchiveMediaFields;
       result.push({
         msgid: record.msgid,
         roomid,
@@ -225,6 +280,11 @@ export class WeComArchiveAdapter implements ArchivePort {
         text: record.text?.content ?? '',
         msgtime: record.msgtime,
         action: record.action,
+        msgtype: record.msgtype,
+        mediaPath: media.mediaPath,
+        mediaMd5: media.mediaMd5,
+        mediaSize: media.mediaSize,
+        mediaFailed: media.mediaFailed,
       });
     }
     return result;
@@ -259,17 +319,20 @@ export class WeComArchiveAdapter implements ArchivePort {
     };
   }
 
-  private remember(messages: ArchiveRecord[]): number {
+  private async remember(messages: ArchiveRecord[]): Promise<number> {
     let added = 0;
     for (const message of messages) {
       if (!message?.msgid || this.known.has(message.msgid)) continue;
       this.known.add(message.msgid);
       const service = this.isServiceGroup(message.roomid ?? '');
-      // 非服务群的正文不写入任何存储：缓存里只留元数据，正文置空
-      this.cache.push(service ? message : { ...message, text: undefined });
+      // 非服务群的正文不写入任何存储：缓存里只留元数据，正文置空；
+      // 图片也不下载（#54 隐私规则）。
+      const record = service ? message : { ...message, text: undefined };
+      this.cache.push(record);
       added += 1;
       if (service) {
         this.log(`  记录 ${describeRecord(message)}`);
+        if (message.msgtype === 'image') await this.fetchMedia(record);
       } else {
         this.nonServiceCount += 1;
       }
@@ -279,6 +342,36 @@ export class WeComArchiveAdapter implements ArchivePort {
       for (const item of dropped) this.known.delete(item.msgid);
     }
     return added;
+  }
+
+  /** #54：图片落盘；失败只标记 media_failed，不中断整轮拉取 */
+  private async fetchMedia(record: ArchiveRecord & ArchiveMediaFields): Promise<void> {
+    if (!this.media) return;
+    const image = record.image;
+    const sdkfileid = typeof image?.sdkfileid === 'string' ? image.sdkfileid : '';
+    if (sdkfileid === '') {
+      record.mediaFailed = true;
+      this.log(`  图片缺少 sdkfileid msgid=${tailId(record.msgid)}`);
+      return;
+    }
+    try {
+      const saved = await this.media.save({
+        sdkfileid,
+        roomId: record.roomid ?? '',
+        msgId: record.msgid,
+        expectedMd5: typeof image?.md5 === 'string' ? image.md5 : undefined,
+        expectedSize: typeof image?.filesize === 'number' ? image.filesize : undefined,
+      });
+      record.mediaPath = saved.path;
+      record.mediaMd5 = saved.md5;
+      record.mediaSize = saved.size;
+      // 只记大小，不记路径中的会话标识
+      this.log(`  图片落盘 msgid=${tailId(record.msgid)} size=${saved.size}`);
+    } catch (error) {
+      record.mediaFailed = true;
+      const code = error instanceof Error ? error.message : 'MEDIA_FAILED';
+      this.log(`  图片下载失败 msgid=${tailId(record.msgid)}：${code}`);
+    }
   }
 
   private exec(args: string[]): Promise<string> {
