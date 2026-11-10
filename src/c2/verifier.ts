@@ -84,11 +84,23 @@ export class Verifier {
     autoAck: boolean,
   ): Promise<VerificationResult | null> {
     const anchor = draft.ackAt ?? draft.pushedAt ?? now;
-    const messages = await this.archive.listSentMessages({
-      fromUser: draft.advisorId,
+    // 存档里的发送者是企微 userid；advisorId 可能是 P1 的内部 id。
+    // bot-live 场景两者相同，P1 场景靠顾问的 chatId 才能匹配到员工发出的消息。
+    const advisor = this.store.getAdvisor(draft.advisorId);
+    const fromUser = advisor?.chatId ?? draft.advisorId;
+    let messages = await this.archive.listSentMessages({
+      fromUser,
       since: anchor - this.config.verifyLookbackMs,
       until: now,
     });
+    // 历史数据 / 测试夹具里 chatId 可能不是存档里的发送者，回退到 advisorId
+    if (messages.length === 0 && fromUser !== draft.advisorId) {
+      messages = await this.archive.listSentMessages({
+        fromUser: draft.advisorId,
+        since: anchor - this.config.verifyLookbackMs,
+        until: now,
+      });
+    }
 
     const res = matchSentMessage({
       body: draft.body,
