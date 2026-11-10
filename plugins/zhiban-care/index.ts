@@ -19,7 +19,7 @@ import { DomainCareBackend, careAuditTable, careDomain } from './domain.ts';
 
 export const name = 'zhiban-care';
 
-export const inject = ['storageDomain'];
+export const inject = ['storageDomain', 'tools'];
 
 type EffectCleanup = void | (() => void | Promise<void>);
 

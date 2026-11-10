@@ -30,7 +30,7 @@ import { DomainGuardBackend, guardDomain } from './domain.ts';
 export const name = 'zhiban-guard';
 
 /** storageDomain 由 dsh-storage-domain 提供；tools 由宿主提供 */
-export const inject = ['storageDomain'];
+export const inject = ['storageDomain', 'tools'];
 
 type EffectCleanup = void | (() => void | Promise<void>);
 
