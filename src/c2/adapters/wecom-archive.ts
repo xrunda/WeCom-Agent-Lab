@@ -5,9 +5,11 @@
  * 工具输出 --json：{"nextSeq":23,"count":2,"messages":[{...},{...}]}
  *
  * 设计要点：
- * - 只维护一个 seq 游标，按增量拉取，不重复解密历史。
+ * - 主轮询只维护一个 seq 游标，按增量拉取，不重复解密历史。
  * - 每次 poll 最多拉 maxBatchesPerPoll 批，避免一次吃满。
  * - 内存缓存最近 cacheLimit 条，供 Verifier 按时间窗过滤。
+ * - 重启后缓存为空、主游标只拉增量；Verifier 回读窗口内的历史消息
+ *   由 listSentMessages 从持久化 seq 回退有界窗口补拉一次（不推进主游标）。
  */
 import { execFile } from 'node:child_process';
 
@@ -77,6 +79,10 @@ export interface WeComArchiveConfig {
   timeoutMs?: number;
   /** 起始 seq；线上应从持久化存储恢复 */
   initialSeq?: number;
+  /** 重启后回读历史：从持久化 seq 回退的最大记录数（默认 1000） */
+  historyReplayRecords?: number;
+  /** 重启后回读历史：每个回退窗口最多拉几批（默认 10） */
+  historyReplayBatches?: number;
   /**
    * 服务群判定；默认全部视为非服务群，正文不落缓存、不进日志。
    * 真实判定（外部成员）由 #33 注入。
@@ -120,6 +126,8 @@ export const DEFAULT_ARCHIVE_CONFIG = {
   maxBatchesPerPoll: 5,
   cacheLimit: 2000,
   timeoutMs: 30_000,
+  historyReplayRecords: 1000,
+  historyReplayBatches: 10,
 };
 
 function buildMediaDownloader(
@@ -146,6 +154,8 @@ export class WeComArchiveAdapter implements ArchivePort {
   private readonly batchSize: number;
   private readonly maxBatches: number;
   private readonly cacheLimit: number;
+  private readonly historyReplayRecords: number;
+  private readonly historyReplayBatches: number;
   private readonly run: (args: string[]) => Promise<string>;
   private readonly isServiceGroup: (roomId: string) => boolean;
   private readonly media?: MediaDownloader;
@@ -155,14 +165,21 @@ export class WeComArchiveAdapter implements ArchivePort {
   private known = new Set<string>();
   /** 本轮 pull 中只计数、未落正文的记录数 */
   private nonServiceCount = 0;
+  /** 从持久化 seq 恢复时的起点；回读补拉一次后清空 */
+  private restoredSeq?: number;
 
   constructor(config: WeComArchiveConfig) {
     this.config = config;
     this.batchSize = config.batchSize ?? DEFAULT_ARCHIVE_CONFIG.batchSize;
     this.maxBatches = config.maxBatchesPerPoll ?? DEFAULT_ARCHIVE_CONFIG.maxBatchesPerPoll;
     this.cacheLimit = config.cacheLimit ?? DEFAULT_ARCHIVE_CONFIG.cacheLimit;
+    this.historyReplayRecords =
+      config.historyReplayRecords ?? DEFAULT_ARCHIVE_CONFIG.historyReplayRecords;
+    this.historyReplayBatches =
+      config.historyReplayBatches ?? DEFAULT_ARCHIVE_CONFIG.historyReplayBatches;
     this.isServiceGroup = config.isServiceGroup ?? (() => false);
     this.seq = config.initialSeq ?? 0;
+    if (this.seq > 0) this.restoredSeq = this.seq;
     this.run = config.run ?? ((args) => this.exec(args));
     this.media = config.media ? buildMediaDownloader(config.media, config) : undefined;
   }
@@ -174,6 +191,8 @@ export class WeComArchiveAdapter implements ArchivePort {
 
   setSeq(seq: number): void {
     this.seq = seq;
+    // 线上启动时用持久化 seq 调 setSeq；标记为「恢复点」，供首次回读补历史
+    this.restoredSeq = seq > 0 ? seq : undefined;
     this.cache = [];
     this.known.clear();
   }
@@ -205,6 +224,21 @@ export class WeComArchiveAdapter implements ArchivePort {
   }): Promise<SentMessage[]> {
     await this.pull();
 
+    let messages = this.filterSent(params);
+    // 重启后缓存被清空、主游标只拉增量，回读窗口里的历史消息不在缓存里。
+    // 从持久化 seq 回退有界窗口补拉一次：不推进主游标、不触发回合。
+    if (this.restoredSeq !== undefined && !this.cacheCovers(params.since)) {
+      await this.replayHistory(params.since, params.until);
+      messages = this.filterSent(params);
+    }
+    return messages;
+  }
+
+  private filterSent(params: {
+    fromUser: string;
+    since: number;
+    until: number;
+  }): SentMessage[] {
     return this.cache
       .filter(
         (r) =>
@@ -222,6 +256,68 @@ export class WeComArchiveAdapter implements ArchivePort {
         text: r.text?.content ?? '',
         msgtime: r.msgtime,
       }));
+  }
+
+  /** 缓存里已有不晚于 since 的记录，说明这个时间窗已经被增量拉取覆盖 */
+  private cacheCovers(since: number): boolean {
+    return this.cache.some((r) => r.msgtime <= since);
+  }
+
+  /**
+   * 重启后补拉回读窗口：从持久化 seq 回退，向前拉到覆盖 [since, until]。
+   * 只写缓存，不改 this.seq；补拉失败由上层的回读重试兜底。
+   */
+  private async replayHistory(since: number, until: number): Promise<void> {
+    const anchor = this.restoredSeq;
+    if (anchor === undefined) return;
+
+    let rewind = Math.max(1, this.historyReplayRecords);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const start = Math.max(0, anchor - rewind);
+      this.log(`回读补拉历史：seq ${anchor} 回退到 ${start}，窗口 ${since}..${until}`);
+      const coverage = await this.fetchWindow(start, since, until);
+      // 首次成功补拉后不再重复回退；失败则保留恢复点，交给下次回读重试
+      this.restoredSeq = undefined;
+      // 回退点已早于窗口下界，或已到存档起点：补拉到此为止
+      if (coverage.oldest <= since || start === 0) return;
+      // 窗口内记录比预估多，回退范围翻倍再试一次
+      rewind *= 2;
+    }
+  }
+
+  /** 从 start 向前拉，直到覆盖 [since, until] 或达到批次上限 */
+  private async fetchWindow(
+    start: number,
+    since: number,
+    until: number,
+  ): Promise<{ oldest: number; newest: number }> {
+    let cursor = start;
+    let oldest = Number.POSITIVE_INFINITY;
+    let newest = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < this.historyReplayBatches; i += 1) {
+      const out = await this.fetch(cursor);
+      if (out.messages.length === 0) break;
+      for (const message of out.messages) {
+        oldest = Math.min(oldest, message.msgtime);
+        newest = Math.max(newest, message.msgtime);
+      }
+      // 只补 Verifier 需要的「员工在服务群发出的文字」。
+      // 不要把历史入站消息放回共享缓存：重启后 trigger 的 seen 为空，
+      // 否则会把停机前已处理过的客户消息再触发一遍。
+      const sentOnly = out.messages.filter(
+        (message) =>
+          message.action === 'send' &&
+          message.msgtype === 'text' &&
+          this.isServiceGroup(message.roomid ?? ''),
+      );
+      // 补拉历史不下载图片，也不打印正文
+      await this.remember(sentOnly, { media: false, quiet: true });
+      if (oldest <= since && newest >= until) break;
+      if (out.messages.length < this.batchSize) break;
+      if (out.nextSeq <= cursor) break;
+      cursor = out.nextSeq;
+    }
+    return { oldest, newest };
   }
 
   async listInboundMessages(params: {
@@ -356,7 +452,12 @@ export class WeComArchiveAdapter implements ArchivePort {
     };
   }
 
-  private async remember(messages: ArchiveRecord[]): Promise<number> {
+  private async remember(
+    messages: ArchiveRecord[],
+    options: { media?: boolean; quiet?: boolean } = {},
+  ): Promise<number> {
+    const withMedia = options.media !== false;
+    const quiet = options.quiet === true;
     let added = 0;
     for (const message of messages) {
       if (!message?.msgid || this.known.has(message.msgid)) continue;
@@ -368,13 +469,15 @@ export class WeComArchiveAdapter implements ArchivePort {
       this.cache.push(record);
       added += 1;
       if (service) {
-        this.log(`  记录 ${describeRecord(message)}`);
-        if (message.msgtype === 'image') await this.fetchMedia(record);
-      } else {
+        if (!quiet) this.log(`  记录 ${describeRecord(message)}`);
+        if (withMedia && message.msgtype === 'image') await this.fetchMedia(record);
+      } else if (!quiet) {
         this.nonServiceCount += 1;
       }
     }
     if (this.cache.length > this.cacheLimit) {
+      // 补拉历史会把较早的记录追加到尾部；按时间裁掉最旧的，保留最新窗口
+      this.cache.sort((a, b) => a.msgtime - b.msgtime);
       const dropped = this.cache.splice(0, this.cache.length - this.cacheLimit);
       for (const item of dropped) this.known.delete(item.msgid);
     }

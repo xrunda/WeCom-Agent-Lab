@@ -348,3 +348,119 @@ test('重启后草稿 id 从已有最大序号继续（maxDraftSeq）', async ()
   const drafts = [{ id: 'draft_1' }, { id: 'draft_7' }, { id: 'custom' }] as Draft[];
   assert.equal(maxDraftSeq(drafts), 7);
 });
+
+test('重启后回读补历史：重启前已确认的草稿仍能核验为 VERIFIED', async () => {
+  const backend = new MemoryStoreBackend();
+  const clock = new FakeClock(1_000_000);
+  const pluginConfig = config();
+  const adapterConfig = {
+    binaryPath: '/bin/archive_dump',
+    privateKeyPath: './private_key.pem',
+    configPath: './config.txt',
+    isServiceGroup: () => true,
+  };
+
+  const run1 = async (args: string[]): Promise<string> => {
+    if (Number(args[1]) === 0) {
+      return JSON.stringify({
+        nextSeq: 10,
+        messages: [
+          {
+            msgid: 'msg_customer_restart',
+            action: 'recv',
+            from: 'wmCUSTOMER',
+            roomid: 'wrGROUP1',
+            msgtime: clock.now() - 5_000,
+            msgtype: 'text',
+            text: { content: CUSTOMER_TEXT },
+          },
+        ],
+      });
+    }
+    return JSON.stringify({ nextSeq: 20, messages: [] });
+  };
+
+  const store1 = new DomainStore(backend);
+  const archive1 = new WeComArchiveAdapter({ ...adapterConfig, run: run1 });
+  const bot1 = new MockBot(clock);
+  const service1 = new C2Service({ store: store1, bot: bot1, archive: archive1, clock });
+  service1.addAdvisor({ id: ADV, name: '王顾问', chatId: ADV });
+  service1.bindGroup({ roomId: 'wrGROUP1', name: '减重-张女士', advisorId: ADV });
+  const runtime1 = new WecomRuntime({
+    store: store1,
+    service: service1,
+    archive: archive1,
+    trigger: new ArchiveTrigger({
+      archive: archive1,
+      store: store1,
+      clock,
+      compose: makeTemplateCompose(pluginConfig),
+      config: { roomIds: ['wrGROUP1'], excludeSender: ADV, startedAt: 0 },
+    }),
+    bot: bot1,
+    config: pluginConfig,
+    clock,
+    emit: () => undefined,
+  });
+
+  runtime1.start();
+  await runtime1.pollOnce();
+  const draft = store1.listDrafts()[0];
+  assert.ok(draft);
+  const body = draft.body;
+  await runtime1.handleButtonKey(`ack:${draft.id}:sent`);
+  await runtime1.stop();
+  assert.equal(store1.getDraft(draft.id)?.status, 'ACKNOWLEDGED');
+  const savedSeq = store1.getMeta<number>('archive_seq') ?? 0;
+  assert.ok(savedSeq > 0);
+
+  // 重启后主游标从 savedSeq 续拉，不回看；Verifier 回读窗口内的历史由适配器补拉
+  const run2 = async (args: string[]): Promise<string> => {
+    if (Number(args[1]) === 0) {
+      return JSON.stringify({
+        nextSeq: 10,
+        messages: [
+          {
+            msgid: 'msg_advisor_restart',
+            action: 'send',
+            from: ADV,
+            roomid: 'wrGROUP1',
+            msgtime: clock.now() - 1_000,
+            msgtype: 'text',
+            text: { content: body },
+          },
+        ],
+      });
+    }
+    return JSON.stringify({ nextSeq: savedSeq + 10, messages: [] });
+  };
+
+  const store2 = new DomainStore(backend);
+  const archive2 = new WeComArchiveAdapter({ ...adapterConfig, run: run2 });
+  archive2.setSeq(savedSeq);
+  const bot2 = new MockBot(clock);
+  const service2 = new C2Service({ store: store2, bot: bot2, archive: archive2, clock });
+  const runtime2 = new WecomRuntime({
+    store: store2,
+    service: service2,
+    archive: archive2,
+    trigger: new ArchiveTrigger({
+      archive: archive2,
+      store: store2,
+      clock,
+      compose: makeTemplateCompose(pluginConfig),
+      config: { roomIds: ['wrGROUP1'], excludeSender: ADV, startedAt: 0 },
+    }),
+    bot: bot2,
+    config: pluginConfig,
+    clock,
+    emit: () => undefined,
+  });
+
+  runtime2.start();
+  clock.advance(200_000);
+  await runtime2.tickOnce();
+  await runtime2.stop();
+
+  assert.equal(store2.getDraft(draft.id)?.status, 'VERIFIED');
+});
