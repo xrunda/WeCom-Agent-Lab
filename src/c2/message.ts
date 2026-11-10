@@ -9,6 +9,18 @@ const RISK_LABEL: Record<Draft['riskLevel'], string> = {
   high: '高',
 };
 
+/** #55：卡片上的图片类型标签；未知类型回退为「图片」 */
+const MEDIA_KIND_LABEL: Record<string, string> = {
+  image: '图片',
+  meal: '餐食',
+  report: '化验单 / 报告',
+  medicine: '药品',
+  other: '其他图片',
+  voice: '语音',
+  file: '文件',
+  video: '视频',
+};
+
 export function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return text.slice(0, Math.max(0, maxChars - 1)) + '…';
@@ -71,6 +83,11 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
     draft.groupMembers.length > 0;
   const version = draft.version ?? 1;
   const revised = version > 1;
+  const hasMedia = (draft.mediaIds?.length ?? 0) > 0;
+  const mediaKinds = draft.mediaKinds?.length ? draft.mediaKinds : ['image'];
+  const mediaLabel = `客户发来图片 · ${mediaKinds
+    .map((kind) => MEDIA_KIND_LABEL[kind] ?? '图片')
+    .join('、')}`;
   return {
     msgtype: 'template_card',
     template_card: {
@@ -91,6 +108,7 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
         : `客户原文：${truncate(draft.inboundSummary, 80)}`,
       horizontal_content_list: [
         { keyname: '客户', value: truncate(customer, 60) },
+        ...(hasMedia ? [{ keyname: '图片', value: truncate(mediaLabel, 60) }] : []),
         ...(showMembers
           ? [{ keyname: '群成员', value: truncate(draft.groupMembers!.join('、'), 60) }]
           : []),

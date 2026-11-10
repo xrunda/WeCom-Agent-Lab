@@ -16,7 +16,7 @@
     PatientService（同步路由：serving / collect_only / pending / disabled）
                  │
     PatientAgentRuntime（合并窗口 → 患者长期 Session → 回合 → 工具 → 降级）
-                 │  reply_draft / reply_skip
+                 │  reply_draft / reply_skip / image_classify / meal_log_write
                  ▼
           PatientBridge ──► zhiban-wecom ──► C2Service（版本化卡片）
 ```
@@ -40,6 +40,8 @@
 | `src/p1/runtime.ts` | 回合编排、内部上下文、模板降级、核验回写、顾问改稿 |
 | `src/p1/persona.ts` | 系统提示词、红线、发言人身份、改稿提示 |
 | `src/p1/reply-tools.ts` | `reply_draft` / `reply_skip` 参数校验与 DSH 工具定义 |
+| `src/p1/vision.ts` | 图片读取与格式嗅探、类型/饮食记录校验、图片提示词、饮食记录视图 |
+| `src/p1/meal-tools.ts` | `image_classify` / `meal_log_write` 参数校验与 DSH 工具定义 |
 | `plugins/zhiban-patient/` | DSH 装配：领域存储、Session 适配、工具注册、`zhibanPatient` 服务 |
 | `plugins/zhiban-wecom/runtime.ts` | 把存档消息转交患者域；旧模板链路兜底；STALE_CARD 提示 |
 
@@ -90,6 +92,19 @@
 C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectContext` 写回患者 Session，
 作为后续回合的背景，**不唤醒新回合**。
 
+### 2.6 图片理解（#55）
+
+- 回合内的图片（JPEG / PNG / WebP，单张 ≤ 10 MB，最多 4 张）以 base64 附件注入 Session，
+  并在提示词里追加 `imageInstructionBlock`：先分类、餐食写饮食记录、报告/药品不解读。
+- 读取失败或超限时降级为纯文字回合，发 `patient.image.skipped`，不中断草稿。
+- `image_classify` 记录本轮图片类型；`meal_log_write` 每回合最多一次，写入
+  `meal_logs` 并计入患者存储。
+- **服务端风险兜底**：含图片的回合风险至少 `medium`；只有「已写饮食记录且没有
+  报告/药品图」才保持模型给出的 `low`。模型失败时的模板正文为「收到您的照片…」，风险 `medium`。
+- `meal-vision` skill 由插件写入 `skillDir`（可选配置），内容与提示词一致。
+- 草稿把 `mediaKinds` 带到 C2：卡片显示「客户发来图片 · 餐食」，原图按 JPEG/PNG ≤ 2 MB
+  转发到服务群；转发失败的图片只记审计，不阻塞卡片与正文。
+
 ---
 
 ## 3. 配置
@@ -111,7 +126,8 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
   "demo": true,
   "mergeWindowMs": 30000,
   "mergeMaxWaitMs": 120000,
-  "turnTimeoutMs": 15000
+  "turnTimeoutMs": 15000,
+  "skillDir": "/var/lib/zhiban/skills"
 }
 ```
 
@@ -120,12 +136,13 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 - `requireConsentForTurn=false`（默认）：`unknown` 仍可服务，界面提示「状态待确认」；
   `disagreed` 永远不自动服务。设为 `true` 时只有 `agreed` 才触发回合。
 - 本插件没有任何 Secret；企微凭据只在 `zhiban-wecom` 配置里。
+- `skillDir`（可选）：插件启动时把 `meal-vision.md` 写入该目录；不配则不写。
 
 ### 系统提示词
 
 `zhibanPatient.systemPrompt()` 返回租户化的人设与红线。生产环境应把同一预设
-（`agentPreset`）配置到 DSH，使患者 Session 使用它；工具 `reply_draft` / `reply_skip`
-由本插件注册。
+（`agentPreset`）配置到 DSH，使患者 Session 使用它；工具 `reply_draft` / `reply_skip` /
+`image_classify` / `meal_log_write` 由本插件注册。
 
 ---
 
@@ -153,6 +170,8 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 | 连发合并、2 分钟上限、内部上下文、去重、家属提示 | `tests/group-context.test.ts` |
 | v1 → 改稿 → v2 卡片、旧卡片 STALE_CARD、审计与版本历史 | `tests/revision.test.ts` |
 | wecom ↔ patient 转交、旧模板兜底、1:1 改稿、配置与 Session 适配 | `tests/patient-plugin.test.ts` |
+| 图片注入、餐食记录、风险兜底、读图失败降级 | `tests/image-turn.test.ts` |
+| 图片格式嗅探、大小/数量上限、类型与记录校验、视图不泄露路径 | `tests/vision.test.ts` |
 
 ### 5.2 ⏳ 待真机（项目负责人执行）
 
@@ -167,8 +186,13 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 5. **停用与采集**：把群改为 `collect_only` / `disabled`，确认不再生成新草稿。
 6. **同意状态**：手工把成员同意改为 `disagreed`，确认消息不再触发自动服务，
    且顾问能看到提示。
+7. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
+   `image_classify` / `meal_log_write`、卡片出现「客户发来图片 · 餐食」、
+   原图转发到顾问 1:1，控制台饮食记录可见。
+8. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
+   正文不解读指标、不判断能否服用。
 
-> 以上 1–6 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
+> 以上 1–8 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
 
 ---
 

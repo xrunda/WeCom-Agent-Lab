@@ -23,6 +23,7 @@ import type {
   Patient,
   PatientSessionRecord,
 } from '../../src/p1/types.ts';
+import type { MealLogRecord } from '../../src/p1/vision.ts';
 
 export const patientDomain = defineDomain({
   name: 'zhiban_patient',
@@ -34,6 +35,9 @@ export const patientDomain = defineDomain({
     bindings: domainTable(z.object({ id: z.string().min(1), groupId: z.string().min(1) }).passthrough()),
     patients: domainTable(z.object({ id: z.string().min(1) }).passthrough()),
     sessions: domainTable(z.object({ patientId: z.string().min(1) }).passthrough()),
+    meal_logs: domainTable(
+      z.object({ id: z.string().min(1), patientId: z.string().min(1) }).passthrough(),
+    ),
     stats: domainTable(z.object({ turns: z.number() }).passthrough()),
     audit: domainTable(z.object({ at: z.number(), action: z.string().min(1) }).passthrough()),
   },
@@ -58,6 +62,7 @@ export class DomainPatientBackend implements PatientStoreBackend {
       bindings: domain.table('bindings') as unknown as AnyTable,
       patients: domain.table('patients') as unknown as AnyTable,
       sessions: domain.table('sessions') as unknown as AnyTable,
+      mealLogs: domain.table('meal_logs') as unknown as AnyTable,
       stats: domain.table('stats') as unknown as AnyTable,
       audit: domain.table('audit') as unknown as AnyTable,
     };
@@ -75,6 +80,7 @@ export class DomainPatientBackend implements PatientStoreBackend {
       bindings: values<GroupBinding>('bindings'),
       patients: values<Patient>('patients'),
       sessions: values<PatientSessionRecord>('sessions'),
+      mealLogs: values<MealLogRecord>('mealLogs'),
       stats,
       audits: values<AuditEvent>('audit'),
     };

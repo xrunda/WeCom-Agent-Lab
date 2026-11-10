@@ -13,3 +13,7 @@ experiments/**/out/
 # 证据原始文件默认不入库（可能含企业/成员信息），只保留索引与脱敏说明
 evidence/raw/
 evidence/media/
+
+# #64 评测生成物（图片夹具自动生成，报告默认不入库）
+eval/drafts/images/
+eval/drafts/last-report.md

@@ -123,3 +123,36 @@ test('buildDraftMessages 同时给出卡片和正文，顺序为卡片在前', (
   assert.equal(body.msgtype, 'text');
   assert.equal(body.text.content, draft.body);
 });
+
+test('#55 带图片的草稿在卡片上标注「客户发来图片 · 类型」', () => {
+  const meal = buildCard(
+    makeDraft({ mediaIds: ['/tmp/media/meal.jpg'], mediaKinds: ['meal'] }),
+    1,
+  );
+  const mealRow = meal.template_card.horizontal_content_list?.find(
+    (item) => item.keyname === '图片',
+  );
+  assert.deepEqual(mealRow, { keyname: '图片', value: '客户发来图片 · 餐食' });
+
+  const mixed = buildCard(
+    makeDraft({ mediaIds: ['/tmp/media/a.jpg', '/tmp/media/b.jpg'], mediaKinds: ['meal', 'report'] }),
+    1,
+  );
+  const mixedRow = mixed.template_card.horizontal_content_list?.find(
+    (item) => item.keyname === '图片',
+  );
+  assert.equal(mixedRow?.value, '客户发来图片 · 餐食、化验单 / 报告');
+
+  const unknown = buildCard(makeDraft({ mediaIds: ['/tmp/media/a.jpg'] }), 1);
+  const unknownRow = unknown.template_card.horizontal_content_list?.find(
+    (item) => item.keyname === '图片',
+  );
+  assert.equal(unknownRow?.value, '客户发来图片 · 图片');
+
+  const textOnly = buildCard(makeDraft(), 1);
+  assert.equal(
+    textOnly.template_card.horizontal_content_list?.some((item) => item.keyname === '图片'),
+    false,
+  );
+});
+

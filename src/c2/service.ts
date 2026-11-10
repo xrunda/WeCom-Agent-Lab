@@ -52,6 +52,8 @@ export interface EnqueueDraftInput {
   inboundMessageIds?: string[];
   /** #54 / #63：合并输入附带的图片路径 */
   mediaIds?: string[];
+  /** #55：图片类型（meal / report / medicine / other / image） */
+  mediaKinds?: string[];
   inboundSummary: string;
   body: string;
   ruleIds?: string[];
@@ -190,6 +192,9 @@ export class C2Service {
       inboundMessageId: input.inboundMessageId,
       inboundMessageIds: input.inboundMessageIds ?? [input.inboundMessageId],
       mediaIds: input.mediaIds ?? [],
+      ...(input.mediaKinds && input.mediaKinds.length > 0
+        ? { mediaKinds: [...input.mediaKinds] }
+        : {}),
       inboundSummary: input.inboundSummary,
       body,
       ruleIds: input.ruleIds ?? [],

@@ -108,6 +108,22 @@ export class SerialQueue {
         draft.cardMessageId = cardRes.messageId;
       }
 
+      // #55：先转推患者原图，再推正文；失败不阻断草稿，重试也不重复发图
+      if (
+        draft.mediaForwardedAt === undefined &&
+        this.bot.sendImage &&
+        (draft.mediaIds?.length ?? 0) > 0
+      ) {
+        draft.mediaForwardedAt = now;
+        for (const path of draft.mediaIds!.slice(0, 4)) {
+          try {
+            await this.bot.sendImage(chatId, path);
+          } catch {
+            this.audit(advisor.id, 'forward_image', draft.id, 'failed');
+          }
+        }
+      }
+
       const bodyRes = await this.bot.sendText(chatId, draft.body);
       draft.bodyMessageId = bodyRes.messageId;
 

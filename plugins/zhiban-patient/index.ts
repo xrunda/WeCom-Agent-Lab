@@ -8,12 +8,18 @@
  * 与 zhiban-wecom 解耦：草稿操作通过 `ctx.get('zhibanWecom')` 懒加载，
  * 两个插件谁先加载都能启动；wecom 未就绪时读操作安全降级，写操作报错。
  */
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
+import { buildMealToolDefinitions } from '../../src/p1/meal-tools.ts';
 import { MemoryPatientStore } from '../../src/p1/patient-store.ts';
 import { PatientService } from '../../src/p1/patient-service.ts';
 import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
 import { PatientAgentRuntime } from '../../src/p1/runtime.ts';
+import { MEAL_VISION_SKILL } from '../../src/p1/vision.ts';
+import type { MealLogRecord } from '../../src/p1/vision.ts';
 import type {
   DraftGuardPort,
   SandboxDraftSink,
@@ -104,6 +110,8 @@ export interface PatientRuntimeApi {
     | undefined;
   /** #59：数据与安全页的患者存档同意状态统计 */
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
+  /** #55：饮食记录，控制台 Agent 主页读取 */
+  listMealLogs(patientId: string): MealLogRecord[];
 }
 
 /** #35：zhiban-memory 未安装时安全降级为空 */
@@ -209,6 +217,17 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
   );
 
   ctx.effect(async () => {
+    // #55：meal-vision skill 是纯文本，不含租户信息与密钥；同名文件幂等覆盖
+    if (config.skillDir) {
+      try {
+        await mkdir(config.skillDir, { recursive: true });
+        await writeFile(join(config.skillDir, 'meal-vision.md'), MEAL_VISION_SKILL, 'utf8');
+        log(`meal-vision skill 已写入 ${config.skillDir}`);
+      } catch (error) {
+        log(`meal-vision skill 写入失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     const domain = await ctx.storageDomain.open(patientDomain);
     let runtime: PatientAgentRuntime | undefined;
     let store: MemoryPatientStore | undefined;
@@ -288,6 +307,13 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       })) {
         ctx.tools.register(tool);
       }
+      // #55：图片类型判断与饮食记录
+      for (const tool of buildMealToolDefinitions({
+        imageClassify: (sessionId, input) => runtime!.imageClassify(sessionId, input),
+        mealLogWrite: (sessionId, input) => runtime!.mealLogWrite(sessionId, input),
+      })) {
+        ctx.tools.register(tool);
+      }
 
       const asSandboxPatient = (input: SandboxPatientLike): Patient => {
         const at = Date.now();
@@ -364,10 +390,11 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           }
           return stats;
         },
+        listMealLogs: (patientId) => store?.listMealLogs(patientId) ?? [],
       };
       ctx.provide('zhibanPatient', api);
 
-      log('已就绪：reply_draft / reply_skip 已注册');
+      log('已就绪：reply_draft / reply_skip / image_classify / meal_log_write 已注册');
 
       return async () => {
         runtime?.dispose();

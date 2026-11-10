@@ -445,7 +445,9 @@ media：文件在磁盘，元数据随消息保存
 | `source` | enum | 否 | `inbound`（患者提问）/ `proactive`（Agent 主动） |
 | `inboundMessageIds` | array<string> | 否 | 合并窗口内的消息（#63）；`inbound` 时至少一条，`proactive` 时为空数组 |
 | `inboundSummary` | string | 否 | 卡片上的摘要，只进卡片不进正文；`proactive` 时填触发原因（如「按计划提醒测血糖」） |
-| `mediaIds` | array<string> | 否 | 本条输入附带的图片 |
+| `mediaIds` | array<string> | 否 | 本条输入附带的图片（服务端路径，不出接口） |
+| `mediaKinds` | array<string> | 否 | 图片类型：`image` / `meal` / `report` / `medicine`；无图时为空数组 |
+| `mediaForwardedAt` | number | 是 | 原图转发到服务群的时间；仅 C2 队列使用，重试时不再重复发送 |
 | `body` | string | 否 | **当前版本**正文，≤ 1000 字 |
 | `version` | number | 否 | 当前版本号，从 1 开始 |
 | `revisions` | array<object> | 否 | 版本历史，见下 |
@@ -596,7 +598,7 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 | `tenantId` | string | 否 | |
 | `patientId` | string | 否 | |
 | `draftId` | string | 是 | 由该动作产出的草稿 |
-| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `meal_log_write` |
+| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `image_classify` / `meal_log_write` |
 | `summary` | string | 否 | 一句话结果，如「新增饮食禁忌：海鲜过敏」 |
 | `result` | enum | 否 | `success` / `failed` / `skipped` |
 | `errorCode` | string | 是 | |

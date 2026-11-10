@@ -1,7 +1,14 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+
 import { WebSocket } from 'ws';
 
+import { sniffImageMediaType } from '../../p1/vision.ts';
 import type { BotPort } from '../ports.ts';
 import type { CardPayload } from '../types.ts';
+
+/** #55：企微机器人 image 消息上限 2 MB，只支持 JPG / PNG */
+const SEND_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
 type Logger = (line: string) => void;
 
@@ -166,6 +173,32 @@ export class WeComBotAdapter implements BotPort {
     });
     if (res.errcode !== 0) throw new Error(`SEND_TEXT_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim());
     return { messageId: `local_text_${++this.msgSeq}` };
+  }
+
+  /** #55：把患者原图转推给顾问；md5 按原始字节计算，路径不进日志 */
+  async sendImage(chatId: string, path: string): Promise<{ messageId: string }> {
+    let data: Buffer;
+    try {
+      data = await readFile(path);
+    } catch {
+      throw new Error('SEND_IMAGE_READ_FAILED');
+    }
+    if (data.length > SEND_IMAGE_MAX_BYTES) throw new Error('SEND_IMAGE_TOO_LARGE');
+    const mediaType = sniffImageMediaType(data);
+    if (mediaType !== 'image/jpeg' && mediaType !== 'image/png') {
+      throw new Error('SEND_IMAGE_UNSUPPORTED');
+    }
+    const md5 = createHash('md5').update(data).digest('hex');
+    const res = await this.request('aibot_send_msg', {
+      chatid: chatId,
+      chat_type: 1,
+      msgtype: 'image',
+      image: { base64: data.toString('base64'), md5 },
+    });
+    if (res.errcode !== 0) {
+      throw new Error(`SEND_IMAGE_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim());
+    }
+    return { messageId: `local_image_${++this.msgSeq}` };
   }
 
   close(): void {

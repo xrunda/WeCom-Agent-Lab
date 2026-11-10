@@ -85,6 +85,10 @@ export interface Draft {
   inboundMessageIds?: string[];
   /** 本条输入附带的图片路径（#54 / #63） */
   mediaIds?: string[];
+  /** #55：图片类型，卡片标注与质检用；如 ['meal'] */
+  mediaKinds?: string[];
+  /** #55：原图已转推给顾问的时间，避免重试重复发图 */
+  mediaForwardedAt?: number;
   /** 客户原文摘要，只进卡片，不进正文 */
   inboundSummary: string;
   /** 要发出去的正文 */
@@ -217,4 +221,10 @@ export interface TextPayload {
   text: { content: string };
 }
 
-export type BotMessage = CardPayload | TextPayload;
+/** #55：转推给顾问的患者原图（服务端路径） */
+export interface ImagePayload {
+  msgtype: 'image';
+  image: { path: string };
+}
+
+export type BotMessage = CardPayload | TextPayload | ImagePayload;
