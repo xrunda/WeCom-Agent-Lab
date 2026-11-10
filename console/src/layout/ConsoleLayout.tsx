@@ -3,15 +3,12 @@ import { ProLayout } from '@ant-design/pro-components';
 import { Badge, Dropdown, Spin, Tag } from 'antd';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import logoUrl from '../assets/zhiban-logo.png';
 import { useAuth, useTerm } from '../auth/AuthContext.tsx';
 import { isMockMode } from '../mock/api.ts';
 import { useAlertCount } from '../pages/alerts/useAlertCount.ts';
 import { buildMenuItems } from './menu.tsx';
 import { TenantTermControl } from './TenantTermControl.tsx';
-
-const LOGO = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#0f766e"/><text x="32" y="43" font-size="32" text-anchor="middle" fill="#ffffff" font-family="PingFang SC, sans-serif">知</text></svg>',
-)}`;
 
 export function ConsoleLayout() {
   const { session, tenant, loading, signOut } = useAuth();
@@ -36,8 +33,8 @@ export function ConsoleLayout() {
   return (
     <ProLayout
       className="console-layout"
-      title="知伴健康 Agent"
-      logo={LOGO}
+      title={false}
+      logo={<img className="brand-logo" src={logoUrl} alt="知伴健康 Agent" />}
       layout="mix"
       navTheme="light"
       fixedHeader

@@ -4,6 +4,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
+import logoUrl from '../../assets/zhiban-logo.png';
 import { MOCK_PASSWORD, isMockMode } from '../../mock/api.ts';
 
 const { Paragraph, Text, Title } = Typography;
@@ -52,10 +53,7 @@ export function LoginPage() {
     <div className="login-page">
       <section className="login-brand">
         <div className="login-brand-inner">
-          <div className="brand-mark brand-mark-large">知</div>
-          <Title level={1} className="login-title">
-            知伴健康 Agent
-          </Title>
+          <img className="login-logo" src={logoUrl} alt="知伴健康 Agent" />
           <Paragraph className="login-subtitle">
             让健康管理团队的每一次回复，都有依据、可核验、能复盘。
           </Paragraph>
