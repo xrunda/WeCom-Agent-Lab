@@ -50,7 +50,7 @@ import type { SessionControllerLike } from './sessions.ts';
 export const name = 'zhiban-patient';
 
 /** storageDomain 由 dsh-storage-domain 提供；sessionController / tools 由宿主提供 */
-export const inject = ['storageDomain', 'sessionController'];
+export const inject = ['storageDomain', 'sessionController', 'tools'];
 
 type EffectCleanup = void | (() => void | Promise<void>);
 

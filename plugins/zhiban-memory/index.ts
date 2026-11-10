@@ -21,7 +21,7 @@ import { DomainMemoryBackend, memoryAuditTable, memoryDomain } from './domain.ts
 export const name = 'zhiban-memory';
 
 /** storageDomain 由 dsh-storage-domain 提供 */
-export const inject = ['storageDomain'];
+export const inject = ['storageDomain', 'tools'];
 
 type EffectCleanup = void | (() => void | Promise<void>);
 
