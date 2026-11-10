@@ -23,7 +23,10 @@
     "pendingPlanCount": 1,
     "createdAt": 1789434000000,
     "updatedAt": 1794210000000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "confirmed",
+    "identitySource": "manual",
+    "identityConfirmedAt": 1794210000000
   },
   {
     "id": "pat_02",
@@ -49,7 +52,10 @@
     "pendingPlanCount": 1,
     "createdAt": 1789869600000,
     "updatedAt": 1794207900000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "confirmed",
+    "identitySource": "manual",
+    "identityConfirmedAt": 1794207900000
   },
   {
     "id": "pat_03",
@@ -74,7 +80,10 @@
     "pendingPlanCount": 0,
     "createdAt": 1790910000000,
     "updatedAt": 1794139800000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "confirmed",
+    "identitySource": "manual",
+    "identityConfirmedAt": 1794139800000
   },
   {
     "id": "pat_04",
@@ -100,7 +109,10 @@
     "pendingPlanCount": 1,
     "createdAt": 1791442800000,
     "updatedAt": 1794205800000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "confirmed",
+    "identitySource": "manual",
+    "identityConfirmedAt": 1794205800000
   },
   {
     "id": "pat_05",
@@ -126,7 +138,10 @@
     "pendingPlanCount": 0,
     "createdAt": 1793496600000,
     "updatedAt": 1794207300000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "confirmed",
+    "identitySource": "manual",
+    "identityConfirmedAt": 1794207300000
   },
   {
     "id": "pat_06",
@@ -151,6 +166,8 @@
     "pendingPlanCount": 0,
     "createdAt": 1793671200000,
     "updatedAt": 1794184800000,
-    "deletedAt": null
+    "deletedAt": null,
+    "identityStatus": "pending",
+    "identitySource": "auto"
   }
 ]

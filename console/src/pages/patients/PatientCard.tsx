@@ -55,6 +55,13 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
       </div>
 
       <Space size={[6, 6]} wrap style={{ marginTop: 14 }}>
+        {patient.identityStatus === 'pending' ? (
+          <Tooltip title="系统按群内发言推测患者，可能不是本人；打开详情确认身份">
+            <Tag bordered={false} color="gold" className="tag-tight">
+              身份待确认
+            </Tag>
+          </Tooltip>
+        ) : null}
         {patient.tags.map((tag) => (
           <Tag key={tag} bordered={false}>
             {tag}

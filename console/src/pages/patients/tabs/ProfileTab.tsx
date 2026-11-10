@@ -48,6 +48,24 @@ export function ProfileTab({ detail, term, canWrite, onSaved }: ProfileTabProps)
         items={[
           { key: 'name', label: `${term}备注名`, children: patient.displayName },
           {
+            key: 'identity',
+            label: '患者身份',
+            children:
+              patient.identityStatus === 'pending' ? (
+                <Tooltip title="系统按群内发言推测，可能不是本人；请在详情顶部确认身份">
+                  <Tag bordered={false} color="gold">
+                    待确认
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tooltip title={patient.identitySource === 'manual' ? '顾问已在控制台确认' : undefined}>
+                  <Tag bordered={false} color="green">
+                    已确认
+                  </Tag>
+                </Tooltip>
+              ),
+          },
+          {
             key: 'status',
             label: '服务状态',
             children: <Tag bordered={false}>{PATIENT_STATUS_LABELS[patient.status]}</Tag>,
