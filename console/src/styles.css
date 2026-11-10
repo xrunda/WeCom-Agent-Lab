@@ -213,13 +213,6 @@ a {
   max-width: 520px;
 }
 
-.login-title {
-  color: #fff !important;
-  margin: 24px 0 14px !important;
-  font-size: clamp(34px, 3.4vw, 48px) !important;
-  letter-spacing: -0.02em;
-}
-
 .login-subtitle {
   color: rgba(236, 254, 255, 0.86) !important;
   font-size: 18px;
@@ -249,12 +242,6 @@ a {
   margin-top: 4px;
   font-size: 18px;
   color: #99f6e4;
-}
-
-.login-brand-footnote {
-  color: rgba(236, 254, 255, 0.62) !important;
-  font-size: 12px;
-  letter-spacing: 0.04em;
 }
 
 .login-panel {

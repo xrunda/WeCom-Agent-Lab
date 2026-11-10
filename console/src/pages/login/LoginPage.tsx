@@ -71,7 +71,6 @@ export function LoginPage() {
               <span>会话存档只处理服务群，正文不落日志</span>
             </li>
           </ul>
-          <Text className="login-brand-footnote">P1 演示环境 · 所有数据均为虚构</Text>
         </div>
       </section>
 
