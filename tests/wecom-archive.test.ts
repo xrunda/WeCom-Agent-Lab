@@ -300,3 +300,132 @@ test('默认把群视为非服务群：正文不落缓存，日志只留计数',
   assert.match(output, /非服务群 1 条仅计数/);
   assert.match(output, /未采纳 msgid=…123456：非服务群/);
 });
+
+test('重启后回读能补到重启前窗口内的发送记录，且不推进主游标', async () => {
+  const sent = record({ msgid: 'm_before_restart', msgtime: 1_000 });
+  const inbound = record({
+    msgid: 'c_before_restart',
+    action: 'recv',
+    from: 'wmCUSTOMER',
+    msgtime: 900,
+  });
+  const bodies: Record<number, string> = {
+    0: dump(10, [inbound, sent]),
+    10: dump(20, []),
+    20: dump(20, []),
+  };
+  const calls: string[][] = [];
+  const adapter = new WeComArchiveAdapter({
+    binaryPath: '/bin/archive_dump',
+    privateKeyPath: './private_key.pem',
+    configPath: './config.txt',
+    isServiceGroup: () => true,
+    initialSeq: 10, // 模拟重启：持久化的 archive_seq=10
+    run: async (args) => {
+      calls.push(args);
+      return bodies[Number(args[1])] ?? dump(20, []);
+    },
+  });
+
+  const messages = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 });
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].msgid, 'm_before_restart');
+  // 主游标只前进到增量拉取的位置，不能因为补历史而回退
+  assert.equal(adapter.getSeq(), 20);
+  assert.ok(calls.some((args) => args[1] === '10'));
+  assert.ok(calls.some((args) => args[1] === '0'));
+  // 历史入站消息不能回到共享缓存，否则重启后 trigger 会重复触发
+  assert.ok(adapter.listCached().every((r) => r.msgid !== 'c_before_restart'));
+});
+
+test('补拉历史只发生一次，后续回读仍从主游标增量拉取', async () => {
+  const sent = record({ msgid: 'm_before_restart', msgtime: 1_000 });
+  const calls: string[][] = [];
+  let index = 0;
+  const outputs = [dump(20, []), dump(10, [sent]), dump(20, []), dump(20, [])];
+  const adapter = new WeComArchiveAdapter({
+    binaryPath: '/bin/archive_dump',
+    privateKeyPath: './private_key.pem',
+    configPath: './config.txt',
+    isServiceGroup: () => true,
+    initialSeq: 10,
+    run: async (args) => {
+      calls.push(args);
+      const out = outputs[Math.min(index, outputs.length - 1)];
+      index += 1;
+      return out;
+    },
+  });
+
+  const first = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 });
+  assert.equal(first.length, 1);
+
+  calls.length = 0;
+  const second = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 });
+  assert.equal(second.length, 1);
+  // 第二次只从主游标 20 拉增量，不再回退到 0
+  assert.ok(calls.every((args) => Number(args[1]) >= 20), JSON.stringify(calls));
+});
+
+test('补拉历史有批次上限，历史不可达时不会无限回拉', async () => {
+  const calls: string[][] = [];
+  const adapter = new WeComArchiveAdapter({
+    binaryPath: '/bin/archive_dump',
+    privateKeyPath: './private_key.pem',
+    configPath: './config.txt',
+    isServiceGroup: () => true,
+    initialSeq: 100,
+    batchSize: 2,
+    maxBatchesPerPoll: 1,
+    historyReplayRecords: 5,
+    historyReplayBatches: 2,
+    run: async (args) => {
+      calls.push(args);
+      const seq = Number(args[1]);
+      return dump(seq + 1, [
+        record({ msgid: `m_${seq}_a`, msgtime: 10_000 }),
+        record({ msgid: `m_${seq}_b`, msgtime: 10_000 }),
+      ]);
+    },
+  });
+
+  await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 20_000 });
+
+  // 1 次增量 + 2 次回退窗口 × 2 批，有界退出
+  assert.equal(calls.length, 5);
+  assert.equal(adapter.getSeq(), 101);
+});
+
+test('补拉失败不丢恢复点，下一次回读会重试', async () => {
+  const sent = record({ msgid: 'm_before_restart', msgtime: 1_000 });
+  let failReplay = true;
+  const adapter = new WeComArchiveAdapter({
+    binaryPath: '/bin/archive_dump',
+    privateKeyPath: './private_key.pem',
+    configPath: './config.txt',
+    isServiceGroup: () => true,
+    initialSeq: 10,
+    run: async (args) => {
+      const seq = Number(args[1]);
+      if (seq === 10) return dump(20, []);
+      if (seq === 0) {
+        if (failReplay) {
+          failReplay = false;
+          throw new Error('ARCHIVE_EXEC_FAILED test');
+        }
+        return dump(10, [sent]);
+      }
+      return dump(20, []);
+    },
+  });
+
+  await assert.rejects(
+    adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 }),
+    /ARCHIVE_EXEC_FAILED/,
+  );
+
+  const messages = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].msgid, 'm_before_restart');
+});
