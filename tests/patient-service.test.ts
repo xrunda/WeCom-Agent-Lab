@@ -467,3 +467,66 @@ test('setPatientIdentity：未绑定到该群、内部员工目标被拒绝', ()
     /MEMBER_NOT_EXTERNAL/,
   );
 });
+
+test('群发现时同步会话存档同意状态，患者同意状态跟随本人成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    externalIds: ['wm_patient', 'wm_family'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+  assert.equal(h.store.getPatient(patientId)?.consent, 'unknown');
+
+  h.service.observeGroup(
+    'wr_g1',
+    [
+      { id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 1 },
+      { id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 },
+    ],
+    {
+      memberConsent: {
+        wm_patient: 'agreed',
+        wm_family: 'unknown',
+        // 群里没有的 id、内部员工都不影响
+        wm_absent: 'disagreed',
+        'wang.guwen': 'agreed',
+      },
+    },
+  );
+
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'agreed');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.consent, 'unknown');
+  assert.equal(h.store.getPatient(patientId)?.consent, 'agreed');
+  assert.equal(
+    h.store.listMembers(group.id).find((member) => !member.isExternal)?.consent,
+    'agreed',
+  );
+});
+
+test('接口未返回某成员时不清空已有同意状态', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, { externalIds: ['wm_patient', 'wm_family'] });
+
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { memberConsent: { wm_patient: 'disagreed' } },
+  );
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'disagreed');
+
+  // 后续查询只返回了家属，患者成员保持原状态
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { memberConsent: { wm_family: 'agreed' } },
+  );
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'disagreed');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.consent, 'agreed');
+});

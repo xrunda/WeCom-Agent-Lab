@@ -23,6 +23,7 @@ import type {
   AgentCapabilities,
   AgentReplyDraftInput,
   AgentReplySkipInput,
+  ConsentStatus,
   InboundMessage,
   ManagedGroup,
   MergedInbound,
@@ -315,11 +316,14 @@ export class PatientAgentRuntime {
       }>;
       /** 整群昵称映射；用于更新本轮未发言的成员并回填患者 */
       memberNames?: Record<string, string>;
+      /** 会话存档同意状态；由企微 check_room_agree 返回，缺省时保持原状态 */
+      memberConsent?: Record<string, ConsentStatus>;
     }>,
   ): void {
     for (const room of rooms) {
       this.service.observeGroup(room.roomId, room.members, {
         memberNames: room.memberNames,
+        memberConsent: room.memberConsent,
       });
     }
   }

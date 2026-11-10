@@ -91,6 +91,8 @@ export class PatientService {
       groupNameSource?: GroupNameSource;
       /** 整群 userid → 昵称；用于更新没在本轮发言的成员并回填患者 */
       memberNames?: Record<string, string>;
+      /** 企微会话存档同意状态：externalUserid → agreed/disagreed */
+      memberConsent?: Record<string, ConsentStatus>;
     } = {},
   ): ManagedGroup {
     const now = this.clock.now();
@@ -138,6 +140,9 @@ export class PatientService {
     );
     group.updatedAt = now;
     this.store.saveGroup(group);
+    if (options.memberConsent) {
+      this.refreshConsent(group.id, options.memberConsent);
+    }
     return group;
   }
 

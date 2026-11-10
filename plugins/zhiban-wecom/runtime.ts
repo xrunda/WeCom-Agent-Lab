@@ -14,10 +14,15 @@ import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
 import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
-import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
+import type {
+  ConsentStatus,
+  InboundMessage as PatientInboundMessage,
+  RouteDecision,
+} from '../../src/p1/types.ts';
 import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
 import type { GroupInfoClient } from './group-info.ts';
+import type { RoomAgreeClient } from './room-agree.ts';
 
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
@@ -39,6 +44,11 @@ export interface PatientSink {
        * 也能据此更新名称与回填患者；拿不到昵称时缺省。
        */
       memberNames?: Record<string, string>;
+      /**
+       * externalUserid → 会话存档同意状态。来自企微 check_room_agree；
+       * 查询失败或未配置凭据时缺省，患者域保持原状态。
+       */
+      memberConsent?: Record<string, ConsentStatus>;
     }>,
   ): void;
   routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
@@ -62,6 +72,8 @@ export interface WecomRuntimeDeps {
   patient?: PatientSink;
   /** 群昵称查询（可选）：未配置凭据或查询失败时静默回退 id 尾号 */
   groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+  /** 会话存档同意状态（可选）：查询失败时静默保留原状态 */
+  roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
 }
 
 export interface StartOptions {
@@ -123,6 +135,7 @@ export class WecomRuntime {
   private readonly logger?: (line: string) => void;
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+  private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
@@ -143,6 +156,7 @@ export class WecomRuntime {
     this.logger = deps.logger;
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
+    this.roomAgree = deps.roomAgree;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -270,9 +284,9 @@ export class WecomRuntime {
   }
 
   /**
-   * 用客户联系 API 补群昵称。
-   * 未配置凭据、内部群（90501）或查询失败时原样返回，
-   * 患者域继续用「外部成员 …尾号」，不影响草稿链路。
+   * 用客户联系 API 补群昵称，用会话存档 API 补同意状态。
+   * 未配置凭据、内部群（90501）或查询失败时原样返回对应字段，
+   * 患者域继续用「外部成员 …尾号」/ 原同意状态，不影响草稿链路。
    */
   private async enrichRooms(
     rooms: Array<{
@@ -294,31 +308,56 @@ export class WecomRuntime {
         displayName?: string;
       }>;
       memberNames?: Record<string, string>;
+      memberConsent?: Record<string, ConsentStatus>;
     }>
   > {
     const groupInfo = this.groupInfo;
-    if (!groupInfo) return rooms;
+    const roomAgree = this.roomAgree;
+    if (!groupInfo && !roomAgree) return rooms;
 
     return Promise.all(
       rooms.map(async (room) => {
-        let names: Map<string, string> | undefined;
-        try {
-          names = await groupInfo.memberNames(room.roomId);
-        } catch {
-          names = undefined;
-        }
-        if (!names || names.size === 0) return room;
-        return {
-          ...room,
-          members: room.members.map((member) => {
-            const displayName = names?.get(member.id);
+        const [names, consent] = await Promise.all([
+          groupInfo ? this.safeMemberNames(groupInfo, room.roomId) : undefined,
+          roomAgree ? this.safeRoomConsent(roomAgree, room.roomId) : undefined,
+        ]);
+        if ((!names || names.size === 0) && !consent) return room;
+
+        const enriched = { ...room };
+        if (names && names.size > 0) {
+          enriched.members = room.members.map((member) => {
+            const displayName = names.get(member.id);
             return displayName ? { ...member, displayName } : member;
-          }),
+          });
           // 整群映射交给患者域：本轮没发言的成员也能更新名称、回填患者
-          memberNames: Object.fromEntries(names),
-        };
+          Object.assign(enriched, { memberNames: Object.fromEntries(names) });
+        }
+        if (consent) Object.assign(enriched, { memberConsent: consent });
+        return enriched;
       }),
     );
+  }
+
+  private async safeMemberNames(
+    client: Pick<GroupInfoClient, 'memberNames'>,
+    roomId: string,
+  ): Promise<Map<string, string> | undefined> {
+    try {
+      return await client.memberNames(roomId);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async safeRoomConsent(
+    client: Pick<RoomAgreeClient, 'roomConsent'>,
+    roomId: string,
+  ): Promise<Record<string, ConsentStatus> | undefined> {
+    try {
+      return await client.roomConsent(roomId);
+    } catch {
+      return undefined;
+    }
   }
 
   /** 跑一次串行队列与核验；测试可直接调用 */
