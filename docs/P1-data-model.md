@@ -288,6 +288,9 @@ media：文件在磁盘，元数据随消息保存
 | `displayName` | string | 否 | 备注名；占位名（`外部成员 …尾号`）会在拿到真实群昵称后自动回填，手工名不覆盖 |
 | `avatar` | string | 是 | |
 | `externalUserId` | string | 是 | 主外部成员 id（`wm...`），用于路由与同意状态 |
+| `identityStatus` | enum | 是 | `pending`（系统按发言猜测）/ `confirmed`（顾问手动确认/改绑） |
+| `identitySource` | enum | 是 | `auto` / `manual` |
+| `identityConfirmedAt` | number | 是 | 最近一次确认/改绑时间 |
 | `tags` | array<string> | 否 | 如 `["控糖","高血压"]`，控制台自由编辑 |
 | `advisorId` | string | 是 | 主责顾问 |
 | `groupIds` | array<string> | 否 | 派生：绑定群 |

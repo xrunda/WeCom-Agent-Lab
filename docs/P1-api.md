@@ -316,6 +316,10 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
       "id": "pat_01j9zb2c3d4e5f6g7h8j9k0m1n",
       "displayName": "张女士",
       "avatar": null,
+      "externalUserId": "wm...",
+      "identityStatus": "confirmed",
+      "identitySource": "manual",
+      "identityConfirmedAt": 1762645800000,
       "tags": ["控糖", "高血压"],
       "advisorId": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p",
       "groupIds": ["grp_01j9zd4e5f6g7h8j9k0m1n2p3q"],
@@ -353,11 +357,28 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "patient": { "id": "pat_...", "displayName": "张女士", "tags": ["控糖"], "consent": "agreed", "status": "serving", "demo": false, "memoryCount": 4, "pendingPlanCount": 2 },
+  "patient": { "id": "pat_...", "displayName": "张女士", "externalUserId": "wm...", "identityStatus": "confirmed", "identitySource": "manual", "identityConfirmedAt": 1762645800000, "tags": ["控糖"], "consent": "agreed", "status": "serving", "demo": false, "memoryCount": 4, "pendingPlanCount": 2 },
   "advisor": { "id": "adv_...", "name": "李顾问", "status": "active", "online": true },
   "groups": [{ "id": "grp_...", "name": "糖友-张女士", "status": "serving", "isPrimary": true }]
 }
 ```
+
+### `POST /patients/{id}/identity`
+
+角色：admin / supervisor。确认 / 改绑患者身份：把患者的企微身份指向其服务群里的一位外部成员。
+
+请求：
+
+```json
+{ "groupId": "grp_...", "externalUserId": "wm...", "displayName": "张女士" }
+```
+
+- `groupId`、`externalUserId` 必填；`displayName` 可选（缺省时跟随被选成员的昵称）。
+- 患者必须已绑定该服务群，否则 `422 VALIDATION_FAILED`（`NOT_BOUND`）。
+- 目标必须是该群的外部成员（个人微信），内部员工目标返回 `422`（`MEMBER_NOT_EXTERNAL`）。
+- 成功后：患者的 `externalUserId` 指向新成员，`consent` 跟随该成员，`identityStatus='confirmed'`、`identitySource='manual'`、`identityConfirmedAt` 置为当前时间；被选成员角色置为 `self`，原「本人」成员降为 `family`。
+
+响应 `200`：patient。审计 `patient.identity`（仅记录成员 id 尾号，不记录昵称）。
 
 ### `PATCH /patients/{id}`
 
@@ -566,8 +587,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 7. 服务群
 
-> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}` 已实现并有单测覆盖；
-> `GET /groups/{id}`、绑定与成员接口仍为契约待实现。控制台前端群页面暂未接入真实数据。
+> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}`、`GET /groups/{id}/members` 已实现并有单测覆盖；
+> `GET /groups/{id}`、绑定（`POST /groups/{id}/bindings`）与成员角色标注（`PATCH .../members/{id}`）仍为契约待实现。
+> 控制台前端群页面暂未接入真实数据。
 > 运维脚本 `npm run group:status` 基于本节接口，用于把演示群从 `pending` 改为 `serving`。
 
 ### `GET /groups`

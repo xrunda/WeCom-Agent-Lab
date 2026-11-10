@@ -342,3 +342,128 @@ test('整群昵称映射回填未发言的存量患者，手工名不覆盖', ()
   );
   assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
 });
+
+// ---------- 患者身份确认 / 改绑 ----------
+
+test('setPatientIdentity：员工先发言建出的待确认患者，可改绑为正确的外部成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_doctor', 'wm_patient'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+
+  // 员工先发言：自动建档绑到第一个外部成员，身份待确认
+  const staffTurn = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wang.guwen',
+    text: '大家下午好',
+    msgtime: h.clock.now(),
+  });
+  assert.equal(staffTurn.action, 'context');
+  const patientId = staffTurn.patientId;
+  assert.ok(patientId);
+  const auto = h.store.getPatient(patientId)!;
+  assert.equal(auto.externalUserId, 'wm_doctor');
+  assert.equal(auto.identityStatus, 'pending');
+  assert.equal(auto.identitySource, 'auto');
+
+  // 确认患者身份指向 wm_patient
+  const updated = h.service.setPatientIdentity(group.id, patientId, 'wm_patient', {
+    displayName: '张女士',
+  });
+  assert.equal(updated.externalUserId, 'wm_patient');
+  assert.equal(updated.identityStatus, 'confirmed');
+  assert.equal(updated.identitySource, 'manual');
+  assert.ok(updated.identityConfirmedAt);
+  assert.equal(updated.displayName, '张女士');
+
+  // wm_patient 成员标为「本人」，原成员保持原角色
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.role, 'self');
+  assert.equal(h.store.findMember(group.id, 'wm_doctor')?.role, 'unknown');
+});
+
+test('setPatientIdentity：把「本人」改绑到另一位成员时，原本人降为家属', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient', 'wm_family'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+  assert.equal(h.store.getPatient(patientId)?.externalUserId, 'wm_patient');
+
+  // 手工标注「本人」后再改绑到家属成员
+  const member = h.store.findMember(group.id, 'wm_patient')!;
+  h.service.annotateMember(group.id, member.id, 'self');
+  h.service.setPatientIdentity(group.id, patientId, 'wm_family');
+
+  const updated = h.store.getPatient(patientId)!;
+  assert.equal(updated.externalUserId, 'wm_family');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.role, 'self');
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.role, 'family');
+});
+
+test('setPatientIdentity：患者同意状态跟随被选成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient', 'wm_family'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+
+  h.service.setMemberConsent(group.id, 'wm_family', 'agreed');
+  h.service.setPatientIdentity(group.id, patientId, 'wm_family');
+  assert.equal(h.store.getPatient(patientId)?.consent, 'agreed');
+});
+
+test('setPatientIdentity：未绑定到该群、内部员工目标被拒绝', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+
+  // 另一个服务群（该患者未绑定）
+  const other = observeServiceGroup(h, {
+    roomId: 'wr_g2',
+    externalIds: ['wm_other'],
+    staffIds: ['wang.guwen'],
+  });
+  assert.throws(() => h.service.setPatientIdentity(other.id, patientId, 'wm_other'), /NOT_BOUND/);
+
+  // 内部员工不是可选目标
+  assert.throws(
+    () => h.service.setPatientIdentity(group.id, patientId, 'wang.guwen'),
+    /MEMBER_NOT_EXTERNAL/,
+  );
+});
