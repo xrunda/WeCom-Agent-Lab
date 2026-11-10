@@ -57,6 +57,9 @@ export interface CreatePatientInput {
   advisorId?: string;
   demo?: boolean;
   consent?: ConsentStatus;
+  identityStatus?: 'pending' | 'confirmed';
+  identitySource?: 'auto' | 'manual';
+  identityConfirmedAt?: number;
 }
 
 export class PatientService {
@@ -301,6 +304,9 @@ export class PatientService {
       tenantId: this.tenantId,
       displayName: input.displayName.trim() || '未命名患者',
       externalUserId: input.externalUserId,
+      identityStatus: input.identityStatus,
+      identitySource: input.identitySource,
+      identityConfirmedAt: input.identityConfirmedAt,
       tags: input.tags ?? [],
       advisorId: input.advisorId,
       consent: input.consent ?? 'unknown',
@@ -412,9 +418,14 @@ export class PatientService {
     if (role === 'self') {
       const patient = this.patientForGroup(groupId);
       if (patient && !patient.externalUserId) {
+        const now = this.clock.now();
         patient.externalUserId = member.externalUserId;
         patient.displayName = member.displayName;
-        patient.updatedAt = this.clock.now();
+        patient.consent = member.consent;
+        patient.identityStatus = 'confirmed';
+        patient.identitySource = 'manual';
+        patient.identityConfirmedAt = now;
+        patient.updatedAt = now;
         this.store.savePatient(patient);
       }
     }
@@ -459,6 +470,68 @@ export class PatientService {
     patient.consentCheckedAt = this.clock.now();
     patient.updatedAt = this.clock.now();
     this.store.savePatient(patient);
+    return patient;
+  }
+
+  /**
+   * 确认 / 改绑患者身份：把患者的企微身份指向服务群里的某位外部成员。
+   * - 患者姓名跟随新成员（可显式覆盖），同意状态取该成员的；
+   * - 被选中的成员标为「本人」，原「本人」成员降为「家属」；
+   * - 审计只记录 id 尾号，不记录昵称。
+   */
+  setPatientIdentity(
+    groupId: string,
+    patientId: string,
+    externalUserId: string,
+    opts: { displayName?: string } = {},
+  ): Patient {
+    const group = this.requireGroup(groupId);
+    const binding = this.store
+      .listBindingsByGroup(groupId)
+      .find((item) => item.patientId === patientId && item.deletedAt === undefined);
+    if (!binding) throw new Error(`NOT_BOUND ${patientId} ${groupId}`);
+
+    const member = this.store.findMember(groupId, externalUserId);
+    if (!member || !member.isExternal || !member.externalUserId) {
+      throw new Error(`MEMBER_NOT_EXTERNAL ${externalUserId}`);
+    }
+
+    const patient = this.requirePatient(patientId);
+    const now = this.clock.now();
+    const previous = patient.externalUserId;
+    const changed = previous !== externalUserId;
+
+    patient.externalUserId = externalUserId;
+    const rename = opts.displayName?.trim();
+    if (changed || !patient.displayName) {
+      patient.displayName = rename || member.displayName;
+    } else if (rename) {
+      patient.displayName = rename;
+    }
+    patient.consent = member.consent;
+    patient.identityStatus = 'confirmed';
+    patient.identitySource = 'manual';
+    patient.identityConfirmedAt = now;
+    patient.updatedAt = now;
+    this.store.savePatient(patient);
+
+    if (member.role !== 'self') {
+      member.role = 'self';
+      member.annotatedBy = 'console';
+      member.annotatedAt = now;
+      this.store.saveMember(member);
+    }
+    if (changed && previous) {
+      const oldMember = this.store.findMember(groupId, previous);
+      if (oldMember && oldMember.role === 'self') {
+        oldMember.role = 'family';
+        oldMember.annotatedBy = 'console';
+        oldMember.annotatedAt = now;
+        this.store.saveMember(oldMember);
+      }
+    }
+
+    this.audit('console', 'patient.identity', patientId, `changed ${tailId(previous)}→${tailId(externalUserId)}`);
     return patient;
   }
 
@@ -554,26 +627,39 @@ export class PatientService {
 
   /**
    * 服务群尚未绑定患者时建档并绑定：
-   * - 外部成员发言：以发言人为患者；
-   * - 内部员工先发言：用群里第一个外部成员建档，避免上下文无处可写。
+   * - 外部成员发言：以发言人为患者，身份待确认（除非已标注「本人」）；
+   * - 内部员工先发言：用群里第一个外部成员建档（仍是猜测，身份待确认），
+   *   避免上下文无处可写；顾问应在控制台确认/改绑真实患者。
    */
   ensurePatientForGroup(group: ManagedGroup, speaker: Speaker): Patient | undefined {
     const bound = this.patientForGroup(group.id);
     if (bound) {
       if (!bound.externalUserId && speaker.isExternal && speaker.role === 'self') {
+        const now = this.clock.now();
         bound.externalUserId = speaker.id;
+        bound.displayName = speaker.displayName;
+        bound.consent = this.store.findMember(group.id, speaker.id)?.consent ?? 'unknown';
+        bound.identityStatus = 'confirmed';
+        bound.identitySource = 'manual';
+        bound.identityConfirmedAt = now;
+        bound.updatedAt = now;
       }
       return bound;
     }
 
     if (speaker.isExternal) {
       const member = this.store.findMember(group.id, speaker.id);
+      const confirmed = member?.role === 'self';
+      const now = this.clock.now();
       const patient = this.createPatient({
         displayName: speaker.displayName,
         externalUserId: speaker.id,
         advisorId: group.advisorId,
         consent: member?.consent ?? 'unknown',
         demo: group.demo,
+        identityStatus: confirmed ? 'confirmed' : 'pending',
+        identitySource: confirmed ? 'manual' : 'auto',
+        identityConfirmedAt: confirmed ? now : undefined,
       });
       this.bindPatient(group.id, patient.id, true);
       return patient;
@@ -590,6 +676,8 @@ export class PatientService {
       advisorId: group.advisorId,
       consent: source.consent,
       demo: group.demo,
+      identityStatus: 'pending',
+      identitySource: 'auto',
     });
     this.bindPatient(group.id, patient.id, true);
     return patient;

@@ -34,6 +34,7 @@ import type {
   AgentCapabilities,
   ConsentStatus,
   GroupBinding,
+  GroupMember,
   GroupServiceStatus,
   InboundMessage,
   ManagedGroup,
@@ -182,6 +183,15 @@ export interface PatientRuntimeApi {
   bindPatient(groupId: string, patientId: string, isPrimary?: boolean): GroupBinding;
   /** 患者 ↔ 群绑定（含是否主群） */
   getPatientBindings(id: string): Array<{ groupId: string; isPrimary: boolean }>;
+  /** 确认 / 改绑患者身份：把患者指向服务群里的一位外部成员 */
+  setPatientIdentity(
+    groupId: string,
+    patientId: string,
+    externalUserId: string,
+    opts?: { displayName?: string },
+  ): Patient;
+  /** 服务群成员列表（含角色/同意），用于「设为患者」选择 */
+  listGroupMembers(groupId: string): GroupMember[];
   /** #59：数据与安全页的患者存档同意状态统计 */
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录，控制台 Agent 主页读取 */
@@ -525,6 +535,12 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
             groupId: binding.groupId,
             isPrimary: binding.isPrimary,
           })),
+        setPatientIdentity: (groupId, patientId, externalUserId, opts = {}) => {
+          const updated = service.setPatientIdentity(groupId, patientId, externalUserId, opts);
+          return { ...updated, tags: [...updated.tags] };
+        },
+        listGroupMembers: (groupId) =>
+          (store?.listMembers(groupId) ?? []).map((member) => ({ ...member })),
         consentStats: () => {
           const stats = { agreed: 0, unknown: 0, disagreed: 0, total: 0 };
           for (const patient of store?.listPatients() ?? []) {

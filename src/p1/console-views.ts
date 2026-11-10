@@ -167,6 +167,11 @@ export interface PatientView {
   displayName: string;
   avatar: string | null;
   externalUserId: string | null;
+  /** 患者身份确认状态：pending=按发言猜测待确认；confirmed=顾问手动指定 */
+  identityStatus: 'pending' | 'confirmed';
+  /** 身份来源：auto=按发言自动猜测；manual=顾问在控制台确认/改绑 */
+  identitySource: 'auto' | 'manual';
+  identityConfirmedAt: number | null;
   tags: string[];
   advisorId: string | null;
   groupIds: string[];
@@ -626,6 +631,9 @@ export function patientView(
     displayName: patient.displayName,
     avatar: patient.avatar ?? null,
     externalUserId: patient.externalUserId ?? null,
+    identityStatus: patient.identityStatus ?? 'pending',
+    identitySource: patient.identitySource ?? 'auto',
+    identityConfirmedAt: patient.identityConfirmedAt ?? null,
     tags: [...patient.tags],
     advisorId: opts.advisorId ?? patient.advisorId ?? null,
     groupIds: [...opts.groupIds],

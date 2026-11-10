@@ -161,6 +161,23 @@ interface PatientApi {
     groupId: string,
     patch: { name?: string; status?: string; advisorId?: string },
   ): FakeGroup;
+  /** 确认 / 改绑患者身份 */
+  setPatientIdentity?(
+    groupId: string,
+    patientId: string,
+    externalUserId: string,
+    opts?: { displayName?: string },
+  ): Patient;
+  /** 服务群成员列表（用于「设为患者」选择） */
+  listGroupMembers?(groupId: string): Array<{
+    id: string;
+    externalUserId?: string;
+    externalUserIdTail?: string;
+    displayName: string;
+    isExternal: boolean;
+    role: string;
+    consent: string;
+  }>;
 }
 
 interface FakeGroup {
@@ -1154,6 +1171,61 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
         updatedAt: Date.now() - 86_400_000,
       },
     ],
+    listGroupMembers: (groupId: string) => {
+      if (groupId !== 'grp_1') throw new Error('GROUP_NOT_FOUND');
+      return [
+        {
+          id: 'gm_1',
+          externalUserId: 'wm_test_1',
+          externalUserIdTail: '…test_1',
+          displayName: '汪女士',
+          isExternal: true,
+          role: 'self',
+          consent: 'agreed',
+        },
+        {
+          id: 'gm_2',
+          externalUserId: 'wm_family_1',
+          externalUserIdTail: '…ily_1',
+          displayName: '家人小张',
+          isExternal: true,
+          role: 'family',
+          consent: 'unknown',
+        },
+        {
+          id: 'gm_3',
+          staffUserId: 'LiGuang',
+          displayName: '李光',
+          isExternal: false,
+          role: 'advisor',
+          consent: 'agreed',
+        },
+      ];
+    },
+    setPatientIdentity: (
+      groupId: string,
+      patientId: string,
+      externalUserId: string,
+      opts: { displayName?: string } = {},
+    ) => {
+      if (groupId !== 'grp_1') throw new Error('NOT_BOUND');
+      const index = patients.findIndex((patient) => patient.id === patientId);
+      if (index < 0) throw new Error('PATIENT_NOT_FOUND');
+      if (!['wm_test_1', 'wm_family_1'].includes(externalUserId)) {
+        throw new Error('MEMBER_NOT_EXTERNAL');
+      }
+      const updated = {
+        ...patients[index]!,
+        externalUserId,
+        identityStatus: 'confirmed' as const,
+        identitySource: 'manual' as const,
+        identityConfirmedAt: Date.now(),
+        displayName: opts.displayName ?? (externalUserId === 'wm_test_1' ? '汪女士' : '家人小张'),
+        updatedAt: Date.now(),
+      };
+      patients[index] = updated;
+      return updated;
+    },
     getPatientGroups: (id: string) =>
       id === 'pat_1'
         ? {
@@ -1368,6 +1440,84 @@ test('患者：真实患者列表区分 demo，详情含群与顾问，健康档
 
   const missing = await call('GET', '/zhiban/api/patients/pat_404', { cookie });
   assert.equal(missing.status, 404);
+});
+
+test('患者身份：群成员列表可读，改绑患者写权限与校验生效', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+  const cookie = admin.cookie;
+
+  // 群成员列表：外部成员（含角色/同意）+ 内部员工
+  const members = await call('GET', '/zhiban/api/groups/grp_1/members', { cookie });
+  assert.equal(members.status, 200);
+  const memberBody = members.json() as unknown as {
+    items: Array<Record<string, unknown>>;
+    total: number;
+  };
+  assert.equal(memberBody.total, 3);
+  assert.equal(memberBody.items[0]!.displayName, '汪女士');
+  assert.equal(memberBody.items[0]!.role, 'self');
+  assert.equal(memberBody.items[0]!.consent, 'agreed');
+  assert.equal(memberBody.items[2]!.isExternal, false);
+
+  const notFound = await call('GET', '/zhiban/api/groups/grp_404/members', { cookie });
+  assert.equal(notFound.status, 404);
+
+  // 改绑患者：指向群内另一位外部成员，返回已确认的 patientView
+  const rebind = await call('POST', '/zhiban/api/patients/pat_1/identity', {
+    cookie,
+    body: { groupId: 'grp_1', externalUserId: 'wm_family_1' },
+  });
+  assert.equal(rebind.status, 200);
+  const rebindBody = rebind.json() as {
+    externalUserId: string;
+    identityStatus: string;
+    identitySource: string;
+    displayName: string;
+  };
+  assert.equal(rebindBody.externalUserId, 'wm_family_1');
+  assert.equal(rebindBody.identityStatus, 'confirmed');
+  assert.equal(rebindBody.identitySource, 'manual');
+  assert.equal(rebindBody.displayName, '家人小张');
+
+  // 校验失败：未绑定该群 / 内部员工目标 / 缺参
+  const notBound = await call('POST', '/zhiban/api/patients/pat_1/identity', {
+    cookie,
+    body: { groupId: 'grp_other', externalUserId: 'wm_family_1' },
+  });
+  assert.equal(notBound.status, 422);
+  const internal = await call('POST', '/zhiban/api/patients/pat_1/identity', {
+    cookie,
+    body: { groupId: 'grp_1', externalUserId: 'LiGuang' },
+  });
+  assert.equal(internal.status, 422);
+  const missingArg = await call('POST', '/zhiban/api/patients/pat_1/identity', {
+    cookie,
+    body: { groupId: 'grp_1' },
+  });
+  assert.equal(missingArg.status, 422);
+
+  // 只读账号：读成员列表 OK，改绑被拒
+  await call('POST', '/zhiban/api/accounts', {
+    cookie,
+    body: {
+      username: 'viewer.identity',
+      displayName: '只读二号',
+      role: 'viewer',
+      password: 'ViewerPass123',
+    },
+  });
+  const viewer = await login(call, 'viewer.identity', 'ViewerPass123');
+  const canRead = await call('GET', '/zhiban/api/groups/grp_1/members', {
+    cookie: viewer.cookie,
+  });
+  assert.equal(canRead.status, 200);
+  const forbidden = await call('POST', '/zhiban/api/patients/pat_1/identity', {
+    cookie: viewer.cookie,
+    body: { groupId: 'grp_1', externalUserId: 'wm_family_1' },
+  });
+  assert.equal(forbidden.status, 403);
 });
 
 test('服务流：行来自真实草稿，详情只从存档证据生成送达记录', async () => {

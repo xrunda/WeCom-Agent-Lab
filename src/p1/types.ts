@@ -88,6 +88,11 @@ export interface Patient {
   avatar?: string;
   /** 主外部成员 id（wm...），用于路由与同意状态 */
   externalUserId?: string;
+  /** 患者身份确认状态：待确认（系统按发言猜测）或已确认（顾问手动指定） */
+  identityStatus?: 'pending' | 'confirmed';
+  /** 身份来源：auto=按发言自动猜测；manual=顾问在控制台确认/改绑 */
+  identitySource?: 'auto' | 'manual';
+  identityConfirmedAt?: number;
   tags: string[];
   advisorId?: string;
   groupIds?: string[];

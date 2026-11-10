@@ -61,6 +61,7 @@ import type {
   AdvisorRecord,
   ConsentStatus,
   GroupBinding,
+  GroupMember,
   GroupServiceStatus,
   Patient,
 } from '../../src/p1/types.ts';
@@ -186,6 +187,15 @@ interface PatientApiLike {
   }): Patient;
   bindPatient?(groupId: string, patientId: string, isPrimary?: boolean): GroupBinding;
   getPatientBindings?(id: string): Array<{ groupId: string; isPrimary: boolean }>;
+  /** 确认 / 改绑患者身份：把患者指向服务群里的某位外部成员 */
+  setPatientIdentity?(
+    groupId: string,
+    patientId: string,
+    externalUserId: string,
+    opts?: { displayName?: string },
+  ): Patient;
+  /** 群成员列表（含角色/同意状态），用于「设为患者」选择 */
+  listGroupMembers?(groupId: string): GroupMember[];
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
@@ -921,6 +931,35 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       { permission: 'patient.write' },
     );
 
+    // 群成员列表：用于「在群内把某位成员设为当前 Agent 的患者」
+    router.add(
+      'GET',
+      '/groups/:id/members',
+      (rc) => {
+        tenantActor(rc);
+        const api = patientReadApi();
+        const group = api?.listGroups?.().find((item) => item.id === rc.params.id!);
+        if (!group) throw new ConsoleError('NOT_FOUND', '群不存在');
+        const members = api?.listGroupMembers?.(rc.params.id!) ?? [];
+        const items = members.map((member) => ({
+          id: member.id,
+          groupId: rc.params.id!,
+          externalUserId: member.externalUserId ?? null,
+          externalUserIdTail: member.externalUserIdTail ?? null,
+          displayName: member.displayName,
+          isExternal: member.isExternal,
+          staffUserId: member.staffUserId ?? null,
+          role: member.role,
+          consent: member.consent,
+          lastActiveAt: member.lastActiveAt ?? null,
+          annotatedBy: member.annotatedBy ?? null,
+          annotatedAt: member.annotatedAt ?? null,
+        }));
+        respond(rc, 200, { items, total: items.length });
+      },
+      { permission: 'patient.read' },
+    );
+
     // ---------- 真实数据：工作台 / 患者 / 顾问 / 服务流（P1-api §4–§8） ----------
 
     const patientReadApi = (): PatientApiLike | undefined => ctx.get<PatientApiLike>('zhibanPatient');
@@ -1425,6 +1464,67 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         store.appendAudit(
           auditRecord(config.tenantId, actor, 'patient.update', 'patient', updated.id, {
             fields: Object.keys(patch),
+          }),
+        );
+        const lookups = consoleLookups();
+        respond(
+          rc,
+          200,
+          patientView(updated, {
+            groupIds: lookups.bindings
+              .filter((binding) => binding.patientId === updated.id)
+              .map((binding) => binding.groupId),
+            advisorId: patientAdvisorId(updated, lookups.groups, lookups.bindings),
+            memoryCount: consoleMemoryCount(updated.id),
+            pendingPlanCount: consolePendingPlans(updated.id),
+          }),
+        );
+      },
+      { permission: 'patient.write' },
+    );
+
+    // 确认 / 改绑患者身份：把患者指向服务群里的一位外部成员
+    router.add(
+      'POST',
+      '/patients/:id/identity',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const api = patientReadApi();
+        if (!api?.setPatientIdentity) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        const patient = requirePatient(rc.params.id!);
+        const body = await rc.json<Record<string, unknown>>();
+        const groupId = typeof body.groupId === 'string' ? body.groupId.trim() : '';
+        const externalUserId =
+          typeof body.externalUserId === 'string' ? body.externalUserId.trim() : '';
+        if (!groupId) throw new ConsoleError('VALIDATION_FAILED', 'groupId 不能为空');
+        if (!externalUserId) {
+          throw new ConsoleError('VALIDATION_FAILED', 'externalUserId 不能为空');
+        }
+        if (body.displayName !== undefined && typeof body.displayName !== 'string') {
+          throw new ConsoleError('VALIDATION_FAILED', 'displayName 必须是字符串');
+        }
+        const opts: { displayName?: string } =
+          typeof body.displayName === 'string' && body.displayName.trim() !== ''
+            ? { displayName: body.displayName.trim() }
+            : {};
+        let updated: Patient;
+        try {
+          updated = api.setPatientIdentity(groupId, patient.id, externalUserId, opts);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('NOT_BOUND')) {
+            throw new ConsoleError('VALIDATION_FAILED', '患者未绑定该服务群');
+          }
+          if (message.startsWith('MEMBER_NOT_EXTERNAL')) {
+            throw new ConsoleError('VALIDATION_FAILED', '该成员不是服务群的外部成员');
+          }
+          if (message.startsWith('PATIENT_NOT_FOUND')) throw new ConsoleError('NOT_FOUND', '患者不存在');
+          if (message.startsWith('GROUP_NOT_FOUND')) throw new ConsoleError('NOT_FOUND', '群不存在');
+          throw error;
+        }
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'patient.identity', 'patient', updated.id, {
+            groupId,
           }),
         );
         const lookups = consoleLookups();
