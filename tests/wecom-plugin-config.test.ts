@@ -137,3 +137,25 @@ test('升级主管列表可空；配置时去空、去重', () => {
     (error: unknown) => error instanceof WecomConfigError && error.code === 'CONFIG_INVALID',
   );
 });
+
+test('群昵称凭据：插件配置优先，缺省读环境变量', () => {
+  const fromEnv = parsePluginConfig(raw(), {
+    WECOM_CORPID: 'corp_env',
+    WECOM_CONTACT_SECRET: 'contact_env_secret',
+  });
+  assert.equal(fromEnv.corpId, 'corp_env');
+  assert.equal(fromEnv.contactSecret, 'contact_env_secret');
+
+  const explicit = parsePluginConfig(
+    raw({ corpId: 'corp_cfg', contactSecret: 'contact_cfg_secret' }),
+    { WECOM_CORPID: 'corp_env', WECOM_CONTACT_SECRET: 'contact_env_secret' },
+  );
+  assert.equal(explicit.corpId, 'corp_cfg');
+  assert.equal(explicit.contactSecret, 'contact_cfg_secret');
+});
+
+test('未配置群昵称凭据时字段为空，不影响启动', () => {
+  const config = parsePluginConfig(raw(), {});
+  assert.equal(config.corpId, undefined);
+  assert.equal(config.contactSecret, undefined);
+});

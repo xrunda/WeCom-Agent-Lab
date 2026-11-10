@@ -260,3 +260,45 @@ test('#33 重启后群状态、绑定与患者会话不丢', async () => {
   assert.equal(service2.patientForGroup(reloaded!.id)?.id, patient.id);
   assert.equal(store2.getSession(patient.id)?.sessionId, 'session_persisted');
 });
+
+test('真实群昵称回填存量患者；手工名与其他成员昵称不覆盖', () => {
+  const h = setupPatient();
+  const group = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_zhang', isExternal: true, lastActiveAt: h.clock.now() }],
+    { groupName: '减重-张女士' },
+  );
+  h.service.setGroupStatus(group.id, 'serving');
+
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_zhang',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  assert.equal(decision.action, 'turn');
+  const patientId = decision.patientId;
+  assert.ok(patientId);
+  // 存档没有昵称时是占位名
+  assert.equal(h.store.getPatient(patientId)?.displayName, '外部成员 …_zhang');
+
+  // 客户联系 API 返回真实昵称 → 回填
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_zhang', isExternal: true, displayName: '张女士', lastActiveAt: h.clock.now() + 1 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+
+  // 群里其他成员（家属）的昵称不覆盖患者
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_family', isExternal: true, displayName: '张女士的女儿', lastActiveAt: h.clock.now() + 2 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+
+  // 员工手工改过名字后，群昵称不再覆盖
+  h.service.updatePatient(patientId, { displayName: '张女士（本人）' });
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_zhang', isExternal: true, displayName: '张女士（群昵称）', lastActiveAt: h.clock.now() + 3 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
+});

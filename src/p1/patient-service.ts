@@ -34,6 +34,15 @@ export interface ObservedMember {
   lastActiveAt?: number;
 }
 
+/**
+ * 是否是系统生成的占位名（存档没有昵称时用 id 尾号）。
+ * 只有占位名允许被真实群昵称回填，员工手工改过的名字不动。
+ */
+function isFallbackDisplayName(name: string, externalUserId: string): boolean {
+  const tail = tailId(externalUserId);
+  return name === `外部成员 ${tail}` || name === `外部客户 ${tail}`;
+}
+
 export interface PatientServiceOptions {
   tenantId: string;
   /** 默认 false：unknown 允许服务并提示；disagreed 永远不自动服务 */
@@ -105,6 +114,9 @@ export class PatientService {
     for (const observed of members) {
       if (observed.isExternal) externalCount += 1;
       this.upsertMember(group, observed, now);
+      if (observed.isExternal && observed.displayName) {
+        this.backfillPatientName(group.id, observed, now);
+      }
     }
 
     group.memberCount = members.length;
@@ -147,6 +159,21 @@ export class PatientService {
       lastActiveAt: observed.lastActiveAt,
     };
     this.store.saveMember(member);
+  }
+
+  /**
+   * 客户联系 API 拿到的真实昵称补到存量患者上。
+   * 只替换系统占位名「外部成员 …尾号」；员工改过名（或患者绑定的是别人）时不覆盖。
+   */
+  private backfillPatientName(groupId: string, observed: ObservedMember, now: number): void {
+    if (!observed.displayName) return;
+    const patient = this.patientForGroup(groupId);
+    if (!patient || patient.externalUserId !== observed.id) return;
+    if (!isFallbackDisplayName(patient.displayName, observed.id)) return;
+    if (observed.displayName === patient.displayName) return;
+    patient.displayName = observed.displayName;
+    patient.updatedAt = now;
+    this.store.savePatient(patient);
   }
 
   // ---------- 服务状态 ----------

@@ -28,6 +28,7 @@ import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../
 
 import { parsePluginConfig, serviceGroupFilter } from './config.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
+import { GroupInfoClient } from './group-info.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
 
@@ -392,6 +393,18 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       });
 
       const clock = { now: () => Date.now() };
+
+      // 群昵称：凭据齐全才启用；不可用时患者域继续显示 id 尾号
+      const groupInfo = new GroupInfoClient({
+        corpId: config.corpId,
+        contactSecret: config.contactSecret,
+        clock,
+        logger: log,
+      });
+      if (!groupInfo.enabled) {
+        log('群昵称查询未启用：缺少 contactSecret / corpId，成员显示 id 尾号');
+      }
+
       const archive = new WeComArchiveAdapter({
         binaryPath: config.archive.binaryPath,
         privateKeyPath: config.archive.privateKeyPath,
@@ -507,6 +520,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         config,
         clock,
         patient: patientSink,
+        groupInfo,
         emit: (type, data) => {
           ctx.emit(type, data);
         },

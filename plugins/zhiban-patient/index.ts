@@ -105,7 +105,13 @@ export interface PatientRuntimeApi {
   observeRooms(
     rooms: Array<{
       roomId: string;
-      members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        /** 客户联系 API 拿到的群昵称；缺省时患者域回退 id 尾号 */
+        displayName?: string;
+      }>;
     }>,
   ): void;
   routeInbound(message: InboundMessage): { handled: boolean; decision: RouteDecision };

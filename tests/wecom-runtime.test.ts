@@ -8,7 +8,9 @@ import { ArchiveTrigger } from '../src/c2/trigger.ts';
 import type { Draft } from '../src/c2/types.ts';
 import { parsePluginConfig, type WecomPluginConfig } from '../plugins/zhiban-wecom/config.ts';
 import { DomainStore, MemoryStoreBackend } from '../plugins/zhiban-wecom/domain.ts';
+import type { GroupInfoClient } from '../plugins/zhiban-wecom/group-info.ts';
 import { WecomRuntime, makeTemplateCompose } from '../plugins/zhiban-wecom/runtime.ts';
+import type { PatientSink } from '../plugins/zhiban-wecom/runtime.ts';
 
 const CUSTOMER_TEXT = '客户说血糖有点高，晚上睡不好';
 const ADV = 'adv_1';
@@ -46,7 +48,13 @@ interface Harness {
   logs: string[];
 }
 
-function harness(options: { environment?: 'demo' | 'dev' } = {}): Harness {
+function harness(
+  options: {
+    environment?: 'demo' | 'dev';
+    groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+    patient?: PatientSink;
+  } = {},
+): Harness {
   const clock = new FakeClock(1_000_000);
   const store = new DomainStore(new MemoryStoreBackend());
   const pluginConfig = { ...config(), environment: options.environment ?? 'demo' };
@@ -119,6 +127,8 @@ function harness(options: { environment?: 'demo' | 'dev' } = {}): Harness {
       events.push({ type, data });
     },
     logger: (line) => logs.push(line),
+    groupInfo: options.groupInfo,
+    patient: options.patient,
   });
 
   return { clock, store, bot, service, runtime, events, logs };
@@ -463,4 +473,62 @@ test('重启后回读补历史：重启前已确认的草稿仍能核验为 VERI
   await runtime2.stop();
 
   assert.equal(store2.getDraft(draft.id)?.status, 'VERIFIED');
+});
+
+function recordingPatient(observed: Parameters<PatientSink['observeRooms']>[0]): PatientSink {
+  return {
+    observeRooms: (rooms) => {
+      observed.push(...rooms);
+    },
+    routeInbound: () => ({
+      handled: false,
+      decision: { action: 'ignore', reason: 'PATIENT_UNAVAILABLE' },
+    }),
+    handleDraftVerified: async () => undefined,
+    handleAdvisorText: async () => false,
+  };
+}
+
+test('群发现时用客户联系 API 补真实群昵称', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      memberNames: async (roomId) =>
+        roomId === 'wrGROUP1' ? new Map([['wmCUSTOMER', '张女士']]) : undefined,
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const member = observed.flatMap((room) => room.members).find((item) => item.id === 'wmCUSTOMER');
+  assert.equal(member?.displayName, '张女士');
+});
+
+test('群昵称查询失败或异常时保持 id 尾号回退，草稿链路不受影响', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      memberNames: async () => {
+        throw new Error('WECOM_DOWN');
+      },
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const member = observed.flatMap((room) => room.members).find((item) => item.id === 'wmCUSTOMER');
+  assert.equal(member?.displayName, undefined);
+  // 昵称失败不影响草稿生成
+  assert.equal(h.store.listDrafts().length, 1);
+  assert.ok(!h.logs.join('\n').includes('WECOM_DOWN'));
 });

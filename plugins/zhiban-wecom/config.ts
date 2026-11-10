@@ -30,6 +30,13 @@ export interface WecomPluginConfigInput {
   groupChatId?: unknown;
   /** #39：升级时 1:1 推送的主管（企微 userid），可空 */
   supervisorChatIds?: unknown;
+  /**
+   * 客户联系 API 凭据，用于查外部群的真实群昵称。
+   * 缺省从 WECOM_CONTACT_SECRET / WECOM_CORPID 读取；都不配时昵称功能关闭，
+   * 界面继续显示 id 尾号。
+   */
+  contactSecret?: unknown;
+  corpId?: unknown;
   mediaRootDir?: unknown;
   pollIntervalMs?: unknown;
   tickIntervalMs?: unknown;
@@ -58,6 +65,9 @@ export interface WecomPluginConfig {
   groupName: string;
   groupChatId?: string;
   supervisorChatIds: string[];
+  /** 客户联系 Secret；与 corpId 同时存在时才启用群昵称查询 */
+  contactSecret?: string;
+  corpId?: string;
   mediaRootDir: string;
   pollIntervalMs: number;
   tickIntervalMs: number;
@@ -205,6 +215,11 @@ export function parsePluginConfig(
     groupName: requiredString(input.groupName, 'groupName'),
     groupChatId: optionalString(input.groupChatId, 'groupChatId'),
     supervisorChatIds: optionalStringList(input.supervisorChatIds, 'supervisorChatIds'),
+    // 群昵称凭据：插件配置优先，否则读环境变量；两者都缺时功能静默关闭
+    contactSecret:
+      optionalString(input.contactSecret, 'contactSecret') ??
+      optionalString(env.WECOM_CONTACT_SECRET, 'WECOM_CONTACT_SECRET'),
+    corpId: optionalString(input.corpId, 'corpId') ?? optionalString(env.WECOM_CORPID, 'WECOM_CORPID'),
     mediaRootDir: requiredString(input.mediaRootDir, 'mediaRootDir'),
     pollIntervalMs: boundedInt(input.pollIntervalMs, 'pollIntervalMs', 1_000, 300_000, DEFAULTS.pollIntervalMs),
     tickIntervalMs: boundedInt(input.tickIntervalMs, 'tickIntervalMs', 1_000, 60_000, DEFAULTS.tickIntervalMs),

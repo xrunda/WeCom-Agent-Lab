@@ -248,7 +248,7 @@ media：文件在磁盘，元数据随消息保存
 | `groupId` | string | 否 | |
 | `externalUserId` | string | 是 | 外部成员企微 id（`wm...`）；内部员工为空 |
 | `externalUserIdTail` | string | 是 | 后 6 位，用于界面展示 |
-| `displayName` | string | 否 | 备注名或姓名；存档无昵称时用 id 尾号 |
+| `displayName` | string | 否 | 群昵称或姓名；存档无昵称（F8）时用 id 尾号 |
 | `isExternal` | boolean | 否 | |
 | `staffUserId` | string | 是 | 内部员工的企微 userid |
 | `role` | enum | 否 | `self` / `family` / `advisor` / `colleague` / `unknown` |
@@ -259,6 +259,7 @@ media：文件在磁盘，元数据随消息保存
 
 - 未标注一律 `unknown`；`advisor` / `colleague` 内部员工由员工身份自动判定。
 - 一个外部成员在同一租户的多个群里可以有不同角色（P1 允许），以群内标注为准。
+- 群昵称来自「客户联系」接口 `externalcontact/groupchat/get?need_name=1`（需要可信 IP 与客户联系权限）；查询失败、内部群（90501）或未配置凭据时回退 id 尾号。昵称只用于界面展示，不写日志。
 
 ### 3.6 group_binding
 
@@ -284,7 +285,7 @@ media：文件在磁盘，元数据随消息保存
 |---|---|---|---|
 | `id` | string | 否 | `pat_...` |
 | `tenantId` | string | 否 | |
-| `displayName` | string | 否 | 备注名 |
+| `displayName` | string | 否 | 备注名；占位名（`外部成员 …尾号`）会在拿到真实群昵称后自动回填，手工名不覆盖 |
 | `avatar` | string | 是 | |
 | `externalUserId` | string | 是 | 主外部成员 id（`wm...`），用于路由与同意状态 |
 | `tags` | array<string> | 否 | 如 `["控糖","高血压"]`，控制台自由编辑 |
