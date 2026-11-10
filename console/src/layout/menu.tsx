@@ -8,18 +8,15 @@ import {
   CheckCircleOutlined,
   CloudServerOutlined,
   CommentOutlined,
-  CustomerServiceOutlined,
   DashboardOutlined,
   DeploymentUnitOutlined,
   ExperimentOutlined,
   HeartOutlined,
-  IdcardOutlined,
   KeyOutlined,
   LockOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
-  ShopOutlined,
   TeamOutlined,
   ThunderboltOutlined,
   UserOutlined,
@@ -28,7 +25,10 @@ import type { MenuDataItem } from '@ant-design/pro-components';
 
 /**
  * 完整菜单（P1-scope §4）。C 档入口用 `soon: true` 标记，
- * 由 ConsoleLayout 在菜单文字后追加「即将上线」角标。
+ * 由 ConsoleLayout 在菜单文字后追加「即将」小旗。
+ *
+ * 导航按「服务 / 客户运营 / 团队 / 智能配置 / 洞察 / 系统」分组平铺：
+ * 组标题只是标签，点开即达，减少逐级展开。系统设置保留二级菜单。
  * 称谓相关文案从参数传入，避免写死「患者」。
  */
 export function buildMenuItems(term: string): MenuDataItem[] {
@@ -44,9 +44,9 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       icon: <HeartOutlined />,
     },
     {
-      key: 'service',
-      name: '服务中心',
-      icon: <CustomerServiceOutlined />,
+      key: 'group-service',
+      type: 'group',
+      name: '服务',
       children: [
         { path: '/service-flow', name: '实时服务流', icon: <ThunderboltOutlined /> },
         { path: '/sandbox', name: '体验中心（沙盒）', icon: <ExperimentOutlined /> },
@@ -54,63 +54,81 @@ export function buildMenuItems(term: string): MenuDataItem[] {
       ],
     },
     {
-      key: 'operations',
+      key: 'group-operations',
+      type: 'group',
       name: '客户运营',
-      icon: <ShopOutlined />,
       children: [
         { path: '/groups', name: '服务群', icon: <TeamOutlined /> },
         { path: '/checkins', name: '健康打卡', icon: <CheckCircleOutlined />, soon: true },
       ],
     },
     {
-      key: 'team',
+      key: 'group-team',
+      type: 'group',
       name: '团队',
-      icon: <IdcardOutlined />,
       children: [
         { path: '/advisors', name: '顾问', icon: <UserOutlined /> },
         { path: '/shifts', name: '排班与交接', icon: <CalendarOutlined />, soon: true },
       ],
     },
     {
-      key: 'intelligence',
+      key: 'group-intelligence',
+      type: 'group',
       name: '智能配置',
-      icon: <RobotOutlined />,
       children: [
         { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
         { path: '/rules', name: '风险规则', icon: <SafetyCertificateOutlined /> },
         { path: '/scripts', name: '话术库', icon: <CommentOutlined /> },
+        { path: '/skills', name: '技能市场', icon: <AppstoreOutlined /> },
       ],
     },
     {
-      path: '/skills',
-      name: '技能市场',
-      icon: <AppstoreOutlined />,
-    },
-    {
-      path: '/reports',
-      name: '数据报表',
-      icon: <BarChartOutlined />,
-    },
-    {
-      path: '/solutions',
-      name: '行业方案包',
-      icon: <DeploymentUnitOutlined />,
-    },
-    {
-      key: 'settings',
-      name: '系统设置',
-      icon: <SettingOutlined />,
+      key: 'group-insight',
+      type: 'group',
+      name: '洞察',
       children: [
-        { path: '/settings/agent', name: 'Agent 设定', icon: <RobotOutlined /> },
-        { path: '/settings/wecom', name: '企微接入状态', icon: <CloudServerOutlined /> },
-        { path: '/settings/model', name: 'AI 模型', icon: <ThunderboltOutlined /> },
-        { path: '/settings/accounts', name: '账号与角色', icon: <TeamOutlined /> },
-        { path: '/settings/audit', name: '审计日志', icon: <AuditOutlined /> },
-        { path: '/settings/security', name: '数据与安全', icon: <LockOutlined /> },
-        { path: '/settings/onboarding', name: '开通正式服务', icon: <KeyOutlined /> },
+        { path: '/reports', name: '数据报表', icon: <BarChartOutlined /> },
+        { path: '/solutions', name: '行业方案包', icon: <DeploymentUnitOutlined /> },
+      ],
+    },
+    {
+      key: 'group-system',
+      type: 'group',
+      name: '系统',
+      children: [
+        {
+          key: 'settings',
+          name: '系统设置',
+          icon: <SettingOutlined />,
+          children: [
+            { path: '/settings/agent', name: 'Agent 设定', icon: <RobotOutlined /> },
+            { path: '/settings/wecom', name: '企微接入状态', icon: <CloudServerOutlined /> },
+            { path: '/settings/model', name: 'AI 模型', icon: <ThunderboltOutlined /> },
+            { path: '/settings/accounts', name: '账号与角色', icon: <TeamOutlined /> },
+            { path: '/settings/audit', name: '审计日志', icon: <AuditOutlined /> },
+            { path: '/settings/security', name: '数据与安全', icon: <LockOutlined /> },
+            { path: '/settings/onboarding', name: '开通正式服务', icon: <KeyOutlined /> },
+          ],
+        },
       ],
     },
   ];
+}
+
+/** 按路径找菜单层级，用于顶栏面包屑：返回 [分组, …, 当前页]。 */
+export function findMenuTrail(items: MenuDataItem[], pathname: string): string[] {
+  for (const item of items) {
+    if (item.path && item.path !== '/' && (pathname === item.path || pathname.startsWith(`${item.path}/`))) {
+      return item.name ? [item.name] : [];
+    }
+    if (item.children) {
+      const childTrail = findMenuTrail(item.children, pathname);
+      if (childTrail.length > 0) {
+        return item.name ? [item.name, ...childTrail] : childTrail;
+      }
+    }
+  }
+  return [];
 }
 
 /** 页面标题与说明用同一份元数据，路由和占位页共用 */
