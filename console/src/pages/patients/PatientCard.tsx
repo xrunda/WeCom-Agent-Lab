@@ -44,7 +44,7 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             ) : null}
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {online ? 'Agent 在线' : 'Agent 离线'} · {advisorName}
+            {online ? '专属 Agent 在线' : '专属 Agent 离线'} · 顾问 {advisorName}
           </Text>
         </div>
         <Tooltip title={CONSENT_HINTS[patient.consent]}>
