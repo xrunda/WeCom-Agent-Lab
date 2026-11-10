@@ -282,6 +282,39 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       if (!advisor) return undefined;
       return { id: advisor.id, name: advisor.name, status: advisor.status };
     },
+    // 控制台：真实服务流 / 顾问队列读取入口（只读副本，避免调用方改到领域对象）
+    listDrafts() {
+      return (serviceRef?.store.listDrafts() ?? []).map((draft) => structuredClone(draft));
+    },
+    getDraftDetail(draftId: string) {
+      const draft = serviceRef?.store.getDraft(draftId);
+      return draft ? structuredClone(draft) : undefined;
+    },
+    listGroups() {
+      return (serviceRef?.store.listGroups() ?? []).map((group) => structuredClone(group));
+    },
+    listAudits() {
+      return (serviceRef?.store.listAudit() ?? []).map((event) => structuredClone(event));
+    },
+    /** 手动暂停：只改顾问状态，不再推送草稿；恢复走 restoreAdvisor。 */
+    pauseAdvisor(advisorId: string) {
+      const advisor = serviceRef?.store.getAdvisor(advisorId);
+      if (!advisor) return undefined;
+      const updated = { ...advisor, status: 'paused' as const };
+      serviceRef!.store.saveAdvisor(updated);
+      ctx.emit('advisor.updated', {
+        id: updated.id,
+        name: updated.name,
+        status: updated.status,
+        consecutiveMisroutes: updated.consecutiveMisroutes,
+      });
+      return {
+        id: updated.id,
+        name: updated.name,
+        status: updated.status,
+        consecutiveMisroutes: updated.consecutiveMisroutes,
+      };
+    },
     // #59：证据链 / 服务记录导出。只读；存档不可用时降级为空原文。
     async getDraftEvidence(draftId: string) {
       const draft = serviceRef?.store.getDraft(draftId);
