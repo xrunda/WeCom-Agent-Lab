@@ -161,8 +161,14 @@ export const MEMORY_SUBJECT_LABELS: Record<MemorySubject, string> = {
 
 export const CONSENT_LABELS: Record<ConsentStatus, string> = {
   agreed: '已同意存档',
-  unknown: '待确认同意',
+  unknown: '存档待确认',
   disagreed: '不同意存档',
+};
+
+export const CONSENT_HINTS: Record<ConsentStatus, string> = {
+  agreed: '已确认该成员同意企微会话存档。',
+  unknown: '尚未确认该成员是否同意企微会话存档；系统会提示顾问人工留意。',
+  disagreed: '该成员不同意会话存档，系统不会自动生成服务草稿。',
 };
 
 export const PATIENT_STATUS_LABELS: Record<PatientStatus, string> = {

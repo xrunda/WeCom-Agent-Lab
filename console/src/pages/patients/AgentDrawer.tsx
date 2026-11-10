@@ -11,6 +11,7 @@ import {
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { Dayjs } from 'dayjs';
@@ -26,6 +27,7 @@ import {
 import { isMockMode } from '../../mock/http.ts';
 import { daysSince, formatDateTime } from '../../utils/format.ts';
 import {
+  CONSENT_HINTS,
   CONSENT_LABELS,
   getPatientDetail,
   PATIENT_STATUS_LABELS,
@@ -141,9 +143,20 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
             <Tag bordered={false} color={patient.status === 'serving' ? 'processing' : 'default'}>
               {PATIENT_STATUS_LABELS[patient.status]}
             </Tag>
-            <Tag bordered={false} color={patient.consent === 'agreed' ? 'green' : 'gold'}>
-              {CONSENT_LABELS[patient.consent]}
-            </Tag>
+            <Tooltip title={CONSENT_HINTS[patient.consent]}>
+              <Tag
+                bordered={false}
+                color={
+                  patient.consent === 'agreed'
+                    ? 'green'
+                    : patient.consent === 'disagreed'
+                      ? 'red'
+                      : 'gold'
+                }
+              >
+                {CONSENT_LABELS[patient.consent]}
+              </Tag>
+            </Tooltip>
             <Text type="secondary" style={{ fontSize: 12 }}>
               陪伴 {daysSince(patient.accompaniedSince)} 天 · 记忆 {patient.memoryCount} 条 ·
               待执行 {patient.pendingPlanCount} 个

@@ -14,7 +14,7 @@ test('回读匹配使用顾问企微 userid，而不是内部 advisorId', async 
 
   store.saveAdvisor({
     id: 'adv_1',
-    name: '李广',
+    name: '李光',
     chatId: 'LiGuang',
     status: 'active',
     consecutiveMisroutes: 0,
@@ -52,7 +52,7 @@ test('顾问没有 chatId 时回退到 advisorId', async () => {
 
   store.saveAdvisor({
     id: 'adv_1',
-    name: '李广',
+    name: '李光',
     status: 'active',
     consecutiveMisroutes: 0,
   });
