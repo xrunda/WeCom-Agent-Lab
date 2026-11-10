@@ -61,6 +61,28 @@ a {
 }
 
 /* ---------- 品牌 ---------- */
+/* ProLayout 默认把 logo img 限制为 28px，这里提高优先级放大 */
+.console-layout .ant-pro-global-header-logo img.brand-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+}
+
+.login-logo {
+  width: min(420px, 100%);
+  height: auto;
+  display: block;
+  box-sizing: border-box;
+  /* 深色品牌区上用白色底板保证 wordmark 对比度 */
+  background: #fff;
+  padding: 14px 20px;
+  border-radius: 16px;
+}
+
+.login-logo + .login-subtitle {
+  margin-top: 28px;
+}
+
 .brand-mark {
   width: 34px;
   height: 34px;
@@ -254,7 +276,66 @@ a {
   line-height: 18px;
 }
 
+/* 真实模式下「后端尚未接入」的页面标签，与示例数据标签区分开。 */
+.feature-status-tag {
+  margin-inline-end: 0;
+  padding: 0 7px;
+  border: 1px solid var(--zb-line-strong);
+  border-radius: 4px;
+  background: var(--zb-surface-2);
+  color: var(--zb-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* 演示模式全局提示：不要让示例数据被误认为真实运营数据。 */
+.demo-banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 28px;
+  border-bottom: 1px solid #e5dccb;
+  background: #fdf6ec;
+  color: #7c5a2a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.demo-banner-label {
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid #e8d3b4;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--zb-warning);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+@media (max-width: 767.98px) {
+  .demo-banner {
+    padding: 8px 16px;
+  }
+}
+
 /* ---------- 页面骨架与面板 ---------- */
+
+/* 真实模式「未接入」页面的通用页容器，与报表页保持同一留白。 */
+.zb-page {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 26px 28px 40px;
+}
+
+@media (max-width: 767.98px) {
+  .zb-page {
+    padding: 18px 16px 32px;
+  }
+}
 .zb-page-header {
   display: flex;
   align-items: flex-start;
@@ -431,13 +512,6 @@ a {
   max-width: 520px;
 }
 
-.login-title {
-  color: #fff !important;
-  margin: 24px 0 14px !important;
-  font-size: clamp(34px, 3.4vw, 48px) !important;
-  letter-spacing: -0.02em;
-}
-
 .login-subtitle {
   color: rgba(236, 254, 255, 0.86) !important;
   font-size: 18px;
@@ -467,12 +541,6 @@ a {
   margin-top: 4px;
   font-size: 18px;
   color: #99f6e4;
-}
-
-.login-brand-footnote {
-  color: rgba(236, 254, 255, 0.62) !important;
-  font-size: 12px;
-  letter-spacing: 0.04em;
 }
 
 .login-panel {

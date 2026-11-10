@@ -1,4 +1,4 @@
-import { Table } from 'antd';
+import { Alert, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { EChartsOption } from 'echarts';
 
@@ -6,6 +6,7 @@ import { EChart } from '../../components/EChart.tsx';
 import { PageHeader } from '../../components/PageHeader.tsx';
 import { Panel } from '../../components/Panel.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
+import { isMockMode } from '../../mock/http.ts';
 import {
   SAMPLE_ADVISORS,
   SAMPLE_AVG_RESPONSE_SECONDS,
@@ -249,6 +250,25 @@ function ResponseBars() {
 export default function ReportsPage() {
   const patients = [...SAMPLE_PATIENTS].sort((a, b) => b.messages - a.messages);
   const activePatients = SAMPLE_PATIENTS.filter((patient) => patient.activity === 'active').length;
+
+  if (!isMockMode) {
+    return (
+      <div className="report-page">
+        <PageHeader
+          title="数据报表"
+          description="服务量、响应时效、核验质量、团队对比与客户活跃。"
+        />
+        <Panel title="尚未接入真实统计">
+          <Alert
+            type="info"
+            showIcon
+            message="真实模式下不展示示例报表数字"
+            description="数据报表的统计口径尚未接入真实草稿与存档数据，避免与真实运营数据混淆。当前请以工作台 KPI、服务流与审计日志为准。"
+          />
+        </Panel>
+      </div>
+    );
+  }
 
   return (
     <div className="report-page">

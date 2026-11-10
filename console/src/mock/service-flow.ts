@@ -627,7 +627,7 @@ export function subscribeServiceFlow(
   intervalMs = 2600,
 ): () => void {
   if (!isMockMode) {
-    const source = new EventSource(`${API_BASE}/sse/events?types=draft.*`, {
+    const source = new EventSource(`${API_BASE}/stream?types=draft.*`, {
       withCredentials: true,
     });
     source.onmessage = (message) => {

@@ -235,7 +235,7 @@ export function subscribeSandbox(listener: () => void): () => void {
   if (!isMockMode) {
     listeners.add(listener);
     if (!realSource) {
-      realSource = new EventSource(`${API_BASE}/sse/events?types=sandbox.*`, {
+      realSource = new EventSource(`${API_BASE}/stream?types=sandbox.*`, {
         withCredentials: true,
       });
       realSource.onmessage = () => notify();

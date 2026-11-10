@@ -11,6 +11,9 @@ import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
 import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
 import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
+import type { MemoryRecord } from '../src/p1/memory.ts';
+import type { AdvisorRecord, ConsentStatus, Patient } from '../src/p1/types.ts';
+import type { Draft } from '../src/c2/types.ts';
 import type { MealLogRecord } from '../src/p1/vision.ts';
 
 const ADMIN_PASSWORD = 'AdminPass123';
@@ -943,4 +946,582 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，且不暴露�
 
   const missing = await call('GET', '/zhiban/api/patients/pat_404/meal-logs', { cookie });
   assert.equal(missing.status, 404);
+});
+
+// ---------- 真实数据回填：工作台 / 患者 / 顾问 / 服务流（P1-api §4–§8） ----------
+
+function realPatient(overrides: Partial<Patient> = {}): Patient {
+  const at = Date.now() - 5 * 60_000;
+  return {
+    id: 'pat_1',
+    tenantId: 'tn_test',
+    displayName: '汪女士',
+    externalUserId: 'wm_test_1',
+    tags: [],
+    advisorId: 'adv_1',
+    consent: 'agreed',
+    status: 'serving',
+    demo: false,
+    accompaniedSince: at,
+    lastActiveAt: at,
+    createdAt: at,
+    updatedAt: at,
+    ...overrides,
+  };
+}
+
+function realAdvisor(overrides: Partial<AdvisorRecord> = {}): AdvisorRecord {
+  const at = Date.now() - 5 * 60_000;
+  return {
+    id: 'adv_1',
+    tenantId: 'tn_test',
+    wecomUserId: 'LiGuang',
+    name: '李广',
+    status: 'active',
+    chatBound: true,
+    consecutiveMisroutes: 0,
+    createdAt: at,
+    updatedAt: at,
+    ...overrides,
+  };
+}
+
+function realDraft(overrides: Partial<Draft> = {}): Draft {
+  const at = Date.now() - 5 * 60_000;
+  return {
+    id: 'draft_1',
+    advisorId: 'adv_1',
+    groupRoomId: 'room_1',
+    groupName: '客户-汪女士',
+    customerId: 'wm_test_1',
+    customerName: '汪女士',
+    lastInboundAt: at,
+    inboundMessageId: 'm_1',
+    inboundMessageIds: ['m_1'],
+    inboundSummary: '客户问晚餐怎么吃',
+    body: '晚餐清淡一点。',
+    ruleIds: [],
+    riskLevel: 'low',
+    status: 'QUEUED',
+    version: 1,
+    revisions: [{ version: 1, body: '晚餐清淡一点。', createdBy: 'agent', createdAt: at }],
+    source: 'inbound',
+    fallback: false,
+    citedMemoryIds: [],
+    citedKnowledgeIds: [],
+    createdAt: at,
+    queuedAt: at,
+    nextAttemptAt: at,
+    pushAttempts: 1,
+    verifyAttempts: 0,
+    ...overrides,
+  };
+}
+
+function installRealDataPorts(ctx: FakeConsoleContext): {
+  patients: Patient[];
+  advisor: AdvisorRecord;
+  drafts: Draft[];
+  paused: string[];
+  memories: MemoryRecord[];
+} {
+  const patients = [
+    realPatient(),
+    realPatient({
+      id: 'pat_2',
+      displayName: '示例患者',
+      externalUserId: 'wm_demo_2',
+      demo: true,
+    }),
+  ];
+  const advisor = realAdvisor();
+  const memories: MemoryRecord[] = [
+    {
+      id: 'mem_1',
+      tenantId: 'tn_test',
+      patientId: 'pat_1',
+      category: 'preference',
+      content: '晚餐不吃海鲜',
+      subject: 'self',
+      createdBy: 'agent',
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now() - 60_000,
+      sandbox: false,
+    },
+  ];
+  const drafts = [
+    realDraft({
+      id: 'draft_1',
+      status: 'VERIFIED',
+      version: 2,
+      revisions: [
+        { version: 1, body: '晚餐清淡一点。', createdBy: 'agent', createdAt: Date.now() - 5 * 60_000 },
+        {
+          version: 2,
+          body: '晚餐清淡一点，避开海鲜。',
+          instruction: '加上忌口提醒',
+          createdBy: 'staff',
+          createdAt: Date.now() - 4 * 60_000,
+        },
+      ],
+      sentVersion: 2,
+      ackAction: 'sent',
+      ackAt: Date.now() - 3 * 60_000,
+      verification: {
+        outcome: 'VERIFIED',
+        matchedMsgId: 'm_sent_1',
+        matchedRoomId: 'room_1',
+        similarity: 1,
+        checkedAt: Date.now() - 2 * 60_000,
+      },
+      citedMemoryIds: ['mem_1'],
+      citedKnowledgeIds: ['kb_1'],
+      mediaIds: ['/var/lib/zhiban/archive/media/meal.jpg'],
+      mediaKinds: ['meal'],
+    }),
+    realDraft({
+      id: 'draft_2',
+      customerId: 'wm_other',
+      customerName: '另一位客户',
+      lastInboundAt: Date.now() - 7 * 60_000,
+      createdAt: Date.now() - 6 * 60_000,
+      status: 'VERIFIED',
+      ackAction: 'sent',
+      ackAt: Date.now() - 3 * 60_000,
+      verification: {
+        outcome: 'VERIFIED',
+        matchedMsgId: 'm_sent_2',
+        matchedRoomId: 'room_1',
+        similarity: 1,
+        checkedAt: Date.now() - 2 * 60_000,
+      },
+    }),
+    realDraft({ id: 'draft_3', status: 'SKIPPED', ackAction: 'skipped', createdAt: Date.now() - 7 * 60_000 }),
+    realDraft({ id: 'draft_4', status: 'QUEUED', createdAt: Date.now() - 8 * 60_000 }),
+  ];
+  const paused: string[] = [];
+
+  Object.assign(ctx.patientApi, {
+    listPatients: () => patients,
+    getPatientAdmin: (id: string) => patients.find((patient) => patient.id === id),
+    listAdvisors: () => [advisor],
+    getAdvisor: (id: string) => (id === advisor.id ? advisor : undefined),
+    getPatientBindings: (id: string) =>
+      id === 'pat_1' ? [{ groupId: 'grp_1', isPrimary: true }] : [],
+    updatePatient: (id: string, patch: Partial<Patient>) => {
+      const index = patients.findIndex((patient) => patient.id === id);
+      patients[index] = { ...patients[index]!, ...patch, updatedAt: Date.now() };
+      return patients[index]!;
+    },
+    updateAdvisor: (id: string, patch: Partial<AdvisorRecord>) => {
+      if (id !== advisor.id) throw new Error('ADVISOR_NOT_FOUND');
+      Object.assign(advisor, patch, { updatedAt: Date.now() });
+      return advisor;
+    },
+    createPatient: (input: { displayName: string; tags?: string[]; consent?: ConsentStatus }) => {
+      const created = realPatient({
+        id: `pat_new_${patients.length + 1}`,
+        displayName: input.displayName,
+        externalUserId: undefined,
+        advisorId: undefined,
+        demo: false,
+        tags: input.tags ?? [],
+        consent: input.consent ?? 'unknown',
+      });
+      patients.push(created);
+      return created;
+    },
+    bindPatient: (groupId: string, patientId: string, isPrimary = false) => ({
+      id: `gbd_${patients.length}_${groupId}`,
+      tenantId: 'tn_test',
+      groupId,
+      patientId,
+      isPrimary,
+      createdAt: Date.now(),
+    }),
+    listGroups: () => [
+      {
+        id: 'grp_1',
+        roomId: 'room_1',
+        name: '客户-汪女士',
+        nameSource: 'manual',
+        status: 'serving',
+        advisorId: 'adv_1',
+        memberCount: 3,
+        externalMemberCount: 1,
+        demo: false,
+        createdAt: Date.now() - 86_400_000,
+        updatedAt: Date.now() - 86_400_000,
+      },
+    ],
+    getPatientGroups: (id: string) =>
+      id === 'pat_1'
+        ? {
+            patient: { id: 'pat_1', displayName: '汪女士' },
+            groups: [
+              {
+                id: 'grp_1',
+                name: '客户-汪女士',
+                roomId: 'room_1',
+                status: 'serving',
+                isPrimary: true,
+              },
+            ],
+          }
+        : undefined,
+  });
+
+  ctx.provide('zhibanWecomAdmin', {
+    listDrafts: () => drafts,
+    getDraftDetail: (id: string) => drafts.find((draft) => draft.id === id),
+    listGroups: () => [
+      {
+        roomId: 'room_1',
+        name: '客户-汪女士',
+        advisorId: 'adv_1',
+      },
+    ],
+    listAudits: () => [
+      {
+        id: 'aud_1',
+        at: Date.now() - 2 * 60_000,
+        actor: 'system',
+        action: 'draft.verified',
+        target: 'draft_1',
+        result: 'success',
+      },
+    ],
+    async getDraftEvidence(draftId: string) {
+      return draftId === 'draft_1'
+        ? {
+            sent: {
+              msgid: 'm_sent_1',
+              text: '晚餐清淡一点，避开海鲜。',
+              msgtime: Date.now() - 2 * 60_000,
+            },
+          }
+        : undefined;
+    },
+    pauseAdvisor(advisorId: string) {
+      paused.push(advisorId);
+      return { id: advisorId, name: advisor.name, status: 'paused', consecutiveMisroutes: 0 };
+    },
+    restoreAdvisor() {
+      return { id: advisor.id, name: advisor.name, status: 'active', consecutiveMisroutes: 0 };
+    },
+    async releaseQueue() {
+      return { releasedDraftId: 'draft_4', nextDraftId: null };
+    },
+  });
+
+  ctx.provide('zhibanMemory', {
+    available: () => true,
+    render: () => [],
+    list: (patientId: string) => memories.filter((memory) => memory.patientId === patientId),
+    get: (id: string) => memories.find((memory) => memory.id === id),
+    count: (patientId: string) =>
+      memories.filter((memory) => memory.patientId === patientId && memory.deletedAt === undefined)
+        .length,
+  });
+
+  return { patients, advisor, drafts, paused, memories };
+}
+
+test('工作台：价值与 KPI 直接来自真实草稿，不出现示例数据', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const value = await call('GET', '/zhiban/api/dashboard/value?range=week', { cookie });
+  assert.equal(value.status, 200);
+  const valueBody = value.json() as {
+    adoption: { original: number; revised: number; edited: number; sentTotal: number; rate: number };
+    savedMinutes: number;
+    minutesPerDraft: number;
+    patientsPerAdvisor: number;
+    verificationPassRate: number;
+    trend: Array<{ date: string; label: string; volume: number; verified: number }>;
+    advisorRanking: Array<{ advisorId: string; name: string; volume: number; verified: number }>;
+  };
+  assert.equal(valueBody.adoption.sentTotal, 2);
+  assert.equal(valueBody.adoption.original, 1);
+  assert.equal(valueBody.adoption.revised, 1);
+  assert.equal(valueBody.adoption.edited, 0);
+  assert.equal(valueBody.adoption.rate, 1);
+  assert.equal(valueBody.savedMinutes, 6);
+  assert.equal(valueBody.minutesPerDraft, 3);
+  assert.equal(valueBody.patientsPerAdvisor, 2);
+  assert.equal(valueBody.verificationPassRate, 1);
+
+  // 趋势与排行同样是真实草稿，而不是示例数据（示例总数为 420）
+  assert.equal(valueBody.trend.length, 14);
+  assert.equal(
+    valueBody.trend.reduce((sum, point) => sum + point.volume, 0),
+    4,
+  );
+  const todayPoint = valueBody.trend[valueBody.trend.length - 1]!;
+  assert.equal(todayPoint.volume, 4);
+  assert.equal(todayPoint.verified, 2);
+  assert.deepEqual(
+    valueBody.advisorRanking.map((row) => row.advisorId),
+    ['adv_1'],
+  );
+  assert.equal(valueBody.advisorRanking[0]!.volume, 4);
+  assert.equal(valueBody.advisorRanking[0]!.verified, 2);
+
+  const kpis = await call('GET', '/zhiban/api/dashboard/kpis?range=week', { cookie });
+  assert.equal(kpis.status, 200);
+  const kpiBody = kpis.json() as {
+    onlineAgents: number;
+    draftsToday: number;
+    verificationPassRate: number;
+    avgResponseSeconds: number;
+    openAlerts: number;
+  };
+  assert.equal(kpiBody.onlineAgents, 1);
+  assert.equal(kpiBody.draftsToday, 4);
+  assert.equal(kpiBody.verificationPassRate, 1);
+  assert.ok(kpiBody.avgResponseSeconds > 0);
+  assert.equal(kpiBody.openAlerts, 0);
+
+  const recent = await call('GET', '/zhiban/api/dashboard/recent?limit=2', { cookie });
+  assert.equal(recent.status, 200);
+  const recentBody = recent.json() as {
+    items: Array<{
+      id: string;
+      patientName: string;
+      advisorName: string;
+      groupName: string;
+      preview: string;
+      outcome: string;
+      at: number;
+      sandbox: boolean;
+    }>;
+  };
+  assert.equal(recentBody.items.length, 2);
+  assert.equal(recentBody.items[0]!.id, 'draft_1');
+  assert.equal(recentBody.items[0]!.outcome, 'verified');
+  assert.equal(recentBody.items[0]!.patientName, '汪女士');
+  assert.equal(recentBody.items[0]!.advisorName, '李广');
+  assert.equal(recentBody.items[0]!.sandbox, false);
+  assert.ok(recentBody.items.every((item) => typeof item.at === 'number'));
+
+  const recentAll = await call('GET', '/zhiban/api/dashboard/recent?limit=10', { cookie });
+  const skipped = (recentAll.json() as { items: Array<{ id: string; outcome: string }> }).items.find(
+    (item) => item.id === 'draft_3',
+  );
+  assert.equal(skipped?.outcome, 'pending');
+
+  const invalid = await call('GET', '/zhiban/api/dashboard/value?range=year', { cookie });
+  assert.equal(invalid.status, 422);
+});
+
+test('患者：真实患者列表区分 demo，详情含群与顾问，健康档案返回空而非假数据', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const all = await call('GET', '/zhiban/api/patients', { cookie });
+  assert.equal(all.status, 200);
+  const allBody = all.json() as { items: Array<Record<string, unknown>>; total: number };
+  assert.equal(allBody.total, 2);
+  assert.equal(allBody.items.some((item) => item.demo === true), true);
+  assert.equal(allBody.items.some((item) => item.demo === false), true);
+
+  const real = await call('GET', '/zhiban/api/patients?demo=false', { cookie });
+  assert.equal((real.json() as { total: number }).total, 1);
+
+  const detail = await call('GET', '/zhiban/api/patients/pat_1', { cookie });
+  assert.equal(detail.status, 200);
+  const detailBody = detail.json() as {
+    patient: { displayName: string; advisorId: string; memoryCount: number };
+    advisor: { id: string; name: string; online: boolean };
+    groups: Array<{ id: string; isPrimary: boolean }>;
+  };
+  assert.equal(detailBody.patient.displayName, '汪女士');
+  assert.equal(detailBody.patient.advisorId, 'adv_1');
+  assert.equal(detailBody.patient.memoryCount, 1);
+  assert.equal(detailBody.advisor.name, '李广');
+  assert.equal(detailBody.advisor.online, true);
+  assert.equal(detailBody.groups[0]!.isPrimary, true);
+
+  const patched = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { displayName: '汪女士（VIP）', tags: ['高血压'] },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal((patched.json() as { displayName: string }).displayName, '汪女士（VIP）');
+
+  const invalid = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { consent: 'unknown-ish' },
+  });
+  assert.equal(invalid.status, 422);
+
+  const profile = await call('GET', '/zhiban/api/patients/pat_1/health-profile', { cookie });
+  assert.equal(profile.status, 200);
+  assert.deepEqual(profile.json(), { profile: null, sample: true });
+
+  const plan = await call('GET', '/zhiban/api/patients/pat_1/service-plan', { cookie });
+  assert.equal(plan.status, 200);
+  assert.deepEqual(plan.json(), { plan: null, sample: true });
+
+  const missing = await call('GET', '/zhiban/api/patients/pat_404', { cookie });
+  assert.equal(missing.status, 404);
+});
+
+test('服务流：行来自真实草稿，详情只从存档证据生成送达记录', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const list = await call('GET', '/zhiban/api/service-flow?status=VERIFIED', { cookie });
+  assert.equal(list.status, 200);
+  const listBody = list.json() as {
+    items: Array<{
+      id: string;
+      patientId: string;
+      advisorId: string;
+      groupId: string;
+      status: string;
+      demo: boolean;
+      mediaKinds: string[];
+    }>;
+    total: number;
+  };
+  assert.equal(listBody.total, 2);
+  const row = listBody.items.find((item) => item.id === 'draft_1');
+  assert.ok(row);
+  assert.equal(row.patientId, 'pat_1');
+  assert.equal(row.advisorId, 'adv_1');
+  assert.equal(row.groupId, 'grp_1');
+  assert.equal(row.demo, false);
+  assert.deepEqual(row.mediaKinds, ['meal']);
+
+  const sorted = await call('GET', '/zhiban/api/service-flow', { cookie });
+  const ids = (sorted.json() as { items: Array<{ id: string }> }).items.map((item) => item.id);
+  assert.equal(ids[0], 'draft_1'); // createdAt 最新
+  assert.equal(ids.length, 4);
+
+  const detail = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  assert.equal(detail.status, 200);
+  const detailBody = detail.json() as {
+    draft: { id: string; status: string; demo: boolean };
+    patient: { id: string; displayName: string };
+    group: { id: string; roomId: string };
+    advisor: { id: string; name: string };
+    citations: {
+      memories: Array<{ id: string; content: string }>;
+      knowledge: Array<{ id: string; title: string }>;
+    };
+    deliveries: Array<{ msgid: string; text: string; source: string }>;
+    verification: { outcome: string; matchedMsgId: string } | null;
+    audit: Array<{ action: string; target?: string }>;
+    media: Array<{ id: string; kind: string; url: string }>;
+  };
+  assert.equal(detailBody.patient.id, 'pat_1');
+  assert.equal(detailBody.group.id, 'grp_1');
+  assert.equal(detailBody.group.roomId, 'room_1');
+  assert.equal(detailBody.advisor.name, '李广');
+  assert.deepEqual(detailBody.citations.memories.map((item) => item.id), ['mem_1']);
+  assert.equal(detailBody.citations.memories[0]!.content, '晚餐不吃海鲜');
+  assert.equal(detailBody.citations.knowledge.length, 0); // 未接知识库时不伪造
+  assert.equal(detailBody.deliveries.length, 1);
+  assert.equal(detailBody.deliveries[0]!.msgid, 'm_sent_1');
+  assert.equal(detailBody.verification?.outcome, 'verified');
+  assert.equal(detailBody.audit[0]!.action, 'draft.verified');
+  assert.equal(detailBody.media.length, 1);
+  assert.match(detailBody.media[0]!.id, /^arc_/);
+  assert.equal(detailBody.media[0]!.url, `/zhiban/api/media/${detailBody.media[0]!.id}`);
+  assert.equal(JSON.stringify(detailBody).includes('/var/lib/zhiban'), false);
+
+  const missing = await call('GET', '/zhiban/api/service-flow/draft_404', { cookie });
+  assert.equal(missing.status, 404);
+});
+
+test('顾问：队列深度来自真实草稿，暂停/恢复同时落到企微与患者域', async () => {
+  const { ctx, call } = await start();
+  const ports = installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const list = await call('GET', '/zhiban/api/advisors', { cookie });
+  assert.equal(list.status, 200);
+  const body = list.json() as {
+    items: Array<{ id: string; name: string; status: string; queueDepth: number; online: boolean }>;
+    total: number;
+  };
+  assert.equal(body.total, 1);
+  assert.equal(body.items[0]!.queueDepth, 1);
+  assert.equal(body.items[0]!.online, true);
+
+  const paused = await call('POST', '/zhiban/api/advisors/adv_1/pause', {
+    cookie,
+    body: { reason: '手工暂停' },
+  });
+  assert.equal(paused.status, 200);
+  assert.equal((paused.json() as { status: string }).status, 'paused');
+  assert.deepEqual(ports.paused, ['adv_1']);
+
+  const resumed = await call('POST', '/zhiban/api/advisors/adv_1/resume', { cookie });
+  assert.equal(resumed.status, 200);
+  assert.equal((resumed.json() as { status: string }).status, 'active');
+
+  const released = await call('POST', '/zhiban/api/advisors/adv_1/queue/release', { cookie });
+  assert.equal(released.status, 200);
+  assert.equal((released.json() as { releasedDraftId: string }).releasedDraftId, 'draft_4');
+
+  const missing = await call('POST', '/zhiban/api/advisors/adv_404/pause', { cookie });
+  assert.equal(missing.status, 404);
+});
+
+
+test('群绑定：绑定已有患者或新建患者，未知群 404，写权限生效', async () => {
+  const { ctx, call } = await start();
+  const ports = installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const bindExisting = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { patientId: 'pat_2' },
+  });
+  assert.equal(bindExisting.status, 201);
+  const existingBody = bindExisting.json() as {
+    binding: { groupId: string; patientId: string; isPrimary: boolean; deletedAt: null };
+    patient: { id: string; displayName: string };
+  };
+  assert.equal(existingBody.binding.groupId, 'grp_1');
+  assert.equal(existingBody.binding.patientId, 'pat_2');
+  assert.equal(existingBody.binding.deletedAt, null);
+  assert.equal(existingBody.patient.displayName, '示例患者');
+
+  const created = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { newPatient: { displayName: '新客户', tags: ['糖尿病'] } },
+  });
+  assert.equal(created.status, 201);
+  const createdBody = created.json() as {
+    binding: { patientId: string };
+    patient: { id: string; displayName: string; tags: string[] };
+  };
+  assert.equal(createdBody.patient.displayName, '新客户');
+  assert.deepEqual(createdBody.patient.tags, ['糖尿病']);
+  assert.equal(ports.patients.length, 3);
+
+  const missingGroup = await call('POST', '/zhiban/api/groups/grp_404/bindings', {
+    cookie,
+    body: { patientId: 'pat_2' },
+  });
+  assert.equal(missingGroup.status, 404);
+
+  const empty = await call('POST', '/zhiban/api/groups/grp_1/bindings', { cookie, body: {} });
+  assert.equal(empty.status, 422);
+
+  const createdPatient = await call('POST', '/zhiban/api/patients', {
+    cookie,
+    body: { displayName: '独立患者', consent: 'agreed' },
+  });
+  assert.equal(createdPatient.status, 201);
+  const patientBody = createdPatient.json() as { id: string; displayName: string; demo: boolean };
+  assert.equal(patientBody.displayName, '独立患者');
+  assert.equal(patientBody.demo, false);
 });

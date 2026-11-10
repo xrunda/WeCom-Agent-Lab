@@ -769,7 +769,11 @@ export async function getTimeline(patientId: string): Promise<TimelineEvent[]> {
 
 export async function getHealthProfile(patientId: string): Promise<HealthProfile> {
   if (!isMockMode) {
-    return apiRequest<HealthProfile>(`/patients/${patientId}/health-profile`);
+    const response = await apiRequest<{ profile: HealthProfile | null; sample: boolean }>(
+      `/patients/${patientId}/health-profile`,
+    );
+    if (!response.profile) throw new Error('暂无健康档案：真实体检数据尚未接入（P1）');
+    return response.profile;
   }
 
   const patient = findPatient(patientId);
@@ -793,7 +797,11 @@ export async function getHealthProfile(patientId: string): Promise<HealthProfile
 
 export async function getServicePlan(patientId: string): Promise<ServicePlanSample> {
   if (!isMockMode) {
-    return apiRequest<ServicePlanSample>(`/patients/${patientId}/service-plan`);
+    const response = await apiRequest<{ plan: ServicePlanSample | null; sample: boolean }>(
+      `/patients/${patientId}/service-plan`,
+    );
+    if (!response.plan) throw new Error('暂无服务计划：真实计划数据尚未接入（P1）');
+    return response.plan;
   }
 
   const patient = findPatient(patientId);

@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth, useTerm } from '../../auth/AuthContext.tsx';
 import { listAdvisors, type Advisor } from '../../mock/advisors.ts';
-import { availableTags, listPatients, type Patient } from '../../mock/patients.ts';
+import { isMockMode } from '../../mock/http.ts';
+import { listPatients, type Patient } from '../../mock/patients.ts';
 import { AgentDrawer } from './AgentDrawer.tsx';
 import { PatientCard } from './PatientCard.tsx';
 import './patients.css';
@@ -25,7 +26,13 @@ export default function PatientsPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const tags = useMemo(() => availableTags(), [refreshKey]);
+  // 标签选项只来自当前真实数据，避免把示例数据里的标签混进筛选器
+  const tags = useMemo(() => {
+    const values = new Set<string>();
+    for (const item of patients) for (const itemTag of item.tags) values.add(itemTag);
+    if (tag) values.add(tag);
+    return [...values].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [patients, tag]);
   const advisorById = useMemo(() => new Map(advisors.map((item) => [item.id, item])), [advisors]);
 
   useEffect(() => {
@@ -114,10 +121,11 @@ export default function PatientsPage() {
           {can('patient.write')
             ? '记忆与计划支持编辑，所有变更都会写入审计日志。'
             : '当前角色为只读，记忆与计划不可编辑。'}
+          {!isMockMode ? ' 列表与详情来自企微会话存档，不是虚构样例。' : null}
           {patients.some((item) => item.demo) ? (
             <span>
               {' '}
-              标记 <Tag bordered={false}>演示</Tag> 的为虚构演示数据。
+              标记 <Tag bordered={false}>演示环境</Tag> 的记录产生于演示环境，请勿作为生产数据。
             </span>
           ) : null}
         </Text>

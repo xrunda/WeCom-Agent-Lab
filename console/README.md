@@ -18,17 +18,34 @@ mock 模式默认开启，演示账号：
 | `supervisor` | `zhiban-demo` | 主管 |
 | `viewer` | `zhiban-demo` | 只读 |
 
-演示数据全部来自 `src/mock/fixtures/`（虚构数据），页面右上角 `MOCK` 标签表示当前未连接真实接口。
+演示数据全部来自 `src/mock/fixtures/` 与 `src/sample/`（虚构数据）。mock 模式页面顶部有「示例数据」横幅，右上角显示 `MOCK` 标签。
 
 ## 切换真实接口
 
 ```bash
-VITE_API_MODE=real npm run dev
+# 部署机的控制台 API 只监听 127.0.0.1，需要先建立 SSH 隧道
+ssh -N -L 3080:127.0.0.1:3080 <部署机账号>@<部署机地址>
+
+npm run dev:real   # 等价于 VITE_API_MODE=real npm run dev
 ```
 
 - `VITE_API_BASE` 可覆盖接口前缀，默认 `/zhiban/api`。
-- 真实模式使用 cookie 会话，调用 `POST /auth/login`、`GET /auth/session`、`GET/PATCH /tenant`，契约见 [docs/P1-api.md](../docs/P1-api.md)。
+- 真实模式使用 cookie 会话；登录契约见 [docs/P1-api.md](../docs/P1-api.md) §2。
+- 真实模式下，未接入后端的模块显示「未接入」，**不会回退到示例数据**；页面顶部显示 `LIVE 真实接口`。
 - 不提交任何凭据；不要把真实账号写进代码或 fixtures。
+
+### 真实模式的数据范围（P1）
+
+| 模块 | 数据来源 |
+|---|---|
+| 工作台、患者、服务群、顾问、实时服务流、质检与告警 | 真实 DSH 存储与企微会话存档 |
+| 体验中心（沙盒） | 真实 Agent / 模型回合，独立存储，不计入运营统计 |
+| 系统设置：Agent 设定、账号与角色、审计日志、数据与安全 | 真实租户 / 账号 / 审计 |
+| 数据报表 | 尚未接入真实统计，显示「未接入」 |
+| 知识库、风险规则、话术库、技能市场、行业方案包 | 尚未接入，显示「未接入」 |
+| 企微接入状态、AI 模型、开通正式服务 | 尚未接入，显示「未接入」 |
+| 患者详情：健康档案、服务计划 | P1 无真实数据，显示「尚未接入」 |
+| 健康打卡、排班与交接 | 即将上线（C 档介绍页） |
 
 ## 校验
 

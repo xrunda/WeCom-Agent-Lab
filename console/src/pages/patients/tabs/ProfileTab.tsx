@@ -96,7 +96,7 @@ export function ProfileTab({ detail, term, canWrite, onSaved }: ProfileTabProps)
             label: '数据来源',
             children: patient.demo ? (
               <Tag bordered={false} color="purple">
-                虚构演示数据
+                演示环境记录
               </Tag>
             ) : (
               <Tag bordered={false}>真实服务数据</Tag>

@@ -11,7 +11,12 @@
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import { MemoryError, MemoryService } from '../../src/p1/memory.ts';
-import type { MemoryQuery, MemoryRecord } from '../../src/p1/memory.ts';
+import type {
+  MemoryQuery,
+  MemoryRecord,
+  MemoryUpdateInput,
+  MemoryWriteInput,
+} from '../../src/p1/memory.ts';
 import { buildMemoryToolDefinitions } from '../../src/p1/memory-tools.ts';
 import type { AuditEvent } from '../../src/c2/types.ts';
 
@@ -60,6 +65,15 @@ export interface MemoryRuntimeApi {
   list(patientId: string, query?: MemoryQuery): MemoryRecord[];
   get(id: string): MemoryRecord | undefined;
   count(patientId: string): number;
+  /** 控制台：顾问/主管手动写入、修订、软删除（写审计由 MemoryService 负责） */
+  write(input: MemoryWriteInput): MemoryRecord;
+  update(
+    id: string,
+    patch: MemoryUpdateInput,
+    actor?: 'agent' | 'staff',
+    actorId?: string,
+  ): MemoryRecord;
+  remove(id: string, actor?: 'agent' | 'staff', actorId?: string): MemoryRecord;
 }
 
 export function apply(ctx: DshMemoryContext, rawConfig: unknown): void {
@@ -146,6 +160,9 @@ export function apply(ctx: DshMemoryContext, rawConfig: unknown): void {
         list: (patientId, query) => service!.list(patientId, query),
         get: (id) => service!.get(id),
         count: (patientId) => service!.count(patientId),
+        write: (input) => service!.write(input),
+        update: (id, patch, actor, actorId) => service!.update(id, patch, actor, actorId),
+        remove: (id, actor, actorId) => service!.remove(id, actor, actorId),
       };
       ctx.provide('zhibanMemory', api);
 

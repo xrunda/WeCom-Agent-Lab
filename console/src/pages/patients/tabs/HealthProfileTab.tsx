@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { SampleDataTag } from '../../../components/SampleDataTag.tsx';
 import { formatDateTime } from '../../../utils/format.ts';
+import { isMockMode } from '../../../mock/http.ts';
 import { getHealthProfile, type HealthProfile } from '../../../mock/patients.ts';
 
 const { Text } = Typography;
@@ -40,6 +41,16 @@ export function HealthProfileTab({ patientId, term }: { patientId: string; term:
   }
 
   if (error || !profile) {
+    if (!isMockMode) {
+      return (
+        <Alert
+          type="info"
+          showIcon
+          message="健康档案尚未接入真实数据"
+          description="P1 只提供示例版健康档案；真实体检数据将在后续版本接入。真实模式下不展示示例内容，避免与真实客户混淆。"
+        />
+      );
+    }
     return <Alert type="error" showIcon message={error ?? '暂无健康档案'} />;
   }
 
