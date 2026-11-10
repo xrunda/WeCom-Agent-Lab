@@ -31,7 +31,9 @@ import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runtime.ts';
 import type {
   AgentCapabilities,
+  GroupServiceStatus,
   InboundMessage,
+  ManagedGroup,
   Patient,
   PatientMemoryPort,
   PatientSessionRecord,
@@ -69,6 +71,30 @@ export interface DshPatientContext {
   tools: {
     register(definition: unknown): unknown;
   };
+}
+
+/** 控制台群列表视图：不暴露 tenantId / deletedAt 等内部字段 */
+export interface PatientGroupView {
+  id: string;
+  roomId: string;
+  name: string;
+  nameSource: string;
+  status: GroupServiceStatus;
+  advisorId?: string;
+  patientIds: string[];
+  memberCount: number;
+  externalMemberCount: number;
+  consent: { agreed: number; unknown: number; disagreed: number };
+  lastActiveAt?: number;
+  demo: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PatientGroupPatch {
+  name?: string;
+  status?: GroupServiceStatus;
+  advisorId?: string;
 }
 
 /** 提供给 zhiban-wecom 调用的小接口 */
@@ -112,6 +138,9 @@ export interface PatientRuntimeApi {
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录，控制台 Agent 主页读取 */
   listMealLogs(patientId: string): MealLogRecord[];
+  /** 控制台群管理：列表与服务状态入口 */
+  listGroups(): PatientGroupView[];
+  updateGroup(groupId: string, patch: PatientGroupPatch): PatientGroupView;
 }
 
 /** #35：zhiban-memory 未安装时安全降级为空 */
@@ -315,6 +344,32 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         ctx.tools.register(tool);
       }
 
+      const groupView = (group: ManagedGroup): PatientGroupView => {
+        const members = store?.listMembers(group.id) ?? [];
+        const consent = { agreed: 0, unknown: 0, disagreed: 0 };
+        for (const member of members) {
+          if (member.isExternal) consent[member.consent] += 1;
+        }
+        return {
+          id: group.id,
+          roomId: group.roomId,
+          name: group.name,
+          nameSource: group.nameSource,
+          status: group.status,
+          ...(group.advisorId ? { advisorId: group.advisorId } : {}),
+          patientIds: (store?.listBindingsByGroup(group.id) ?? []).map(
+            (binding) => binding.patientId,
+          ),
+          memberCount: group.memberCount,
+          externalMemberCount: group.externalMemberCount,
+          consent,
+          ...(group.lastActiveAt !== undefined ? { lastActiveAt: group.lastActiveAt } : {}),
+          demo: group.demo,
+          createdAt: group.createdAt,
+          updatedAt: group.updatedAt,
+        };
+      };
+
       const asSandboxPatient = (input: SandboxPatientLike): Patient => {
         const at = Date.now();
         return {
@@ -391,6 +446,8 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           return stats;
         },
         listMealLogs: (patientId) => store?.listMealLogs(patientId) ?? [],
+        listGroups: () => service.listGroups().map(groupView),
+        updateGroup: (groupId, patch) => groupView(service.updateGroup(groupId, patch)),
       };
       ctx.provide('zhibanPatient', api);
 

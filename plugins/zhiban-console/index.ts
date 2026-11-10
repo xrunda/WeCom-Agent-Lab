@@ -39,6 +39,7 @@ import type {
   SandboxPatient,
 } from '../../src/p1/sandbox.ts';
 import { buildSecurityOverview } from '../../src/p1/security.ts';
+import type { GroupServiceStatus } from '../../src/p1/types.ts';
 import { mealLogView, type MealLogRecord } from '../../src/p1/vision.ts';
 
 import { ConsoleAuthService, publicAccount } from './auth.ts';
@@ -98,6 +99,24 @@ export interface DshConsoleContext {
   };
 }
 
+/** zhiban-patient 暴露给控制台的群视图 */
+interface PatientGroupViewLike {
+  id: string;
+  roomId: string;
+  name: string;
+  nameSource: string;
+  status: GroupServiceStatus;
+  advisorId?: string;
+  patientIds: string[];
+  memberCount: number;
+  externalMemberCount: number;
+  consent: { agreed: number; unknown: number; disagreed: number };
+  lastActiveAt?: number;
+  demo: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** zhiban-patient 暴露给控制台的最小沙盒接口 */
 interface PatientApiLike {
   applySettings?(patch: { agentName?: string; patientTerm?: string; tone?: string }): void;
@@ -113,6 +132,12 @@ interface PatientApiLike {
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
+  /** #60 上线：群列表与服务状态入口 */
+  listGroups?(): PatientGroupViewLike[];
+  updateGroup?(
+    groupId: string,
+    patch: { name?: string; status?: GroupServiceStatus; advisorId?: string },
+  ): PatientGroupViewLike;
 }
 
 /** zhiban-wecom 暴露给控制台的队列 / 顾问操作 */
@@ -135,6 +160,19 @@ interface WecomAdminLike {
 
 const API_PREFIX = '/zhiban/api';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const GROUP_STATUSES: readonly GroupServiceStatus[] = [
+  'pending',
+  'serving',
+  'collect_only',
+  'disabled',
+];
+
+function parseGroupStatus(value: unknown): GroupServiceStatus {
+  if (typeof value === 'string' && (GROUP_STATUSES as readonly string[]).includes(value)) {
+    return value as GroupServiceStatus;
+  }
+  throw new ConsoleError('VALIDATION_FAILED', `status 必须是 ${GROUP_STATUSES.join(' / ')}`);
+}
 
 /** SSE 事件清单（docs/P1-api.md §15）；未知事件不会订阅 */
 const FORWARDED_EVENTS = [
@@ -681,6 +719,110 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         );
       },
       { permission: 'patient.read' },
+    );
+
+    // ---------- 服务群（#60 上线：状态入口） ----------
+
+    router.add(
+      'GET',
+      '/groups',
+      (rc) => {
+        tenantActor(rc);
+        const patientApi = ctx.get<PatientApiLike>('zhibanPatient');
+        if (!patientApi?.listGroups) {
+          throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        }
+        const status = rc.query.get('status');
+        const advisorId = rc.query.get('advisorId');
+        const q = rc.query.get('q')?.trim().toLowerCase();
+        let items = patientApi.listGroups();
+        if (status) items = items.filter((group) => group.status === parseGroupStatus(status));
+        if (advisorId) items = items.filter((group) => group.advisorId === advisorId);
+        if (q) {
+          items = items.filter(
+            (group) =>
+              group.name.toLowerCase().includes(q) || group.roomId.toLowerCase().includes(q),
+          );
+        }
+        const sort = rc.query.get('sort') ?? '-lastActiveAt';
+        const desc = sort.startsWith('-');
+        const key = desc ? sort.slice(1) : sort;
+        if (key !== 'lastActiveAt' && key !== 'name' && key !== 'updatedAt') {
+          throw new ConsoleError('VALIDATION_FAILED', 'sort 必须是 lastActiveAt / name / updatedAt');
+        }
+        items.sort((a, b) => {
+          const left = key === 'name' ? a.name : key === 'updatedAt' ? a.updatedAt : a.lastActiveAt ?? 0;
+          const right = key === 'name' ? b.name : key === 'updatedAt' ? b.updatedAt : b.lastActiveAt ?? 0;
+          const compared =
+            typeof left === 'string' && typeof right === 'string'
+              ? left.localeCompare(right, 'zh-CN')
+              : Number(left) - Number(right);
+          return desc ? -compared : compared;
+        });
+        respond(
+          rc,
+          200,
+          paginate(
+            items,
+            positiveInt(rc.query.get('page'), 1),
+            positiveInt(rc.query.get('pageSize'), 20),
+          ),
+        );
+      },
+      { permission: 'patient.read' },
+    );
+
+    router.add(
+      'PATCH',
+      '/groups/:id',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const patientApi = ctx.get<PatientApiLike>('zhibanPatient');
+        if (!patientApi?.updateGroup) {
+          throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        }
+        const body = await rc.json<Record<string, unknown>>();
+        const patch: { name?: string; status?: GroupServiceStatus; advisorId?: string } = {};
+        if (body.name !== undefined) {
+          if (typeof body.name !== 'string' || body.name.trim().length === 0) {
+            throw new ConsoleError('VALIDATION_FAILED', 'name 必须是非空字符串');
+          }
+          patch.name = body.name;
+        }
+        if (body.status !== undefined) patch.status = parseGroupStatus(body.status);
+        if (body.advisorId !== undefined) {
+          if (typeof body.advisorId !== 'string' || body.advisorId.trim().length === 0) {
+            throw new ConsoleError('VALIDATION_FAILED', 'advisorId 必须是非空字符串');
+          }
+          patch.advisorId = body.advisorId;
+        }
+        if (Object.keys(patch).length === 0) {
+          throw new ConsoleError('VALIDATION_FAILED', '至少提供一个可更新字段');
+        }
+        let group: PatientGroupViewLike;
+        try {
+          group = patientApi.updateGroup(rc.params.id!, patch);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('GROUP_NOT_FOUND')) {
+            throw new ConsoleError('NOT_FOUND', '群不存在');
+          }
+          if (message.startsWith('ADVISOR_NOT_FOUND')) {
+            throw new ConsoleError('VALIDATION_FAILED', '顾问不存在');
+          }
+          if (message.startsWith('EMPTY_GROUP_NAME')) {
+            throw new ConsoleError('VALIDATION_FAILED', '群名不能为空');
+          }
+          throw error;
+        }
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'group.update', 'group', group.id, {
+            fields: Object.keys(patch),
+          }),
+        );
+        respond(rc, 200, group);
+      },
+      { permission: 'patient.write' },
     );
 
     // ---------- 沙盒（#40） ----------

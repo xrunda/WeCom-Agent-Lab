@@ -52,6 +52,36 @@ test('#33 serving 触发回合；collect_only 只写上下文；disabled 不处�
   assert.equal(disabled.reason, 'GROUP_DISABLED');
 });
 
+test('#60 上线：控制台可列出服务群并一次更新名称/状态/顾问', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, { status: 'pending' });
+  assert.deepEqual(
+    h.service.listGroups().map((item) => item.id),
+    [group.id],
+  );
+
+  const updated = h.service.updateGroup(group.id, {
+    name: '陈嘉禾',
+    status: 'serving',
+    advisorId: 'adv_1',
+  });
+  assert.equal(updated.name, '陈嘉禾');
+  assert.equal(updated.nameSource, 'config');
+  assert.equal(updated.status, 'serving');
+  assert.equal(updated.advisorId, 'adv_1');
+  assert.equal(h.service.isServiceable('wr_g1', 'wm_patient'), 'serve');
+
+  assert.equal(h.service.findGroup('grp_missing'), undefined);
+  assert.throws(() => h.service.updateGroup(group.id, { name: '   ' }), /EMPTY_GROUP_NAME/);
+  assert.throws(
+    () => h.service.updateGroup(group.id, { name: '李四', advisorId: 'adv_missing' }),
+    /ADVISOR_NOT_FOUND/,
+  );
+  // 校验失败时整次更新不落库
+  assert.equal(h.service.findGroup(group.id)?.name, '陈嘉禾');
+  assert.equal(h.service.findGroup(group.id)?.advisorId, 'adv_1');
+});
+
 test('#33 两个群绑定同一患者，消息归到同一患者', () => {
   const h = setupPatient();
   const g1 = observeServiceGroup(h, { roomId: 'wr_g1', status: 'serving', advisorId: 'adv_1' });

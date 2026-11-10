@@ -152,6 +152,29 @@ interface PatientApi {
         groups: Array<{ id: string; name: string; roomId: string }>;
       }
     | undefined;
+  /** #60 上线：群列表与状态更新 */
+  listGroups?(): FakeGroup[];
+  updateGroup?(
+    groupId: string,
+    patch: { name?: string; status?: string; advisorId?: string },
+  ): FakeGroup;
+}
+
+interface FakeGroup {
+  id: string;
+  roomId: string;
+  name: string;
+  nameSource: string;
+  status: 'pending' | 'serving' | 'collect_only' | 'disabled';
+  advisorId?: string;
+  patientIds: string[];
+  memberCount: number;
+  externalMemberCount: number;
+  consent: { agreed: number; unknown: number; disagreed: number };
+  lastActiveAt?: number;
+  demo: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 class FakeConsoleContext {
@@ -333,6 +356,103 @@ test('登录 → 会话 → 租户读取/修改（保存即生效到患者运行
   const audited = await call('GET', '/zhiban/api/audit?action=tenant.update', { cookie });
   assert.equal(audited.status, 200);
   assert.equal((audited.json() as { total: number }).total, 1);
+});
+
+test('#60 群管理：列表过滤/排序、状态更新、审计与写权限', async () => {
+  const { ctx, call } = await start();
+  const base = {
+    roomId: 'wr_demo_1',
+    nameSource: 'config',
+    advisorId: 'adv_1',
+    patientIds: ['pat_1'],
+    memberCount: 2,
+    externalMemberCount: 1,
+    consent: { agreed: 1, unknown: 0, disagreed: 0 },
+    demo: true,
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000,
+  };
+  const groups: FakeGroup[] = [
+    { ...base, id: 'grp_1', name: '陈嘉禾', status: 'pending', lastActiveAt: 2_000 },
+    {
+      ...base,
+      id: 'grp_2',
+      roomId: 'wr_demo_2',
+      name: '周敏',
+      status: 'serving',
+      lastActiveAt: 1_000,
+    },
+  ];
+  const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+  ctx.patientApi.listGroups = () => groups;
+  ctx.patientApi.updateGroup = (groupId, patch) => {
+    updates.push({ id: groupId, patch });
+    const group = groups.find((item) => item.id === groupId);
+    assert.ok(group);
+    if (patch.name !== undefined) group.name = patch.name;
+    if (patch.status !== undefined) group.status = patch.status as FakeGroup['status'];
+    if (patch.advisorId !== undefined) group.advisorId = patch.advisorId;
+    group.updatedAt += 1;
+    return group;
+  };
+
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+  const pending = await call('GET', '/zhiban/api/groups?status=pending', { cookie: admin.cookie });
+  assert.equal(pending.status, 200);
+  const pendingBody = pending.json() as { items: FakeGroup[]; total: number };
+  assert.equal(pendingBody.total, 1);
+  assert.equal(pendingBody.items[0]!.name, '陈嘉禾');
+
+  const sorted = await call('GET', '/zhiban/api/groups?sort=name', { cookie: admin.cookie });
+  assert.equal(sorted.status, 200);
+  assert.deepEqual(
+    (sorted.json() as { items: FakeGroup[] }).items.map((item) => item.name),
+    ['陈嘉禾', '周敏'],
+  );
+
+  const badSort = await call('GET', '/zhiban/api/groups?sort=password', { cookie: admin.cookie });
+  assert.equal(badSort.status, 422);
+
+  const patched = await call('PATCH', '/zhiban/api/groups/grp_1', {
+    cookie: admin.cookie,
+    body: { status: 'serving', name: '陈嘉禾（演示）' },
+  });
+  assert.equal(patched.status, 200);
+  const patchedBody = patched.json() as unknown as FakeGroup;
+  assert.equal(patchedBody.status, 'serving');
+  assert.equal(patchedBody.name, '陈嘉禾（演示）');
+  assert.deepEqual(updates[0], {
+    id: 'grp_1',
+    patch: { name: '陈嘉禾（演示）', status: 'serving' },
+  });
+
+  const audit = await call('GET', '/zhiban/api/audit?action=group.update', { cookie: admin.cookie });
+  assert.equal((audit.json() as { total: number }).total, 1);
+
+  const badStatus = await call('PATCH', '/zhiban/api/groups/grp_1', {
+    cookie: admin.cookie,
+    body: { status: 'sleeping' },
+  });
+  assert.equal(badStatus.status, 422);
+
+  const created = await call('POST', '/zhiban/api/accounts', {
+    cookie: admin.cookie,
+    body: {
+      username: 'viewer.groups',
+      displayName: '只读二号',
+      role: 'viewer',
+      password: 'ViewerPass456',
+    },
+  });
+  assert.equal(created.status, 201);
+  const viewer = await login(call, 'viewer.groups', 'ViewerPass456');
+  const readable = await call('GET', '/zhiban/api/groups', { cookie: viewer.cookie });
+  assert.equal(readable.status, 200);
+  const forbidden = await call('PATCH', '/zhiban/api/groups/grp_1', {
+    cookie: viewer.cookie,
+    body: { status: 'serving' },
+  });
+  assert.equal(forbidden.status, 403);
 });
 
 test('非法 Origin 被拒；白名单来源与无 Origin 放行', async () => {

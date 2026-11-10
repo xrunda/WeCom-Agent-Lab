@@ -164,12 +164,44 @@ export class PatientService {
     }
   }
 
+  /** 控制台群列表：不含已软删除的群 */
+  listGroups(): ManagedGroup[] {
+    return this.store.listGroups().filter((group) => group.deletedAt === undefined);
+  }
+
+  findGroup(groupId: string): ManagedGroup | undefined {
+    const group = this.store.getGroup(groupId);
+    return group && group.deletedAt === undefined ? group : undefined;
+  }
+
   setGroupStatus(groupId: string, status: GroupServiceStatus): ManagedGroup {
     const group = this.requireGroup(groupId);
     group.status = status;
     group.updatedAt = this.clock.now();
     this.store.saveGroup(group);
     this.audit('admin', 'group.status', group.id, status);
+    return group;
+  }
+
+  /**
+   * 控制台群设置：名称 / 服务状态 / 顾问。
+   * 先统一校验，再依次写入；任一项不合法时不产生任何修改。
+   */
+  updateGroup(
+    groupId: string,
+    patch: { name?: string; status?: GroupServiceStatus; advisorId?: string },
+  ): ManagedGroup {
+    const existing = this.requireGroup(groupId);
+    if (patch.name !== undefined && patch.name.trim().length === 0) {
+      throw new Error('EMPTY_GROUP_NAME');
+    }
+    if (patch.advisorId !== undefined && !this.store.getAdvisor(patch.advisorId)) {
+      throw new Error(`ADVISOR_NOT_FOUND ${patch.advisorId}`);
+    }
+    let group = existing;
+    if (patch.name !== undefined) group = this.renameGroup(group.id, patch.name);
+    if (patch.status !== undefined) group = this.setGroupStatus(group.id, patch.status);
+    if (patch.advisorId !== undefined) group = this.setGroupAdvisor(group.id, patch.advisorId);
     return group;
   }
 
