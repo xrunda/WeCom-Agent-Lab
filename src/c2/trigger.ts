@@ -55,7 +55,13 @@ export interface TriggerPollResult {
   /** 本轮观察到的群与外部成员，供 zhiban-patient 自动发现 */
   rooms: Array<{
     roomId: string;
-    members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+    members: Array<{
+      id: string;
+      isExternal: boolean;
+      lastActiveAt: number;
+      /** 存档没有昵称（F8）；由 zhiban-wecom 用客户联系 API 补齐，可能缺省 */
+      displayName?: string;
+    }>;
   }>;
 }
 

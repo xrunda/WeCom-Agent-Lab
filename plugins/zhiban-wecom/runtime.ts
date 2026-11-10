@@ -17,6 +17,7 @@ import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts
 import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
+import type { GroupInfoClient } from './group-info.ts';
 
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
@@ -26,7 +27,13 @@ export interface PatientSink {
   observeRooms(
     rooms: Array<{
       roomId: string;
-      members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        /** 客户联系 API 拿到的群昵称；拿不到时缺省，由患者域回退 id 尾号 */
+        displayName?: string;
+      }>;
     }>,
   ): void;
   routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
@@ -48,6 +55,8 @@ export interface WecomRuntimeDeps {
   logger?: (line: string) => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
+  /** 群昵称查询（可选）：未配置凭据或查询失败时静默回退 id 尾号 */
+  groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
 }
 
 export interface StartOptions {
@@ -108,6 +117,7 @@ export class WecomRuntime {
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
   private readonly patient?: PatientSink;
+  private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
@@ -127,6 +137,7 @@ export class WecomRuntime {
     this.emit = deps.emit;
     this.logger = deps.logger;
     this.patient = deps.patient;
+    this.groupInfo = deps.groupInfo;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -187,7 +198,7 @@ export class WecomRuntime {
     this.polling = true;
     try {
       const result = await this.trigger.pollWithContext();
-      this.patient?.observeRooms(result.rooms);
+      this.patient?.observeRooms(await this.enrichRooms(result.rooms));
 
       // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
       const ordered: Array<{ message: ArchivedInbound; event?: (typeof result.events)[number] }> = [
@@ -251,6 +262,45 @@ export class WecomRuntime {
     } finally {
       this.polling = false;
     }
+  }
+
+  /**
+   * 用客户联系 API 补群昵称。
+   * 未配置凭据、内部群（90501）或查询失败时原样返回，
+   * 患者域继续用「外部成员 …尾号」，不影响草稿链路。
+   */
+  private async enrichRooms(
+    rooms: Array<{
+      roomId: string;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        displayName?: string;
+      }>;
+    }>,
+  ): Promise<typeof rooms> {
+    const groupInfo = this.groupInfo;
+    if (!groupInfo) return rooms;
+
+    return Promise.all(
+      rooms.map(async (room) => {
+        let names: Map<string, string> | undefined;
+        try {
+          names = await groupInfo.memberNames(room.roomId);
+        } catch {
+          names = undefined;
+        }
+        if (!names || names.size === 0) return room;
+        return {
+          ...room,
+          members: room.members.map((member) => {
+            const displayName = names?.get(member.id);
+            return displayName ? { ...member, displayName } : member;
+          }),
+        };
+      }),
+    );
   }
 
   /** 跑一次串行队列与核验；测试可直接调用 */
