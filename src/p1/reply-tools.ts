@@ -73,7 +73,11 @@ const STRING = { type: 'string' } as const;
 export const REPLY_DRAFT_PARAMETERS = {
   type: 'object',
   properties: {
-    body: { type: 'string', description: '要发给患者的正文，纯文本，不超过 1000 字' },
+    body: {
+      type: 'string',
+      description:
+        '要发给患者的正文（顾问会直接复制到客户群），纯文本，不超过 1000 字；以顾问口吻直接回复，不写来源说明或内部流程',
+    },
     inboundSummary: { type: 'string', description: '本轮患者输入摘要，只用于卡片，不超过 80 字' },
     riskLevel: {
       type: 'string',
@@ -144,7 +148,7 @@ export function buildReplyToolDefinitions(handlers: ReplyToolHandlers): Register
     {
       name: 'reply_draft',
       description:
-        '提交一条给患者的回复草稿。每一轮客户消息都必须调用；正文由顾问审核后发出。',
+        '提交一条可直接由顾问转发到客户群的回复草稿。每一轮客户消息都必须调用；正文以顾问口吻直接回复客户，不提群聊、存档、草稿或审核。',
       parameters: REPLY_DRAFT_PARAMETERS,
       output: {
         schema: DRAFT_RESULT_SCHEMA,

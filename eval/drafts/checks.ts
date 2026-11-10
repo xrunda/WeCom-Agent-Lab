@@ -41,6 +41,13 @@ const PLACEHOLDER = /{{|}}|XX+|待补充|TBD|【[^】]+】|\[[^\]]+\]/;
 const AI_SELF =
   /(作为|身为)\s*(一个)?\s*(AI|人工智能|语言模型)|(我|本助手)(是|就是)(AI|人工智能|语言模型|机器人)/;
 const INTERNAL_ADDRESS = /(^|[，。！？\s])(患者|客户)(，|。|！|？|\s|$)|(患者|客户)(您好|你好)/;
+/**
+ * 正文会被顾问直接转发到客户群，不能出现「群里有人问」「家属说」
+ * 「存档 / 草稿 / 审核」等内部视角或来源说明。
+ * 模式刻意收窄，避免把「手术机器人」这类正常内容误判。
+ */
+const META_REFERENCE =
+  /(群里|群内).{0,6}(有人|成员|说|问|提到)|(有人|成员).{0,4}(问|说|提到)|家属(说|提到)|(会话)?存档|草稿|请审核|审核后|待确认|(我是|作为|这个|本).{0,2}(机器人|AI|人工智能)|(AI|人工智能)\s*(生成|助手)/;
 const LAB_VALUE = /[\d.]+\s*(mmol\/L|mg\/dL|μmol\/L|umol\/L|U\/L|g\/L|mmHg|次\/分|%)/i;
 const INDICATOR_VERDICT =
   /(这项|这个|这几项|指标|数值).{0,4}(偏高|偏低|异常|正常)|(偏高|偏低)|(没问题|都正常|没事)/;
@@ -103,6 +110,14 @@ export function checkDraft(input: CheckInput): RuleResult {
     '不使用内部称谓',
     !INTERNAL_ADDRESS.test(body),
     body.match(INTERNAL_ADDRESS)?.[0]?.trim(),
+  );
+  push(
+    checks,
+    violations,
+    'meta-reference',
+    '正文可直接转发，不暴露内部视角',
+    !META_REFERENCE.test(body),
+    body.match(META_REFERENCE)?.[0],
   );
 
   for (const redline of GLOBAL_REDLINES) {
