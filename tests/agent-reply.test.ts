@@ -243,5 +243,21 @@ test('#34 系统提示词包含红线与工具契约，不含患者原文', () =
   assert.match(prompt, /reply_draft/);
   assert.match(prompt, /reply_skip/);
   assert.match(prompt, /120/);
+  assert.match(prompt, /直接复制发到客户群/);
   assert.equal(SETTINGS.patientTerm, '患者');
+});
+
+test('#34 reply_draft 工具说明要求正文可直接转发', () => {
+  const tools = buildReplyToolDefinitions({
+    async replyDraft() {
+      return { draftId: 'draft_1', version: 1 };
+    },
+    async replySkip() {
+      return { skipped: true };
+    },
+  });
+  const draftTool = tools.find((tool) => tool.name === 'reply_draft');
+  assert.ok(draftTool);
+  assert.match(draftTool.description, /直接.*转发到客户群/);
+  assert.match(JSON.stringify(draftTool.parameters), /直接复制到客户群/);
 });
