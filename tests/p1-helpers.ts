@@ -185,6 +185,8 @@ export function setupRuntime(
     memory?: PatientMemoryPort;
     capabilities?: () => AgentCapabilities;
     maxProactivePerHour?: number;
+    schedule?: (fn: () => void, delayMs: number) => unknown;
+    cancelSchedule?: (handle: unknown) => void;
   } = {},
 ) {
   const base = setupPatient(options);
@@ -203,8 +205,8 @@ export function setupRuntime(
     mergeWindowMs: 30_000,
     mergeMaxWaitMs: 120_000,
     now: () => base.clock.now(),
-    schedule: () => 1,
-    cancelSchedule: () => undefined,
+    schedule: options.schedule ?? (() => 1),
+    cancelSchedule: options.cancelSchedule ?? (() => undefined),
     memory: options.memory,
     capabilities: options.capabilities,
     maxProactivePerHour: options.maxProactivePerHour,

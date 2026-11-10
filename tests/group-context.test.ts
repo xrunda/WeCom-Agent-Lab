@@ -199,3 +199,43 @@ test('#63 pending 群只登记、不自动服务；未知群交回旧链路', ()
   assert.equal(unknown.handled, false);
   assert.equal(unknown.decision.reason, 'GROUP_UNKNOWN');
 });
+
+test('#63 后到的消息短于静默窗口时合并定时器必须重排，不能把这批消息卡死', async () => {
+  const timers: Array<{ fn: () => void; delay: number }> = [];
+  const h = setupRuntime({
+    schedule: (fn, delayMs) => {
+      const timer = { fn, delay: delayMs };
+      timers.push(timer);
+      return timer;
+    },
+  });
+  observeServiceGroup(h, { status: 'serving', advisorId: 'adv_1' });
+  h.sessions.onPrompt = async (sessionId) => {
+    await h.runtime.replySkip(sessionId, { reason: '测试' });
+  };
+
+  const base = h.clock.now();
+  // 第一条先到，定时器按它建好
+  h.runtime.routeInbound(msg('m1', '我今天', { msgtime: base }));
+  // 10 秒后第二条才到。此时不能重置定时器，但它到点后必须按剩余时间重排
+  h.clock.set(base + 10_000);
+  h.runtime.routeInbound(msg('m2', '吃了火锅', { msgtime: base + 10_000 }));
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0]!.delay, 30_000);
+
+  // 第一个定时器在“最后一条消息”之后只有 20 秒就响，尚未满静默窗口
+  h.clock.set(base + 30_000);
+  timers.shift()!.fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.sessions.prompts.length, 0, '未满静默窗口不应放行');
+  assert.equal(timers.length, 1, '必须按剩余时间重排定时器');
+  assert.equal(timers[0]!.delay, 10_000);
+
+  // 静默窗口满 30 秒后放行
+  h.clock.set(base + 40_000);
+  timers.shift()!.fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.sessions.prompts.length, 1);
+  assert.equal(h.runtime.stats().mergedBatches, 1);
+  assert.equal(timers.length, 0);
+});
