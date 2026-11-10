@@ -495,7 +495,12 @@ test('群发现时用客户联系 API 补真实群昵称', async () => {
     patient: recordingPatient(observed),
     groupInfo: {
       memberNames: async (roomId) =>
-        roomId === 'wrGROUP1' ? new Map([['wmCUSTOMER', '张女士']]) : undefined,
+        roomId === 'wrGROUP1'
+          ? new Map([
+              ['wmCUSTOMER', '张女士'],
+              ['wmFAMILY', '张女士的女儿'],
+            ])
+          : undefined,
     },
   });
   h.runtime.start();
@@ -507,6 +512,12 @@ test('群发现时用客户联系 API 补真实群昵称', async () => {
 
   const member = observed.flatMap((room) => room.members).find((item) => item.id === 'wmCUSTOMER');
   assert.equal(member?.displayName, '张女士');
+
+  // 整群映射一并交给患者域：本轮没发言的成员也能回填
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.equal(room?.memberNames?.wmCUSTOMER, '张女士');
+  assert.equal(room?.memberNames?.wmFAMILY, '张女士的女儿');
+  assert.ok(!observed.flatMap((item) => item.members).some((item) => item.id === 'wmFAMILY'));
 });
 
 test('群昵称查询失败或异常时保持 id 尾号回退，草稿链路不受影响', async () => {

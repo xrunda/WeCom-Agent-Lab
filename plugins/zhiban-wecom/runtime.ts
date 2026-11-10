@@ -34,6 +34,11 @@ export interface PatientSink {
         /** 客户联系 API 拿到的群昵称；拿不到时缺省，由患者域回退 id 尾号 */
         displayName?: string;
       }>;
+      /**
+       * 整群 userid → 昵称映射。本轮没发言、但已经在患者域里的成员
+       * 也能据此更新名称与回填患者；拿不到昵称时缺省。
+       */
+      memberNames?: Record<string, string>;
     }>,
   ): void;
   routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
@@ -279,7 +284,18 @@ export class WecomRuntime {
         displayName?: string;
       }>;
     }>,
-  ): Promise<typeof rooms> {
+  ): Promise<
+    Array<{
+      roomId: string;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        displayName?: string;
+      }>;
+      memberNames?: Record<string, string>;
+    }>
+  > {
     const groupInfo = this.groupInfo;
     if (!groupInfo) return rooms;
 
@@ -298,6 +314,8 @@ export class WecomRuntime {
             const displayName = names?.get(member.id);
             return displayName ? { ...member, displayName } : member;
           }),
+          // 整群映射交给患者域：本轮没发言的成员也能更新名称、回填患者
+          memberNames: Object.fromEntries(names),
         };
       }),
     );

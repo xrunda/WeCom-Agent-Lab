@@ -83,7 +83,12 @@ export class PatientService {
   observeGroup(
     roomId: string,
     members: ObservedMember[],
-    options: { groupName?: string; groupNameSource?: GroupNameSource } = {},
+    options: {
+      groupName?: string;
+      groupNameSource?: GroupNameSource;
+      /** 整群 userid → 昵称；用于更新没在本轮发言的成员并回填患者 */
+      memberNames?: Record<string, string>;
+    } = {},
   ): ManagedGroup {
     const now = this.clock.now();
     let group = this.store.getGroupByRoomId(roomId);
@@ -117,6 +122,9 @@ export class PatientService {
       if (observed.isExternal && observed.displayName) {
         this.backfillPatientName(group.id, observed, now);
       }
+    }
+    if (options.memberNames) {
+      this.applyMemberNames(group, options.memberNames, now);
     }
 
     group.memberCount = members.length;
@@ -174,6 +182,36 @@ export class PatientService {
     patient.displayName = observed.displayName;
     patient.updatedAt = now;
     this.store.savePatient(patient);
+  }
+
+  /**
+   * 整群昵称映射落到已有成员上。
+   * 群成员是 API 返回的全部成员，因此本轮没发言的成员也能改名；
+   * 患者仍只回填占位名，手工名不动。
+   */
+  private applyMemberNames(
+    group: ManagedGroup,
+    names: Record<string, string>,
+    now: number,
+  ): void {
+    for (const member of this.store.listMembers(group.id)) {
+      if (!member.isExternal || !member.externalUserId) continue;
+      const name = names[member.externalUserId];
+      if (!name || member.displayName === name) continue;
+      member.displayName = name;
+      this.store.saveMember(member);
+    }
+    for (const binding of this.store.listBindingsByGroup(group.id)) {
+      const patient = this.store.getPatient(binding.patientId);
+      if (!patient || patient.deletedAt !== undefined) continue;
+      const externalUserId = patient.externalUserId;
+      if (!externalUserId) continue;
+      const name = names[externalUserId];
+      if (!name || !isFallbackDisplayName(patient.displayName, externalUserId)) continue;
+      patient.displayName = name;
+      patient.updatedAt = now;
+      this.store.savePatient(patient);
+    }
   }
 
   // ---------- 服务状态 ----------
