@@ -143,20 +143,13 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
             <Tag bordered={false} color={patient.status === 'serving' ? 'processing' : 'default'}>
               {PATIENT_STATUS_LABELS[patient.status]}
             </Tag>
-            <Tooltip title={CONSENT_HINTS[patient.consent]}>
-              <Tag
-                bordered={false}
-                color={
-                  patient.consent === 'agreed'
-                    ? 'green'
-                    : patient.consent === 'disagreed'
-                      ? 'red'
-                      : 'gold'
-                }
-              >
-                {CONSENT_LABELS[patient.consent]}
-              </Tag>
-            </Tooltip>
+            {patient.consent === 'disagreed' ? (
+              <Tooltip title={CONSENT_HINTS.disagreed}>
+                <Tag bordered={false} color="red">
+                  {CONSENT_LABELS.disagreed}
+                </Tag>
+              </Tooltip>
+            ) : null}
             <Text type="secondary" style={{ fontSize: 12 }}>
               陪伴 {daysSince(patient.accompaniedSince)} 天 · 记忆 {patient.memoryCount} 条 ·
               待执行 {patient.pendingPlanCount} 个
