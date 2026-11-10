@@ -160,10 +160,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export async function login(username: string, password: string): Promise<Session> {
   if (!isMockMode) {
-    const session = await request<Session>('/auth/login', {
+    const loginResult = await request<Session>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
+    // POST /auth/login 按契约只返回 account/tenant（docs/P1-api.md §2），
+    // permissions 与 serverTime 在 GET /auth/session。登录后补一次会话查询，
+    // 否则 can() 会读到 undefined，任何调用 can() 的页面都会崩溃。
+    const full = await getSession().catch(() => null);
+    const session: Session = full ?? {
+      ...loginResult,
+      permissions: [],
+      serverTime: Date.now(),
+    };
     writeJson(SESSION_KEY, session);
     return session;
   }

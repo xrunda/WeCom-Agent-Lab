@@ -77,7 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const can = useCallback(
-    (permission: string) => Boolean(session?.permissions.includes(permission)),
+    // permissions 可能缺失（例如登录接口只返回 account/tenant），缺失时按无权限处理
+    (permission: string) => sessionCan(session, permission),
     [session],
   );
 
@@ -93,6 +94,11 @@ export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext);
   if (!value) throw new Error('useAuth 必须在 AuthProvider 内使用');
   return value;
+}
+
+/** 权限判断收敛为纯函数：会话或 permissions 缺失时安全返回 false。 */
+export function sessionCan(session: Session | null, permission: string): boolean {
+  return Boolean(session?.permissions?.includes(permission));
 }
 
 /** 全局称谓：页面里不要写死「患者」，用这个 hook */
