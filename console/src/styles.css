@@ -35,18 +35,21 @@ a {
 }
 
 /* ---------- 品牌 ---------- */
-.brand-logo {
-  height: 30px;
+/* ProLayout 默认把 logo img 限制为 28px，这里提高优先级放大 */
+.console-layout .ant-pro-global-header-logo img.brand-logo {
+  height: 40px;
   width: auto;
   display: block;
-  /* 品牌图底色为浅米色，用 multiply 让它融进白色顶栏 */
-  mix-blend-mode: multiply;
 }
 
 .login-logo {
-  width: min(340px, 100%);
+  width: min(420px, 100%);
   height: auto;
   display: block;
+  box-sizing: border-box;
+  /* 深色品牌区上用白色底板保证 wordmark 对比度 */
+  background: #fff;
+  padding: 14px 20px;
   border-radius: 16px;
 }
 
