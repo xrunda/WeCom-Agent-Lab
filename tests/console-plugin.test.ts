@@ -1247,7 +1247,31 @@ test('工作台：价值与 KPI 直接来自真实草稿，不出现示例数据
 
   const recent = await call('GET', '/zhiban/api/dashboard/recent?limit=2', { cookie });
   assert.equal(recent.status, 200);
-  assert.equal((recent.json() as { items: unknown[] }).items.length, 2);
+  const recentBody = recent.json() as {
+    items: Array<{
+      id: string;
+      patientName: string;
+      advisorName: string;
+      groupName: string;
+      preview: string;
+      outcome: string;
+      at: number;
+      sandbox: boolean;
+    }>;
+  };
+  assert.equal(recentBody.items.length, 2);
+  assert.equal(recentBody.items[0]!.id, 'draft_1');
+  assert.equal(recentBody.items[0]!.outcome, 'verified');
+  assert.equal(recentBody.items[0]!.patientName, '汪女士');
+  assert.equal(recentBody.items[0]!.advisorName, '李广');
+  assert.equal(recentBody.items[0]!.sandbox, false);
+  assert.ok(recentBody.items.every((item) => typeof item.at === 'number'));
+
+  const recentAll = await call('GET', '/zhiban/api/dashboard/recent?limit=10', { cookie });
+  const skipped = (recentAll.json() as { items: Array<{ id: string; outcome: string }> }).items.find(
+    (item) => item.id === 'draft_3',
+  );
+  assert.equal(skipped?.outcome, 'pending');
 
   const invalid = await call('GET', '/zhiban/api/dashboard/value?range=year', { cookie });
   assert.equal(invalid.status, 422);

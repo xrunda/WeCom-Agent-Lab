@@ -1004,8 +1004,18 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       throw new ConsoleError('VALIDATION_FAILED', 'consent 必须是 agreed / unknown / disagreed');
     };
 
-    const ARCHIVE_MEDIA_TYPES: Record<string, string> = {
-      jpg: 'image/jpeg',
+    /** 工作台「最近服务动态」的口径：只区分已核验/改后发送/发错群/未核验，其余为待核验。 */
+    const recentOutcome = (
+      status: Draft['status'],
+    ): 'verified' | 'edit_sent' | 'misroute' | 'unverified' | 'pending' => {
+      if (status === 'VERIFIED') return 'verified';
+      if (status === 'EDIT_SENT') return 'edit_sent';
+      if (status === 'MISROUTE_ALERT') return 'misroute';
+      if (status === 'UNVERIFIED') return 'unverified';
+      return 'pending';
+    };
+
+    const ARCHIVE_MEDIA_TYPES: Record<string, string> = {      jpg: 'image/jpeg',
       jpeg: 'image/jpeg',
       png: 'image/png',
       gif: 'image/gif',
@@ -1112,7 +1122,19 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         const items = consoleDrafts()
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, limit)
-          .map((draft) => serviceFlowRow(draft, lookups));
+          .map((draft) => {
+            const row = serviceFlowRow(draft, lookups);
+            return {
+              id: row.id,
+              patientName: row.patientName,
+              advisorName: row.advisorName,
+              groupName: row.groupName,
+              preview: row.summary,
+              outcome: recentOutcome(draft.status),
+              at: row.createdAt,
+              sandbox: false,
+            };
+          });
         respond(rc, 200, { items });
       },
       { permission: 'patient.read' },

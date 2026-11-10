@@ -321,7 +321,7 @@ export default function DashboardPage() {
         >
           <div className="recent-list">
             {recent.map((item) => {
-              const meta = OUTCOME_META[item.outcome];
+              const meta = OUTCOME_META[item.outcome] ?? OUTCOME_META.pending;
               return (
                 <button
                   type="button"
