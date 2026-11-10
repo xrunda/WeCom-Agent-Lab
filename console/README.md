@@ -26,7 +26,7 @@ mock 模式默认开启，演示账号：
 # 部署机的控制台 API 只监听 127.0.0.1，需要先建立 SSH 隧道
 ssh -N -L 3080:127.0.0.1:3080 <部署机账号>@<部署机地址>
 
-VITE_API_MODE=real npm run dev
+npm run dev:real   # 等价于 VITE_API_MODE=real npm run dev
 ```
 
 - `VITE_API_BASE` 可覆盖接口前缀，默认 `/zhiban/api`。
