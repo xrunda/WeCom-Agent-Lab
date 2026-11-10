@@ -39,6 +39,7 @@ import {
   isMockOnly,
 } from '../../mock/exports.ts';
 import { listGroups } from '../../mock/groups.ts';
+import { isMockMode } from '../../mock/http.ts';
 import { mediaKindLabel, type MediaKind } from '../../mock/media.ts';
 import {
   FLOW_STATUS_META,
@@ -342,7 +343,11 @@ export default function ServiceFlowPage() {
           </div>
           <div className="flow-ticker" aria-label="最近事件">
             {tickerItems.length === 0 ? (
-              <Text type="secondary">等待事件…（mock 模式每 2.6 秒模拟一条草稿流转）</Text>
+              <Text type="secondary">
+                {isMockMode
+                  ? '等待事件…（mock 模式每 2.6 秒模拟一条草稿流转）'
+                  : '等待事件…（新草稿生成或核验后会实时推送）'}
+              </Text>
             ) : (
               tickerItems.map(({ key, event }) => (
                 <div className="flow-ticker-item" key={key}>

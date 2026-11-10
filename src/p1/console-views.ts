@@ -5,6 +5,7 @@
  * 纯函数、无 I/O：沙盒数据不计入工作台，所有统计都只基于传入的真实记录。
  */
 import type { Draft } from '../c2/types.ts';
+import { dayKey } from './console-types.ts';
 import type { CarePlanRecord } from './care.ts';
 import type { MemoryRecord } from './memory.ts';
 import type { AdvisorRecord, GroupBinding, Patient } from './types.ts';
@@ -13,10 +14,30 @@ import type { AdvisorRecord, GroupBinding, Patient } from './types.ts';
 
 export type DashboardRange = 'today' | 'week' | 'month';
 
+export interface DashboardTrendPointView {
+  date: string;
+  label: string;
+  volume: number;
+  verified: number;
+}
+
+export interface DashboardAdvisorRankView {
+  advisorId: string;
+  name: string;
+  status: string;
+  volume: number;
+  verified: number;
+  avgResponseSeconds: number;
+}
+
 export interface DashboardValueView {
   range: DashboardRange;
   from: number;
   to: number;
+  /** 近 14 天真实草稿量（按租户时区分日） */
+  trend: DashboardTrendPointView[];
+  /** 当前时间窗口内的顾问真实产出 */
+  advisorRanking: DashboardAdvisorRankView[];
   adoption: {
     original: number;
     revised: number;
@@ -646,6 +667,57 @@ function hasStaffRevision(draft: Draft): boolean {
   return (draft.revisions ?? []).some((item) => item.createdBy === 'staff');
 }
 
+/** 近 N 天（含今天）的真实草稿量，按租户时区分日。 */
+export function dashboardTrend(
+  drafts: Draft[],
+  now: number,
+  timeZone: string,
+  days = 14,
+): DashboardTrendPointView[] {
+  const todayStart = startOfZonedDay(now, timeZone);
+  const points: DashboardTrendPointView[] = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const dayStart = todayStart - offset * 86_400_000;
+    const key = dayKey(dayStart, timeZone);
+    const dayDrafts = drafts.filter((draft) => dayKey(draft.createdAt, timeZone) === key);
+    points.push({
+      date: key,
+      label: key.slice(5),
+      volume: dayDrafts.length,
+      verified: dayDrafts.filter((draft) => draft.status === 'VERIFIED').length,
+    });
+  }
+  return points;
+}
+
+/** 当前窗口内每位顾问的真实草稿量与平均响应，按草稿量倒序。 */
+export function dashboardAdvisorRanking(
+  drafts: Draft[],
+  advisors: AdvisorRecord[],
+): DashboardAdvisorRankView[] {
+  return advisors
+    .map((advisor) => {
+      const owned = drafts.filter((draft) => draft.advisorId === advisor.id);
+      const samples = owned
+        .filter((draft) => draft.lastInboundAt !== undefined)
+        .map((draft) => Math.max(0, draft.createdAt - (draft.lastInboundAt ?? draft.createdAt)));
+      return {
+        advisorId: advisor.id,
+        name: advisor.name,
+        status: advisor.status,
+        volume: owned.length,
+        verified: owned.filter((draft) => draft.status === 'VERIFIED').length,
+        avgResponseSeconds:
+          samples.length === 0
+            ? 0
+            : Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length / 1000),
+      };
+    })
+    .sort(
+      (left, right) => right.volume - left.volume || left.name.localeCompare(right.name, 'zh-CN'),
+    );
+}
+
 export function dashboardValue(input: {
   range: DashboardRange;
   now: number;
@@ -672,10 +744,14 @@ export function dashboardValue(input: {
   const activePatients = input.patients.filter(
     (patient) => patient.deletedAt === undefined && patient.status !== 'archived',
   ).length;
+  const trend = dashboardTrend(input.drafts, input.now, input.timeZone, 14);
+  const ranking = dashboardAdvisorRanking(drafts, input.advisors);
   return {
     range: window.range,
     from: window.from,
     to: window.to,
+    trend,
+    advisorRanking: ranking,
     adoption: {
       original,
       revised,

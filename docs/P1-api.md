@@ -258,11 +258,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
   "proactiveCareCount": 1,
   "verificationPassRate": 0.63,
   "patientsPerAdvisor": 2.0,
+  "trend": [
+    { "date": "2026-11-09", "label": "11-09", "volume": 4, "verified": 3 },
+    { "date": "2026-11-10", "label": "11-10", "volume": 7, "verified": 5 }
+  ],
+  "advisorRanking": [
+    { "advisorId": "adv_...", "name": "李广", "status": "active", "volume": 7, "verified": 5, "avgResponseSeconds": 43 }
+  ],
   "computedAt": 1762646400000
 }
 ```
 
 口径严格按数据模型 §5；`range` 以租户时区切日。沙盒数据不计入。
+
+`trend` 固定返回近 14 天（含今天）的真实草稿量，按租户时区分日；`advisorRanking` 按当前 `range` 统计每位顾问的草稿量、核验数与平均响应，均为真实数据，不使用示例集。
 
 ### `GET /dashboard/kpis?range=today|week|month`
 
@@ -1132,7 +1141,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 工作台 | 价值条 | `GET /dashboard/value` | A |
 | 工作台 | KPI | `GET /dashboard/kpis` | A |
 | 工作台 | 最近动态 | `GET /dashboard/recent` | A |
-| 工作台 | 趋势图、排行 | `console/src/sample/` | B |
+| 工作台 | 趋势图、排行 | `GET /dashboard/value` 的 `trend` / `advisorRanking` | A |
 | 工作台 | 开通引导卡片 | `GET /settings/onboarding` | A |
 | 患者 Agent | 卡片墙列表 | `GET /patients` | A |
 | 患者 Agent 主页 | 基本信息、标签 | `GET /patients/{id}` | A |

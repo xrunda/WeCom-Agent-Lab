@@ -1,10 +1,11 @@
 import { PageContainer } from '@ant-design/pro-components';
-import { Card, Table, Tag, Typography } from 'antd';
+import { Alert, Card, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { EChartsOption } from 'echarts';
 
 import { EChart } from '../../components/EChart.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
+import { isMockMode } from '../../mock/http.ts';
 import {
   SAMPLE_ADVISORS,
   SAMPLE_AVG_RESPONSE_SECONDS,
@@ -184,6 +185,24 @@ const patientColumns: ColumnsType<SamplePatient> = [
 export default function ReportsPage() {
   const patients = [...SAMPLE_PATIENTS].sort((a, b) => b.messages - a.messages);
   const activePatients = SAMPLE_PATIENTS.filter((patient) => patient.activity === 'active').length;
+
+  if (!isMockMode) {
+    return (
+      <PageContainer
+        header={{
+          title: '数据报表',
+          subTitle: '服务量、响应时效、核验质量、顾问对比与客户活跃。',
+        }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="数据报表尚未接入真实统计"
+          description="真实模式下不展示示例报表数字，避免与真实运营数据混淆。当前请以工作台 KPI、服务流与审计日志为准。"
+        />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer

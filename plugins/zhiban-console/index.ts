@@ -59,6 +59,7 @@ import {
 } from '../../src/p1/console-views.ts';
 import type {
   AdvisorRecord,
+  ConsentStatus,
   GroupBinding,
   GroupServiceStatus,
   Patient,
@@ -176,6 +177,14 @@ interface PatientApiLike {
     id: string,
     patch: Partial<Pick<AdvisorRecord, 'name' | 'status' | 'seatExpireAt' | 'chatBound'>>,
   ): AdvisorRecord;
+  createPatient?(input: {
+    displayName: string;
+    externalUserId?: string;
+    tags?: string[];
+    advisorId?: string;
+    consent?: ConsentStatus;
+  }): Patient;
+  bindPatient?(groupId: string, patientId: string, isPrimary?: boolean): GroupBinding;
   getPatientBindings?(id: string): Array<{ groupId: string; isPrimary: boolean }>;
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
@@ -1141,6 +1150,123 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     );
 
     // -- 患者 --
+
+    router.add(
+      'POST',
+      '/patients',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const api = patientReadApi();
+        if (!api?.createPatient) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        const body = await rc.json<Record<string, unknown>>();
+        const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : '';
+        if (!displayName) throw new ConsoleError('VALIDATION_FAILED', '患者备注名不能为空');
+        let tags: string[] | undefined;
+        if (body.tags !== undefined) {
+          if (!Array.isArray(body.tags) || body.tags.some((item) => typeof item !== 'string')) {
+            throw new ConsoleError('VALIDATION_FAILED', 'tags 必须是字符串数组');
+          }
+          tags = body.tags as string[];
+        }
+        const consent = body.consent === undefined ? undefined : parseConsent(body.consent);
+        let created: Patient;
+        try {
+          created = api.createPatient({ displayName, tags, consent });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('ADVISOR_NOT_FOUND')) {
+            throw new ConsoleError('VALIDATION_FAILED', '顾问不存在');
+          }
+          throw error;
+        }
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'patient.create', 'patient', created.id),
+        );
+        respond(
+          rc,
+          201,
+          patientView(created, {
+            groupIds: [],
+            advisorId: created.advisorId,
+            memoryCount: 0,
+            pendingPlanCount: 0,
+          }),
+        );
+      },
+      { permission: 'patient.write' },
+    );
+
+    router.add(
+      'POST',
+      '/groups/:id/bindings',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const api = patientReadApi();
+        if (!api?.bindPatient) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        const groupId = rc.params.id!;
+        const group = api.listGroups?.().find((item) => item.id === groupId);
+        if (!group) throw new ConsoleError('NOT_FOUND', '群不存在');
+        const body = await rc.json<Record<string, unknown>>();
+        let patientId: string;
+        if (typeof body.patientId === 'string' && body.patientId.trim() !== '') {
+          patientId = body.patientId.trim();
+        } else if (body.newPatient && typeof body.newPatient === 'object') {
+          if (!api.createPatient) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+          const input = body.newPatient as Record<string, unknown>;
+          const displayName =
+            typeof input.displayName === 'string' ? input.displayName.trim() : '';
+          if (!displayName) throw new ConsoleError('VALIDATION_FAILED', '患者备注名不能为空');
+          const tags = Array.isArray(input.tags)
+            ? (input.tags as unknown[]).filter((item): item is string => typeof item === 'string')
+            : undefined;
+          const consent = input.consent === undefined ? undefined : parseConsent(input.consent);
+          patientId = api.createPatient({ displayName, tags, consent }).id;
+        } else {
+          throw new ConsoleError('VALIDATION_FAILED', '需要 patientId 或 newPatient');
+        }
+        let binding: GroupBinding;
+        try {
+          binding = api.bindPatient(groupId, patientId, (group.patientIds?.length ?? 0) === 0);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('PATIENT_NOT_FOUND')) {
+            throw new ConsoleError('NOT_FOUND', '患者不存在');
+          }
+          if (message.startsWith('GROUP_NOT_FOUND')) {
+            throw new ConsoleError('NOT_FOUND', '群不存在');
+          }
+          throw error;
+        }
+        const patient =
+          api.getPatientAdmin?.(patientId) ??
+          api.listPatients?.().find((item) => item.id === patientId);
+        if (!patient) throw new ConsoleError('NOT_FOUND', '患者不存在');
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'group.bind', 'group', groupId, { patientId }),
+        );
+        const lookups = consoleLookups();
+        respond(rc, 201, {
+          binding: {
+            id: binding.id,
+            tenantId: binding.tenantId,
+            groupId: binding.groupId,
+            patientId: binding.patientId,
+            isPrimary: binding.isPrimary,
+            createdAt: binding.createdAt,
+            deletedAt: binding.deletedAt ?? null,
+          },
+          patient: patientView(patient, {
+            groupIds: lookups.bindings
+              .filter((item) => item.patientId === patient.id)
+              .map((item) => item.groupId),
+            advisorId: patientAdvisorId(patient, lookups.groups, lookups.bindings),
+            memoryCount: consoleMemoryCount(patient.id),
+            pendingPlanCount: consolePendingPlans(patient.id),
+          }),
+        });
+      },
+      { permission: 'patient.write' },
+    );
 
     router.add(
       'GET',

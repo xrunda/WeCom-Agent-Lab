@@ -38,7 +38,7 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             </Text>
             {patient.demo ? (
               <Tag bordered={false} color="purple" className="tag-tight">
-                演示
+                演示环境
               </Tag>
             ) : null}
           </Space>

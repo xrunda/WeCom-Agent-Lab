@@ -24,6 +24,7 @@ import {
   getDashboardRecent,
   getDashboardValue,
 } from '../../mock/dashboard.ts';
+import { isMockMode } from '../../mock/http.ts';
 import { SAMPLE_ADVISORS, SAMPLE_DAYS, SAMPLE_PERIOD_LABEL, SAMPLE_TOTALS } from '../../sample/index.ts';
 import type {
   DashboardKpis,
@@ -91,6 +92,35 @@ export default function DashboardPage() {
     void load(range);
   }, [load, range]);
 
+  // 真实模式只用接口返回的真实数据；示例数据仅在 mock 模式展示。
+  const trendPoints = isMockMode
+    ? SAMPLE_DAYS.map((day) => ({ label: day.label, volume: day.volume, verified: day.verified }))
+    : (data?.value.trend ?? []);
+  const rankingRows = isMockMode
+    ? [...SAMPLE_ADVISORS]
+        .sort((a, b) => b.volume - a.volume)
+        .map((advisor) => ({
+          id: advisor.id,
+          name: advisor.name,
+          title: advisor.title,
+          volume: advisor.volume,
+          verified: advisor.verified,
+          avgResponseSeconds: advisor.avgResponseSeconds,
+        }))
+    : (data?.value.advisorRanking ?? []).map((advisor) => ({
+        id: advisor.advisorId,
+        name: advisor.name,
+        title:
+          advisor.status === 'active' ? '在岗' : advisor.status === 'paused' ? '已暂停' : '已离职',
+        volume: advisor.volume,
+        verified: advisor.verified,
+        avgResponseSeconds: advisor.avgResponseSeconds,
+      }));
+  const trendTotals = trendPoints.reduce(
+    (acc, point) => ({ volume: acc.volume + point.volume, verified: acc.verified + point.verified }),
+    { volume: 0, verified: 0 },
+  );
+
   const trendOption: EChartsOption = {
     tooltip: { trigger: 'axis' },
     legend: {
@@ -104,7 +134,7 @@ export default function DashboardPage() {
     grid: { left: 6, right: 10, top: 40, bottom: 2, containLabel: true },
     xAxis: {
       type: 'category',
-      data: SAMPLE_DAYS.map((day) => day.label),
+      data: trendPoints.map((day) => day.label),
       axisTick: { show: false },
       axisLine: { lineStyle: { color: '#e2e8f0' } },
       axisLabel: { color: '#64748b', fontSize: 11 },
@@ -118,14 +148,14 @@ export default function DashboardPage() {
       {
         name: '服务消息',
         type: 'bar',
-        data: SAMPLE_DAYS.map((day) => day.volume),
+        data: trendPoints.map((day) => day.volume),
         barWidth: 12,
         itemStyle: { color: '#99f6e4', borderRadius: [4, 4, 0, 0] },
       },
       {
         name: '已核验',
         type: 'line',
-        data: SAMPLE_DAYS.map((day) => day.verified),
+        data: trendPoints.map((day) => day.verified),
         smooth: true,
         symbol: 'circle',
         symbolSize: 6,
@@ -146,7 +176,7 @@ export default function DashboardPage() {
 
   const { value, kpis, recent } = data;
   const rangeLabel = RANGE_LABELS[range];
-  const maxAdvisorVolume = Math.max(...SAMPLE_ADVISORS.map((advisor) => advisor.volume));
+  const maxAdvisorVolume = Math.max(1, ...rankingRows.map((advisor) => advisor.volume));
 
   return (
     <PageContainer
@@ -256,15 +286,21 @@ export default function DashboardPage() {
             variant="borderless"
             title="服务量趋势"
             extra={
-              <Space size={8}>
-                <SampleDataTag compact />
-                <Text type="secondary">{SAMPLE_PERIOD_LABEL}</Text>
-              </Space>
+              isMockMode ? (
+                <Space size={8}>
+                  <SampleDataTag compact />
+                  <Text type="secondary">{SAMPLE_PERIOD_LABEL}</Text>
+                </Space>
+              ) : (
+                <Text type="secondary">近 14 天 · 会话存档草稿</Text>
+              )
             }
           >
             <EChart option={trendOption} height={290} ariaLabel="近 14 天服务消息与已核验趋势" />
             <Paragraph type="secondary" className="chart-footnote">
-              示例数据：近 14 天共 {SAMPLE_TOTALS.volume} 条服务消息，其中已核验 {SAMPLE_TOTALS.verified} 条。
+              {isMockMode
+                ? `示例数据：近 14 天共 ${SAMPLE_TOTALS.volume} 条服务消息，其中已核验 ${SAMPLE_TOTALS.verified} 条。`
+                : `真实数据：近 14 天共 ${trendTotals.volume} 条草稿，其中已核验 ${trendTotals.verified} 条。`}
             </Paragraph>
           </Card>
 
@@ -272,39 +308,48 @@ export default function DashboardPage() {
             className="zb-card"
             variant="borderless"
             title="顾问排行"
-            extra={<SampleDataTag compact />}
+            extra={isMockMode ? <SampleDataTag compact /> : <Text type="secondary">当前范围</Text>}
           >
             <div className="advisor-rank">
-              {[...SAMPLE_ADVISORS]
-                .sort((a, b) => b.volume - a.volume)
-                .map((advisor, index) => (
-                  <div key={advisor.id} className="advisor-rank-row">
-                    <span className={`rank-index rank-${index + 1}`}>{index + 1}</span>
-                    <div className="advisor-rank-main">
-                      <div className="advisor-rank-head">
-                        <Text strong>{advisor.name}</Text>
-                        <Text type="secondary">{advisor.volume} 条</Text>
-                      </div>
-                      <Progress
-                        percent={Math.round((advisor.volume / maxAdvisorVolume) * 100)}
-                        showInfo={false}
-                        strokeColor={index === 0 ? '#0f766e' : '#5eead4'}
-                        trailColor="#eef2f7"
-                        size="small"
-                      />
-                      <div className="advisor-rank-foot">
-                        <span>{advisor.title}</span>
-                        <span>
-                          核验通过 {formatPercent(advisor.verified / advisor.volume)} · 平均{' '}
-                          {advisor.avgResponseSeconds} 秒
-                        </span>
-                      </div>
+              {rankingRows.map((advisor, index) => (
+                <div key={advisor.id} className="advisor-rank-row">
+                  <span className={`rank-index rank-${index + 1}`}>{index + 1}</span>
+                  <div className="advisor-rank-main">
+                    <div className="advisor-rank-head">
+                      <Text strong>{advisor.name}</Text>
+                      <Text type="secondary">{advisor.volume} 条</Text>
+                    </div>
+                    <Progress
+                      percent={Math.round((advisor.volume / maxAdvisorVolume) * 100)}
+                      showInfo={false}
+                      strokeColor={index === 0 ? '#0f766e' : '#5eead4'}
+                      trailColor="#eef2f7"
+                      size="small"
+                    />
+                    <div className="advisor-rank-foot">
+                      <span>{advisor.title}</span>
+                      <span>
+                        核验通过{' '}
+                        {formatPercent(
+                          advisor.volume === 0 ? 0 : advisor.verified / advisor.volume,
+                        )}{' '}
+                        · 平均 {advisor.avgResponseSeconds} 秒
+                      </span>
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
+              {rankingRows.length === 0 ? (
+                <Text type="secondary">当前范围暂无顾问草稿。</Text>
+              ) : null}
             </div>
             <Paragraph type="secondary" className="chart-footnote">
-              三位顾问服务量合计 {SAMPLE_TOTALS.volume} 条，与趋势图一致。
+              {isMockMode
+                ? `三位顾问服务量合计 ${SAMPLE_TOTALS.volume} 条，与趋势图一致。`
+                : `共 ${rankingRows.length} 位顾问，当前范围草稿合计 ${rankingRows.reduce(
+                    (sum, advisor) => sum + advisor.volume,
+                    0,
+                  )} 条。`}
             </Paragraph>
           </Card>
         </div>
@@ -354,7 +399,10 @@ export default function DashboardPage() {
             })}
           </div>
           <Paragraph type="secondary" className="chart-footnote">
-            <CalendarOutlined /> KPI 来自接口口径，沙盒数据不计入；趋势、排行与最近动态为示例数据。
+            <CalendarOutlined />{' '}
+            {isMockMode
+              ? 'KPI 来自接口口径，沙盒数据不计入；趋势、排行与最近动态为示例数据。'
+              : 'KPI、趋势、排行与最近动态均来自真实会话存档，沙盒数据不计入。'}
           </Paragraph>
         </Card>
       </div>

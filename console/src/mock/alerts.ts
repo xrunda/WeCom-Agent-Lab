@@ -135,7 +135,7 @@ export function subscribeAlerts(listener: () => void): () => void {
   if (!isMockMode) {
     listeners.add(listener);
     if (!realSource) {
-      realSource = new EventSource(`${API_BASE}/sse/events?types=alert.*`, {
+      realSource = new EventSource(`${API_BASE}/stream?types=alert.*`, {
         withCredentials: true,
       });
       realSource.onmessage = () => notify();

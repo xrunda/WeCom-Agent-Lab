@@ -32,6 +32,8 @@ import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runti
 import type {
   AdvisorRecord,
   AgentCapabilities,
+  ConsentStatus,
+  GroupBinding,
   GroupServiceStatus,
   InboundMessage,
   ManagedGroup,
@@ -160,6 +162,16 @@ export interface PatientRuntimeApi {
     id: string,
     patch: Partial<Pick<AdvisorRecord, 'name' | 'status' | 'seatExpireAt' | 'chatBound'>>,
   ): AdvisorRecord;
+  /** 控制台群管理：新建患者（绑定新患者时使用） */
+  createPatient(input: {
+    displayName: string;
+    externalUserId?: string;
+    tags?: string[];
+    advisorId?: string;
+    consent?: ConsentStatus;
+  }): Patient;
+  /** 控制台群管理：把患者绑定到服务群 */
+  bindPatient(groupId: string, patientId: string, isPrimary?: boolean): GroupBinding;
   /** 患者 ↔ 群绑定（含是否主群） */
   getPatientBindings(id: string): Array<{ groupId: string; isPrimary: boolean }>;
   /** #59：数据与安全页的患者存档同意状态统计 */
@@ -493,6 +505,13 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           return { ...updated, tags: [...updated.tags] };
         },
         updateAdvisor: (id, patch) => ({ ...service.updateAdvisor(id, patch) }),
+        createPatient: (input) => {
+          const created = service.createPatient(input);
+          return { ...created, tags: [...created.tags] };
+        },
+        bindPatient: (groupId, patientId, isPrimary) => ({
+          ...service.bindPatient(groupId, patientId, isPrimary),
+        }),
         getPatientBindings: (id) =>
           (store?.listBindingsByPatient(id) ?? []).map((binding) => ({
             groupId: binding.groupId,

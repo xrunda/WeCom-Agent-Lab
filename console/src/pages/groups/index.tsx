@@ -11,7 +11,6 @@ import {
   GROUP_STATUS_COLORS,
   GROUP_STATUS_LABELS,
   listGroups,
-  pendingGroupCount,
   updateGroup,
   type Group,
   type GroupStatus,
@@ -58,22 +57,21 @@ export default function GroupsPage() {
   }, []);
 
   useEffect(() => {
-    setPending(pendingGroupCount());
-  }, [refreshKey]);
-
-  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     Promise.all([
       listGroups({ q: keyword, status }),
       listAdvisors(),
       listPatients({ pageSize: 100 }),
+      // 待确认群数走真实接口统计，避免 mock 模块的 fixture 数量混进真实模式
+      listGroups({ status: 'pending', pageSize: 1 }),
     ])
-      .then(([groupPage, advisorList, patientPage]) => {
+      .then(([groupPage, advisorList, patientPage, pendingPage]) => {
         if (cancelled) return;
         setGroups(groupPage.items);
         setAdvisors(advisorList);
         setPatients(patientPage.items);
+        setPending(pendingPage.total);
       })
       .catch((error: unknown) => {
         if (!cancelled) message.error(error instanceof Error ? error.message : '加载失败');
@@ -160,7 +158,7 @@ export default function GroupsPage() {
           <Text strong={group.status === 'pending'}>{value}</Text>
           {group.demo ? (
             <Tag bordered={false} color="purple">
-              演示
+              演示环境
             </Tag>
           ) : null}
           {group.nameSource === 'roomid' ? <Tag bordered={false}>未命名</Tag> : null}

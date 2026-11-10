@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth, useTenantSettings } from '../../auth/AuthContext.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
+import { isMockMode } from '../../mock/http.ts';
 import { formatDate } from '../../utils/format.ts';
 import {
   ADVISOR_STATUS_LABELS,
@@ -269,7 +270,7 @@ export default function AdvisorsPage() {
             {
               key: 'performance',
               label: '绩效',
-              children: (
+              children: isMockMode ? (
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                   <Alert
                     type="info"
@@ -290,6 +291,13 @@ export default function AdvisorsPage() {
                     pagination={false}
                   />
                 </Space>
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="绩效统计尚未接入真实数据"
+                  description="真实模式下不展示示例绩效数字，避免与真实运营数据混淆。接入前请以服务流与审计日志为准。"
+                />
               ),
             },
           ]}
