@@ -40,10 +40,16 @@
 
 ### 2.2 已知阻塞（执行前必须解决）
 
-1. **群状态无法改为 serving。** 群被存档发现后默认 `pending`，`PatientService.isServiceable()`
-   只服务 `serving`；当前仓库没有控制台接口或运维命令调用 `setGroupStatus`。
-   在补齐该入口前，真实群消息不会触发患者 Agent 回合。处理方式：由项目负责人在
-   对应控制台/患者域 issue 下确认补充入口，或在合并前明确授权一次**仅改状态、不造业务数据**的运维操作。
+1. **群状态入口已补齐（本 PR 后可用）。** 群被存档发现后默认 `pending`，只有 `serving`
+   会触发患者 Agent 回合。现在有两层入口：
+   - 控制台 API：`GET /zhiban/api/groups`、`PATCH /zhiban/api/groups/{id}`
+     （`{ name?, status?, advisorId? }`，需 `patient.write`）；
+   - 运维脚本：`npm run group:status -- --list` 查看，
+     `npm run group:status -- --room-id <roomid> --status serving` 改状态。
+
+   脚本只调控制台公开接口，不直写数据库；账号密码走 `ZHIBAN_CONSOLE_USERNAME` /
+   `ZHIBAN_CONSOLE_PASSWORD` 环境变量，不会打印。先用 `--dry-run` 确认匹配到的群唯一，
+   再正式提交。真实生效仍需 demo 实例加载本 PR 后的版本——**本地单测不能替代真机确认**。
 2. **同意状态未自动同步。** 目前靠 `setMemberConsent` / `refreshConsent` 手工写入
    （见 [P1 患者 Agent §4](./P1-patient-agent.md)）。播种前必须逐群确认状态为 `agreed` 或
    `unknown`（`requireConsentForTurn=false` 时 `unknown` 可服务；`disagreed` 永不服务）。
@@ -76,7 +82,8 @@
 1. 建 8 个群，群名与患者名一致；每群拉入对应测试号和存档顾问。
 2. 用测试号逐群完成存档同意。
 3. 在 demo profile 写入 8 个 roomid 白名单，重启 demo 实例。
-4. 解决 §2.2 的群状态阻塞，确认 8 个群均为 `serving`。
+4. 用 `npm run group:status -- --list` 核对 8 个群，逐个 `--status serving`（先 `--dry-run`）；
+   确认列表里 8 个群均为 `serving`。
 5. 控制台确认 8 位患者均带「演示」标签，且每人已有独立 Session。
 6. 先做一次冒烟：陈嘉禾群发「你好」，确认顾问 1:1 收到卡片。
 
@@ -248,7 +255,8 @@
 
 ## 9. 已知限制与缺口
 
-1. **群状态入口缺失**：见 §2.2，当前阻塞真实播种；补齐前不要宣称可以开跑。
+1. **群状态入口已实现、待真机确认**：API 与脚本已随本 PR 提供；在 demo 实例加载新版并
+   实际改成一个群之前，仍不能宣称真实播种可开跑（见 §2.2）。
 2. **同意状态手工维护**：无法自动同步企微 `check_room_agree`，播种前需人工确认。
 3. **红线关键词误报**：安全表述「不建议自行停药」会命中「停药」，产生 warning。
    本次保留为告警样例；是否改为否定词排除，由红线规则负责人决定。

@@ -557,11 +557,15 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 7. 服务群
 
+> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}` 已实现并有单测覆盖；
+> `GET /groups/{id}`、绑定与成员接口仍为契约待实现。控制台前端群页面暂未接入真实数据。
+> 运维脚本 `npm run group:status` 基于本节接口，用于把演示群从 `pending` 改为 `serving`。
+
 ### `GET /groups`
 
-角色：全部。Query：`status`、`advisorId`、`q`、`sort`（默认 `-lastActiveAt`）、`page`。
+角色：全部（`patient.read`）。Query：`status`、`advisorId`、`q`（匹配名称 / roomId）、`sort`（`lastActiveAt` / `name` / `updatedAt`，默认 `-lastActiveAt`）、`page`、`pageSize`。非法 `status` / `sort` 返回 `422`。
 
-响应 `200`：`{ "items": [group], ... }`，`group` 含 `patientIds`、`consent`、`memberCount`、`externalMemberCount`。
+响应 `200`：`{ "items": [group], ... }`，`group` 含 `patientIds`、`consent`、`memberCount`、`externalMemberCount`、`demo`、`createdAt`、`updatedAt`；不含 `tenantId`、`deletedAt`，已软删除的群不返回。
 
 ### `GET /groups/{id}`
 
@@ -577,7 +581,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ### `PATCH /groups/{id}`
 
-角色：admin / supervisor。请求（可选）：`name`（同时把 `nameSource` 置为 `config`）、`status`、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
+角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `config`）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
+
+错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
 
 ### `POST /groups/{id}/bindings`
 
