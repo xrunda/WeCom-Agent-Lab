@@ -77,6 +77,11 @@ test('正常返回时按 userid 映射群昵称，token 与群结果都缓存', 
   assert.equal(names?.get('LiGuang'), '李光');
   assert.equal(names?.get('wm_nickless'), undefined);
 
+  // 群名与昵称来自同一次请求：roomInfo 命中缓存，群名可同步到患者域
+  const room = await info.roomInfo('wr_group_1');
+  assert.equal(room?.name, '客户-张女士');
+  assert.equal(room?.names.get('wm_zhang'), NICKNAME);
+
   // 缓存命中：不再打接口，token 也只取一次
   await info.memberNames('wr_group_1');
   assert.equal(rec.groupCalls, 1);
@@ -85,6 +90,22 @@ test('正常返回时按 userid 映射群昵称，token 与群结果都缓存', 
   // 昵称不落日志
   assert.ok(!logs.join('\n').includes(NICKNAME), logs.join('\n'));
   assert.ok(!logs.join('\n').includes(CONTACT_SECRET), logs.join('\n'));
+});
+
+test('群名为空时返回 undefined，不覆盖已有名称', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const rec = recorder({
+    errcode: 0,
+    group_chat: {
+      name: '   ',
+      member_list: [{ userid: 'wm_zhang', type: 2, name: NICKNAME }],
+    },
+  });
+  const info = client(rec.fetchImpl, clock);
+
+  const room = await info.roomInfo('wr_group_1');
+  assert.equal(room?.name, undefined);
+  assert.equal(room?.names.get('wm_zhang'), NICKNAME);
 });
 
 test('90501 内部群回退 undefined，并做负缓存避免反复调用', async () => {

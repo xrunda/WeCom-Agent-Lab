@@ -14,7 +14,8 @@ export type ConsentStatus = 'agreed' | 'unknown' | 'disagreed';
 
 export type PatientStatus = 'serving' | 'paused' | 'archived';
 
-export type GroupNameSource = 'config' | 'api' | 'members' | 'roomid';
+/** manual = 控制台手工改名，优先于企微群名同步 */
+export type GroupNameSource = 'config' | 'api' | 'members' | 'roomid' | 'manual';
 
 export type ServiceLevel = 'serve' | 'collect_only' | 'none';
 

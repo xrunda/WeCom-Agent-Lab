@@ -56,6 +56,12 @@ export interface GroupInfoClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+/** 同一次 groupchat/get 返回的群名与成员昵称；群名可能为空 */
+export interface RoomInfo {
+  name?: string;
+  names: Map<string, string>;
+}
+
 export class GroupInfoClient {
   readonly enabled: boolean;
 
@@ -72,7 +78,7 @@ export class GroupInfoClient {
   private pendingToken?: Promise<string | undefined>;
   /** 凭据错误或网络故障时暂停取 token，避免每轮轮询都打接口 */
   private tokenFailureUntil = 0;
-  private readonly roomCache = new Map<string, { names: Map<string, string>; expiresAt: number }>();
+  private readonly roomCache = new Map<string, RoomInfo & { expiresAt: number }>();
   private readonly failureCache = new Map<string, number>();
 
   constructor(options: GroupInfoClientOptions) {
@@ -92,12 +98,20 @@ export class GroupInfoClient {
    * 无凭据、内部群、权限不足或网络失败都返回 undefined（调用方回退 id 尾号）。
    */
   async memberNames(roomId: string): Promise<Map<string, string> | undefined> {
+    return (await this.roomInfo(roomId))?.names;
+  }
+
+  /**
+   * 返回群名与成员昵称（同一次 groupchat/get，天然同步群名）。
+   * 失败返回 undefined；群名没设置时为 undefined，不覆盖已有名称。
+   */
+  async roomInfo(roomId: string): Promise<RoomInfo | undefined> {
     if (!this.enabled) return undefined;
 
     const now = this.clock.now();
     const cached = this.roomCache.get(roomId);
     if (cached) {
-      if (cached.expiresAt > now) return cached.names;
+      if (cached.expiresAt > now) return cached;
       this.roomCache.delete(roomId);
     }
     const retryAt = this.failureCache.get(roomId);
@@ -121,10 +135,12 @@ export class GroupInfoClient {
         for (const member of data.group_chat?.member_list ?? []) {
           if (member.userid && member.name) names.set(member.userid, member.name);
         }
-        this.roomCache.set(roomId, { names, expiresAt: now + this.ttlMs });
+        const name = data.group_chat?.name?.trim() || undefined;
+        const info: RoomInfo = { name, names };
+        this.roomCache.set(roomId, { ...info, expiresAt: now + this.ttlMs });
         this.failureCache.delete(roomId);
         this.prune(now);
-        return names;
+        return info;
       }
       this.recordFailure(roomId, data.errcode, now);
       return undefined;

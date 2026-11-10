@@ -612,7 +612,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ### `PATCH /groups/{id}`
 
-角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `config`）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
+角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `manual`，此后不再被企微群名同步覆盖）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
 
 错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
 

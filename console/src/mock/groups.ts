@@ -17,7 +17,7 @@ export interface Group {
   roomId: string;
   chatId: string | null;
   name: string;
-  nameSource: 'config' | 'api' | 'members' | 'roomid';
+  nameSource: 'config' | 'api' | 'members' | 'roomid' | 'manual';
   status: GroupStatus;
   advisorId: string | null;
   patientIds: string[];
@@ -171,7 +171,8 @@ export async function updateGroup(
     const name = patch.name.trim();
     if (!name) throw new ApiError('VALIDATION_FAILED', '群名不能为空', 422);
     group.name = name;
-    group.nameSource = 'config';
+    // 手工改名优先，企微群名同步不再覆盖
+    group.nameSource = 'manual';
   }
   if (patch.status) group.status = patch.status;
   if (patch.advisorId !== undefined) group.advisorId = patch.advisorId || null;
