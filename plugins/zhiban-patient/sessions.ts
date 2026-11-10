@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { PatientSessionPort } from '../../src/p1/session-port.ts';
-import type { Patient, PatientSessionRecord } from '../../src/p1/types.ts';
+import type { AgentContentPart, Patient, PatientSessionRecord } from '../../src/p1/types.ts';
 
 export interface DshAgentLike {
   whenIdle(): Promise<void>;
@@ -28,7 +28,8 @@ export interface SessionControllerLike {
       requestId: string;
       sessionId: string;
       mode: 'queue';
-      content: Array<{ type: 'text'; text: string }>;
+      /** #55：文本 + 图片附件（M0 已验证的 content part 格式） */
+      content: AgentContentPart[];
     },
     signal: AbortSignal,
   ): Promise<unknown>;
@@ -128,14 +129,16 @@ export class DshPatientSessions implements PatientSessionPort {
     return record;
   }
 
-  async prompt(sessionId: string, text: string): Promise<void> {
+  async prompt(sessionId: string, input: string | AgentContentPart[]): Promise<void> {
     await this.agent(sessionId);
+    const content: AgentContentPart[] =
+      typeof input === 'string' ? [{ type: 'text', text: input }] : input;
     await this.ctx.sessionController.prompt(
       {
         requestId: randomUUID(),
         sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text }],
+        content,
       },
       new AbortController().signal,
     );

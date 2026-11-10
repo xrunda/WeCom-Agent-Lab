@@ -109,6 +109,17 @@ export interface PatientSessionRecord {
   createdAt: number;
 }
 
+/** #55：注入 DSH 会话的内容片段；图片走 M0 已验证的附件格式 */
+export type AgentContentPart =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+      /** base64，不带 data: 前缀 */
+      data: string;
+      name?: string;
+    };
+
 /** 存档里的一条消息（患者域只关心会话内容，不关心 C2 草稿状态） */
 export interface InboundMessage {
   msgid: string;

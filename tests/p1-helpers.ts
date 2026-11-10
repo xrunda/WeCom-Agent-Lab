@@ -8,6 +8,7 @@ import { PatientAgentRuntime } from '../src/p1/runtime.ts';
 import type { DraftGuardPort } from '../src/p1/runtime.ts';
 import type {
   AgentCapabilities,
+  AgentContentPart,
   Patient,
   PatientMemoryPort,
   PatientSessionRecord,
@@ -41,7 +42,7 @@ export function setupPatient(options: { requireConsentForTurn?: boolean } = {}) 
 }
 
 export class FakeSessions implements PatientSessionPort {
-  readonly prompts: Array<{ sessionId: string; text: string }> = [];
+  readonly prompts: Array<{ sessionId: string; text: string; content: AgentContentPart[] }> = [];
   readonly contexts: Array<{ sessionId: string; text: string }> = [];
   readonly ensured: string[] = [];
   outcome: 'idle' | 'timeout' = 'idle';
@@ -58,8 +59,14 @@ export class FakeSessions implements PatientSessionPort {
     };
   }
 
-  async prompt(sessionId: string, text: string): Promise<void> {
-    this.prompts.push({ sessionId, text });
+  async prompt(sessionId: string, input: string | AgentContentPart[]): Promise<void> {
+    const content: AgentContentPart[] =
+      typeof input === 'string' ? [{ type: 'text', text: input }] : input;
+    const text = content
+      .filter((part): part is Extract<AgentContentPart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n');
+    this.prompts.push({ sessionId, text, content });
     if (this.failPrompt) throw new Error('MODEL_DOWN');
     await this.onPrompt?.(sessionId, text);
   }
@@ -86,6 +93,7 @@ export interface FakeEnqueue {
   inboundSummary: string;
   inboundMessageIds: string[];
   mediaIds: string[];
+  mediaKinds?: string[];
   citedMemoryIds: string[];
   citedKnowledgeIds: string[];
 }
@@ -252,6 +260,7 @@ export function c2Bridge(service: import('../src/c2/service.ts').C2Service): Pat
         inboundMessageId: input.inboundMessageIds[0] ?? `merged_${Date.now()}`,
         inboundMessageIds: input.inboundMessageIds,
         mediaIds: input.mediaIds,
+        mediaKinds: input.mediaKinds,
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,

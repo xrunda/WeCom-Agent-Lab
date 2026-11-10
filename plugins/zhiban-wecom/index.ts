@@ -91,6 +91,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         inboundMessageId: input.inboundMessageIds[0] ?? `merged_${Date.now()}`,
         inboundMessageIds: input.inboundMessageIds,
         mediaIds: input.mediaIds,
+        mediaKinds: input.mediaKinds,
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,

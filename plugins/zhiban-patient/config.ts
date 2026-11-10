@@ -7,6 +7,8 @@
  *
  * 不读取任何环境变量中的密钥；本插件没有 Secret。
  */
+import { isAbsolute, resolve } from 'node:path';
+
 import type { TenantAgentSettings } from '../../src/p1/types.ts';
 
 export interface PatientPluginConfigInput {
@@ -20,6 +22,8 @@ export interface PatientPluginConfigInput {
   tone?: unknown;
   fallbackTemplate?: unknown;
   agentPreset?: unknown;
+  /** #55：写 meal-vision skill 的目录；与 zhiban-knowledge 的 skillDir 指向同一处 */
+  skillDir?: unknown;
   requireConsentForTurn?: unknown;
   demo?: unknown;
   mergeWindowMs?: unknown;
@@ -32,6 +36,8 @@ export interface PatientPluginConfig {
   tenantId: string;
   workspaceRoot: string;
   agentPreset?: string;
+  /** #55：绝对路径；为空时不落 skill 文件，仅靠每轮提示词约束 */
+  skillDir?: string;
   /** 顾问的企微 userid，用于识别机器人 1:1 改稿指令 */
   advisorWecomUserId: string;
   requireConsentForTurn: boolean;
@@ -92,6 +98,7 @@ export function parsePatientConfig(raw: unknown): PatientPluginConfig {
   const input = raw as PatientPluginConfigInput;
 
   const advisorId = requiredString(input.advisorId, 'advisorId');
+  const skillDirRaw = optionalString(input.skillDir, 'skillDir');
   const settings: TenantAgentSettings = {
     agentName: requiredString(input.agentName, 'agentName'),
     patientTerm: requiredString(input.patientTerm, 'patientTerm'),
@@ -105,6 +112,9 @@ export function parsePatientConfig(raw: unknown): PatientPluginConfig {
     tenantId: requiredString(input.tenantId, 'tenantId'),
     workspaceRoot: requiredString(input.workspaceRoot, 'workspaceRoot'),
     agentPreset: optionalString(input.agentPreset, 'agentPreset'),
+    ...(skillDirRaw
+      ? { skillDir: isAbsolute(skillDirRaw) ? skillDirRaw : resolve(skillDirRaw) }
+      : {}),
     advisorWecomUserId: optionalString(input.advisorWecomUserId, 'advisorWecomUserId') ?? advisorId,
     requireConsentForTurn: bool(input.requireConsentForTurn, 'requireConsentForTurn', false),
     demo: bool(input.demo, 'demo', false),

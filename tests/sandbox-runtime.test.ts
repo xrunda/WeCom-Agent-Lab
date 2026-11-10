@@ -54,7 +54,7 @@ function sandboxSetup(options: { withSink?: boolean } = {}) {
       name: '体验客户群',
     },
     text: '我对海鲜过敏',
-    mediaIds: [],
+    mediaPaths: [],
     at: base.clock.now(),
   };
   return { ...base, sessions, bridge, drafts, events, runtime, input };

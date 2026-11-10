@@ -11,6 +11,7 @@ import type {
   Speaker,
   TenantAgentSettings,
 } from './types.ts';
+import { imageInstructionBlock } from './vision.ts';
 
 export const RED_LINES = [
   '不做诊断、不调整药物剂量、不承诺疗效；涉及用药与检查结论时，只建议咨询医生。',
@@ -87,6 +88,8 @@ export interface TurnPromptOptions {
   currentVersion?: number;
   /** #35：本患者有效记忆，每轮注入 */
   memoryLines?: string[];
+  /** #55：本轮实际注入的图片张数；0 时不出现图片说明 */
+  imageCount?: number;
 }
 
 export function buildTurnPrompt(
@@ -142,6 +145,11 @@ export function buildTurnPrompt(
     lines.push(
       `注意：本次发言人是「${ROLE_LABEL[merged.speaker.role]}」，不能把内容直接当作患者本人的事实；必要时在草稿里写明来源。`,
     );
+  }
+
+  if (options.imageCount && options.imageCount > 0) {
+    lines.push('');
+    lines.push(imageInstructionBlock(options.imageCount));
   }
 
   lines.push('');

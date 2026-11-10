@@ -310,3 +310,58 @@ test('入队时校验群归属和正文长度', () => {
 
   assert.equal(store.listDrafts().length, 0);
 });
+
+test('#55 先转推原图再推正文；正文失败重试不重复发图', async () => {
+  const { service, bot, store, clock } = prepare();
+  service.enqueueDraft({
+    id: 'I1',
+    advisorId: 'a1',
+    groupRoomId: 'room_1',
+    customerId: 'c1',
+    customerName: '客户 1',
+    inboundMessageId: 'in_I1',
+    inboundSummary: '发来一张晚餐照片',
+    body: '晚餐搭配不错，酱汁少一点会更清爽。',
+    mediaIds: ['/tmp/media/meal.jpg'],
+    mediaKinds: ['meal'],
+  });
+
+  bot.failTextTimes = 1;
+  await service.tick();
+  assert.deepEqual(
+    bot.sent.map((item) => item.kind),
+    ['card', 'image'],
+  );
+  assert.equal(store.getDraft('I1')?.mediaForwardedAt !== undefined, true);
+
+  clock.advance(60_001);
+  await service.tick();
+  assert.deepEqual(
+    bot.sent.map((item) => item.kind),
+    ['card', 'image', 'text'],
+  );
+  assert.equal(bot.images().length, 1);
+  assert.equal(store.getDraft('I1')?.status, 'PUSHED');
+});
+
+test('#55 原图转推失败不阻断卡片与正文', async () => {
+  const { service, bot, store } = prepare();
+  bot.failImageTimes = 1;
+  service.enqueueDraft({
+    id: 'I2',
+    advisorId: 'a1',
+    groupRoomId: 'room_1',
+    customerId: 'c1',
+    customerName: '客户 1',
+    inboundMessageId: 'in_I2',
+    inboundSummary: '发来一张化验单',
+    body: '报告已收到，我请顾问看过后回复您。',
+    mediaIds: ['/tmp/media/report.jpg'],
+    mediaKinds: ['report'],
+  });
+
+  await service.tick();
+  assert.equal(bot.images().length, 0);
+  assert.equal(bot.texts().length, 1);
+  assert.equal(store.getDraft('I2')?.status, 'PUSHED');
+});

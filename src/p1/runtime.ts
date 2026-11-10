@@ -32,7 +32,18 @@ import type {
   Speaker,
   TenantAgentSettings,
 } from './types.ts';
-import type { VerifyOutcome } from '../c2/types.ts';
+import type { RiskLevel, VerifyOutcome } from '../c2/types.ts';
+import {
+  IMAGE_MAX_BYTES,
+  IMAGE_MAX_PER_TURN,
+  MEAL_CONFIDENCE_ASK,
+  imageFallbackBody,
+  loadTurnImages,
+  type ImageClassifyInput,
+  type LoadedImages,
+  type MealLogInput,
+  type MealLogRecord,
+} from './vision.ts';
 
 interface GroupContextItem {
   speaker: Speaker;
@@ -64,6 +75,13 @@ interface ActiveTurn {
   revision?: RevisionRequest;
   /** #40：沙盒回合，草稿回控制台而不是 C2 */
   sandbox?: SandboxDraftSink;
+  /** #55：本轮实际注入的图片张数 / 加载失败张数 */
+  imageCount?: number;
+  imageFailed?: number;
+  /** 模型通过 image_classify 提交的类型 */
+  imageKinds?: string[];
+  /** 本轮写入的饮食记录 id；有值说明图片已被当作餐食处理 */
+  mealLogIds?: string[];
 }
 
 /** #40 沙盒患者/群的最小视图，由控制台插件传入 */
@@ -85,7 +103,8 @@ export interface SandboxTurnInput {
   patient: SandboxPatientLike;
   group: SandboxGroupLike;
   text: string;
-  mediaIds: string[];
+  /** #55：沙盒图片落盘路径（控制台上传后由 media store 提供） */
+  mediaPaths: string[];
   at: number;
 }
 
@@ -98,6 +117,8 @@ export interface SandboxDraftInput {
   inboundSummary: string;
   riskLevel: 'low' | 'medium' | 'high';
   fallback: boolean;
+  /** #55 / #64：图片类型，控制台沙盒展示与评测使用 */
+  mediaKinds?: string[];
   advisorId?: string;
   citedMemoryIds?: string[];
   citedKnowledgeIds?: string[];
@@ -137,6 +158,10 @@ export interface PatientAgentRuntimeOptions {
   maxProactivePerHour?: number;
   /** 懒取控制台的沙盒接收端；控制台插件可能后加载 */
   sandboxSink?: () => SandboxDraftSink | undefined;
+  /** #55：单张图片上限，默认 10 MB */
+  imageMaxBytes?: number;
+  /** #55：单轮最多注入图片数，默认 4 */
+  imageMaxPerTurn?: number;
 }
 
 export type ProactiveTurnInput = {
@@ -179,6 +204,8 @@ export class PatientAgentRuntime {
   private readonly memory?: PatientMemoryPort;
   private readonly capabilities?: () => AgentCapabilities;
   private readonly maxProactivePerHour: number;
+  private readonly imageMaxBytes: number;
+  private readonly imageMaxPerTurn: number;
 
   private readonly flushTimers = new Map<string, unknown>();
   private readonly activeBySession = new Map<string, ActiveTurn>();
@@ -219,6 +246,8 @@ export class PatientAgentRuntime {
     this.memory = options.memory;
     this.capabilities = options.capabilities;
     this.maxProactivePerHour = options.maxProactivePerHour ?? 6;
+    this.imageMaxBytes = options.imageMaxBytes ?? IMAGE_MAX_BYTES;
+    this.imageMaxPerTurn = options.imageMaxPerTurn ?? IMAGE_MAX_PER_TURN;
     this.merger = new InboundMerger({
       windowMs: options.mergeWindowMs ?? 30_000,
       maxWaitMs: options.mergeMaxWaitMs ?? 120_000,
@@ -559,6 +588,10 @@ export class PatientAgentRuntime {
       return undefined;
     }
 
+    // #55：图片按 M0 已验证的附件格式注入；读不到时降级为纯文字，不中断回合
+    const imagePaths = mediaPaths(merged.messages);
+    const loadedImages = await this.loadImages(imagePaths, patient.id, group.id);
+
     const turn: ActiveTurn = {
       id: merged.id,
       sessionId: record.sessionId,
@@ -572,6 +605,10 @@ export class PatientAgentRuntime {
       skipped: false,
       closed: false,
       revision,
+      imageCount: loadedImages.images.length,
+      imageFailed: loadedImages.failed,
+      imageKinds: [],
+      mealLogIds: [],
     };
     this.activeBySession.set(turn.sessionId, turn);
     this.activeByPatient.set(patient.id, turn);
@@ -583,11 +620,17 @@ export class PatientAgentRuntime {
       currentVersion: revision?.currentVersion,
       proactive: merged.proactive ? { reason: `计划到期：${merged.proactive.title}` } : undefined,
       memoryLines: this.memory?.available() ? this.memory.render(patient.id) : undefined,
+      imageCount: loadedImages.images.length,
     });
 
     let outcome: 'idle' | 'timeout' | 'error' = 'idle';
     try {
-      await this.sessions.prompt(turn.sessionId, prompt);
+      await this.sessions.prompt(
+        turn.sessionId,
+        loadedImages.images.length > 0
+          ? [{ type: 'text', text: prompt }, ...loadedImages.images]
+          : prompt,
+      );
       outcome = await this.sessions.waitIdle(turn.sessionId, this.turnTimeoutMs);
     } catch (error) {
       outcome = 'error';
@@ -628,6 +671,50 @@ export class PatientAgentRuntime {
     return turn;
   }
 
+  /** #55：读取本轮图片；失败只记数量，不把路径写进日志与事件 */
+  private async loadImages(
+    paths: string[],
+    patientId: string,
+    groupId: string,
+  ): Promise<LoadedImages> {
+    if (paths.length === 0) return { images: [], failed: 0, skipped: 0 };
+    const loaded = await loadTurnImages(paths, {
+      maxBytes: this.imageMaxBytes,
+      maxPerTurn: this.imageMaxPerTurn,
+    });
+    if (loaded.failed > 0 || loaded.skipped > 0) {
+      this.log(`图片加载降级 失败=${loaded.failed} 超限=${loaded.skipped}`);
+      this.emit('patient.image.skipped', {
+        patientId,
+        groupId,
+        failed: loaded.failed,
+        skipped: loaded.skipped,
+      });
+    }
+    return loaded;
+  }
+
+  /** #55：草稿与卡片上的图片类型；未分类时用 image */
+  private draftMediaKinds(turn: ActiveTurn): string[] {
+    if (!turn.imageCount || turn.imageCount <= 0) return [];
+    const kinds = (turn.imageKinds ?? []).filter((kind) => kind !== '');
+    return kinds.length > 0 ? kinds : ['image'];
+  }
+
+  /**
+   * #55：图片回合的风险下限。
+   * 只有「已写入饮食记录且没有报告/药品类图片」的餐食回合沿用模型判定；
+   * 其余图片回合（未识别、报告、药品、其他）至少 medium，避免低风险误发。
+   */
+  private imageRiskFloor(turn: ActiveTurn, risk: RiskLevel): RiskLevel {
+    if (!turn.imageCount || turn.imageCount <= 0) return risk;
+    const kinds = turn.imageKinds ?? [];
+    const needsAdvisor = kinds.some((kind) => kind === 'report' || kind === 'medicine');
+    const mealLogged = (turn.mealLogIds?.length ?? 0) > 0;
+    if (mealLogged && !needsAdvisor) return risk;
+    return risk === 'high' ? 'high' : 'medium';
+  }
+
   private async drainQueue(patient: Patient, group: ManagedGroup): Promise<void> {
     const queued = this.queuedMessages.get(patient.id);
     if (!queued || queued.length === 0) return;
@@ -659,6 +746,8 @@ export class PatientAgentRuntime {
     const patient = this.service.store.getPatient(merged.patientId);
     if (!patient) return;
     const summary = summarizeMessages(merged.messages) || '（无文字内容）';
+    // #55：图片识别失败 / 超时时用专门的降级正文，风险至少 medium
+    const hasImage = merged.messages.some((message) => message.msgtype === 'image');
     try {
       const result = await this.bridge.enqueueDraft({
         advisorId: group.advisorId ?? this.settings.advisorId,
@@ -669,9 +758,12 @@ export class PatientAgentRuntime {
         lastInboundAt: merged.lastMessageAt,
         inboundMessageIds: messageIds(merged.messages),
         mediaIds: mediaPaths(merged.messages),
+        mediaKinds: hasImage ? ['image'] : [],
         inboundSummary: summary,
-        body: fallbackBody(this.settings, patient.displayName),
-        riskLevel: 'low',
+        body: hasImage
+          ? imageFallbackBody(patient.displayName)
+          : fallbackBody(this.settings, patient.displayName),
+        riskLevel: hasImage ? 'medium' : 'low',
         source: merged.source,
         fallback: true,
         citedMemoryIds: [],
@@ -690,7 +782,7 @@ export class PatientAgentRuntime {
         advisorId: group.advisorId ?? this.settings.advisorId,
         source: merged.source,
         fallback: true,
-        riskLevel: 'low',
+        riskLevel: hasImage ? 'medium' : 'low',
       });
       this.log(`已降级为模板草稿 ${result.draftId}（patient=${patient.id}）`);
     } catch (error) {
@@ -743,13 +835,14 @@ export class PatientAgentRuntime {
       role: 'self',
       isExternal: true,
     };
+    const hasImages = input.mediaPaths.length > 0;
     const message: InboundMessage = {
       msgid: `msg_sbx_${at}_${++this.turnSeq}`,
       roomId: group.roomId,
       from: speaker.id,
       text: input.text,
       msgtime: input.at,
-      ...(input.mediaIds.length > 0 ? { msgtype: 'image' as const } : {}),
+      ...(hasImages ? { msgtype: 'image' as const, mediaPath: input.mediaPaths[0] } : {}),
     };
     const merged: MergedInbound = {
       id: `sandbox_${++this.turnSeq}`,
@@ -765,6 +858,8 @@ export class PatientAgentRuntime {
       lastMessageAt: input.at,
     };
 
+    const loadedImages = await this.loadImages(input.mediaPaths, patient.id, group.id);
+
     const turn: ActiveTurn = {
       id: merged.id,
       sessionId: input.sessionId,
@@ -778,13 +873,25 @@ export class PatientAgentRuntime {
       skipped: false,
       closed: false,
       sandbox: sink,
+      imageCount: loadedImages.images.length,
+      imageFailed: loadedImages.failed,
+      imageKinds: [],
+      mealLogIds: [],
     };
     this.activeBySession.set(turn.sessionId, turn);
     this.activeByPatient.set(patient.id, turn);
 
     let outcome: 'idle' | 'timeout' | 'error' = 'idle';
     try {
-      await this.sessions.prompt(turn.sessionId, buildTurnPrompt(merged, this.settings));
+      const prompt = buildTurnPrompt(merged, this.settings, {
+        imageCount: loadedImages.images.length,
+      });
+      await this.sessions.prompt(
+        turn.sessionId,
+        loadedImages.images.length > 0
+          ? [{ type: 'text', text: prompt }, ...loadedImages.images]
+          : prompt,
+      );
       outcome = await this.sessions.waitIdle(turn.sessionId, this.turnTimeoutMs);
     } catch (error) {
       outcome = 'error';
@@ -802,10 +909,13 @@ export class PatientAgentRuntime {
           patientId: patient.id,
           groupId: group.id,
           groupName: group.name,
-          body: fallbackBody(this.settings, patient.displayName),
+          body: hasImages
+            ? imageFallbackBody(patient.displayName)
+            : fallbackBody(this.settings, patient.displayName),
           inboundSummary: summarizeMessages(merged.messages) || '（无文字内容）',
-          riskLevel: 'low',
+          riskLevel: hasImages ? 'medium' : 'low',
           fallback: true,
+          mediaKinds: hasImages ? ['image'] : [],
           advisorId: this.settings.advisorId,
           citedMemoryIds: [],
           citedKnowledgeIds: [],
@@ -843,7 +953,12 @@ export class PatientAgentRuntime {
             : undefined,
     });
     const body = review?.guideOnly && review.referralBody ? review.referralBody : input.body;
-    const riskLevel = review?.riskLevel ?? input.riskLevel;
+    // #55：图片回合在红线结果之上再套一层风险下限
+    const reviewedRisk = review?.riskLevel ?? input.riskLevel;
+    const riskLevel = this.imageRiskFloor(turn, reviewedRisk);
+    if (riskLevel !== reviewedRisk) {
+      this.log(`图片回合风险等级提升 ${reviewedRisk}→${riskLevel} patient=${turn.patient.id}`);
+    }
     if (review && review.hits.length > 0) {
       this.log(
         `草稿命中风险规则 ${review.hits.join(',')} patient=${turn.patient.id} ` +
@@ -860,6 +975,7 @@ export class PatientAgentRuntime {
         inboundSummary: input.inboundSummary,
         riskLevel,
         fallback: false,
+        mediaKinds: this.draftMediaKinds(turn),
         advisorId: this.settings.advisorId,
         citedMemoryIds: input.citedMemoryIds,
         citedKnowledgeIds: input.citedKnowledgeIds,
@@ -904,6 +1020,7 @@ export class PatientAgentRuntime {
       lastInboundAt: turn.messages.at(-1)?.msgtime,
       inboundMessageIds: messageIds(turn.messages),
       mediaIds: mediaPaths(turn.messages),
+      mediaKinds: this.draftMediaKinds(turn),
       inboundSummary: input.inboundSummary,
       body,
       riskLevel,
@@ -961,6 +1078,73 @@ export class PatientAgentRuntime {
       reason: _input.reason,
     });
     return { skipped: true };
+  }
+
+  // ---------- 图片工具（#55） ----------
+
+  /** 模型提交图片类型；只记枚举与置信度，不落图片内容 */
+  imageClassify(
+    sessionId: string,
+    input: ImageClassifyInput,
+  ): { kind: ImageClassifyInput['kind']; accepted: true } {
+    const turn = this.activeImageTurn(sessionId);
+    turn.imageKinds = [...(turn.imageKinds ?? []), input.kind];
+    this.emit('patient.image.classified', {
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      kind: input.kind,
+      confidence: input.confidence,
+      sandbox: turn.sandbox !== undefined,
+    });
+    return { kind: input.kind, accepted: true };
+  }
+
+  /** 餐食图片写入饮食记录；一轮只允许一条，避免模型重试产生重复记录 */
+  mealLogWrite(
+    sessionId: string,
+    input: MealLogInput,
+  ): { mealLogId: string; confidence: number; needsConfirmation: boolean } {
+    const turn = this.activeImageTurn(sessionId);
+    if ((turn.mealLogIds?.length ?? 0) > 0) throw new Error('ALREADY_LOGGED');
+    const firstImage = turn.messages.find((message) => message.msgtype === 'image');
+    const record: MealLogRecord = {
+      id: this.service.store.nextId('meal'),
+      tenantId: turn.patient.tenantId,
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      ...(firstImage ? { messageId: firstImage.msgid } : {}),
+      ...(firstImage?.mediaPath ? { mediaPath: firstImage.mediaPath } : {}),
+      mealType: input.mealType,
+      foods: input.foods,
+      ...(input.notes ? { notes: input.notes } : {}),
+      confidence: input.confidence,
+      sandbox: turn.sandbox !== undefined,
+      createdAt: this.now(),
+    };
+    this.service.store.saveMealLog(record);
+    turn.mealLogIds = [...(turn.mealLogIds ?? []), record.id];
+    this.emit('patient.meal.logged', {
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      mealLogId: record.id,
+      mealType: record.mealType,
+      confidence: record.confidence,
+      sandbox: record.sandbox,
+    });
+    return {
+      mealLogId: record.id,
+      confidence: record.confidence,
+      needsConfirmation: record.confidence < MEAL_CONFIDENCE_ASK,
+    };
+  }
+
+  private activeImageTurn(sessionId: string): ActiveTurn {
+    const turn = this.activeBySession.get(sessionId);
+    if (!turn) throw new Error('NO_ACTIVE_TURN');
+    if (turn.closed) throw new Error('TURN_CLOSED');
+    if (turn.replied) throw new Error('ALREADY_REPLIED');
+    if (!turn.imageCount) throw new Error('NO_IMAGE_IN_TURN');
+    return turn;
   }
 
   private requireTurn(sessionId: string): ActiveTurn {
