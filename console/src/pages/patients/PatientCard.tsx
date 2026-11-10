@@ -1,8 +1,9 @@
 import { ClockCircleOutlined, HeartOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { Avatar, Badge, Card, Space, Tag, Typography } from 'antd';
+import { Avatar, Badge, Card, Space, Tag, Tooltip, Typography } from 'antd';
 
 import { daysSince, formatRelative } from '../../utils/format.ts';
 import {
+  CONSENT_HINTS,
   CONSENT_LABELS,
   PATIENT_STATUS_LABELS,
   type Patient,
@@ -43,12 +44,14 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             ) : null}
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {online ? 'Agent 在线' : 'Agent 离线'} · {advisorName}
+            {online ? '专属 Agent 在线' : '专属 Agent 离线'} · 顾问 {advisorName}
           </Text>
         </div>
-        <Tag bordered={false} color={consentTone} className="tag-tight">
-          {CONSENT_LABELS[patient.consent]}
-        </Tag>
+        <Tooltip title={CONSENT_HINTS[patient.consent]}>
+          <Tag bordered={false} color={consentTone} className="tag-tight">
+            {CONSENT_LABELS[patient.consent]}
+          </Tag>
+        </Tooltip>
       </div>
 
       <Space size={[6, 6]} wrap style={{ marginTop: 14 }}>

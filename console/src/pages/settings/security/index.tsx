@@ -38,7 +38,7 @@ const { Text } = Typography;
 
 const CONSENT_META = [
   { key: 'agreed', label: '已同意存档', color: '#16a34a' },
-  { key: 'unknown', label: '待确认同意', color: '#d97706' },
+  { key: 'unknown', label: '存档待确认', color: '#d97706' },
   { key: 'disagreed', label: '不同意存档', color: '#dc2626' },
 ] as const;
 

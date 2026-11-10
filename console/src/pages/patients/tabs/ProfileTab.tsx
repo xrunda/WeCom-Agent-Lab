@@ -1,8 +1,9 @@
-import { App, Button, Descriptions, Select, Space, Tag, Typography } from 'antd';
+import { App, Button, Descriptions, Select, Space, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 
 import { daysSince, formatDateTime } from '../../../utils/format.ts';
 import {
+  CONSENT_HINTS,
   CONSENT_LABELS,
   PATIENT_STATUS_LABELS,
   updatePatient,
@@ -55,12 +56,14 @@ export function ProfileTab({ detail, term, canWrite, onSaved }: ProfileTabProps)
             key: 'consent',
             label: '存档同意',
             children: (
-              <Tag
-                bordered={false}
-                color={patient.consent === 'agreed' ? 'green' : patient.consent === 'disagreed' ? 'red' : 'gold'}
-              >
-                {CONSENT_LABELS[patient.consent]}
-              </Tag>
+              <Tooltip title={CONSENT_HINTS[patient.consent]}>
+                <Tag
+                  bordered={false}
+                  color={patient.consent === 'agreed' ? 'green' : patient.consent === 'disagreed' ? 'red' : 'gold'}
+                >
+                  {CONSENT_LABELS[patient.consent]}
+                </Tag>
+              </Tooltip>
             ),
           },
           {
