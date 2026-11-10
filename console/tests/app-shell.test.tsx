@@ -53,7 +53,7 @@ describe('控制台外壳', () => {
       </ConfigProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText('会员 Agent')).toBeInTheDocument());
-    expect(screen.getAllByText('会员 Agent').length).toBeGreaterThan(0);
+    // 顶栏面包屑与页面标题各出现一次，都应随称谓同步。
+    await waitFor(() => expect(screen.getAllByText('会员 Agent').length).toBeGreaterThan(1));
   });
 });

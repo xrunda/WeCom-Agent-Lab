@@ -1,0 +1,190 @@
+/* 控制台外壳：左轨导航、顶栏与页脚 */
+.console-layout.ant-pro-layout {
+  min-height: 100vh;
+  background: var(--zb-bg);
+}
+
+.console-layout .ant-pro-layout-bg-list {
+  display: none;
+}
+
+/* ---- 左轨 ---- */
+.console-layout .ant-layout-sider,
+.console-layout .ant-pro-sider {
+  background: var(--zb-surface);
+  border-right: 1px solid var(--zb-line);
+}
+
+.console-layout .ant-pro-sider-logo {
+  height: 64px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--zb-line);
+}
+
+.console-layout .ant-pro-sider-logo img,
+.console-layout .console-brand img {
+  display: block;
+  width: auto;
+  height: 29px;
+}
+
+.console-layout .console-brand {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ProLayout 已把菜单包在可滚动容器里，这里只负责间距，不要再叠一层滚动。 */
+.console-layout .ant-pro-sider-menu {
+  padding: 12px 10px 8px;
+}
+
+.console-layout .ant-menu {
+  font-size: 13px;
+  background: transparent;
+  border-inline-end: 0 !important;
+}
+
+.console-layout .ant-menu-item,
+.console-layout .ant-menu-submenu-title {
+  position: relative;
+  height: 36px;
+  margin-block: 1px;
+  line-height: 36px;
+  border-radius: 8px;
+}
+
+.console-layout .ant-menu-item .anticon,
+.console-layout .ant-menu-submenu-title .anticon {
+  color: var(--zb-muted);
+  font-size: 16px;
+}
+
+.console-layout .ant-menu-item:hover .anticon,
+.console-layout .ant-menu-submenu-title:hover .anticon {
+  color: var(--zb-ink-2);
+}
+
+.console-layout .ant-menu-item-selected .anticon {
+  color: var(--zb-primary);
+}
+
+.console-layout .ant-menu-item-selected::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -10px;
+  width: 3px;
+  background: var(--zb-primary);
+  border-radius: 0 3px 3px 0;
+}
+
+/* 提高优先级：ProLayout 的 .ant-pro-sider .ant-menu .ant-menu-item-group-title 会覆盖字号和内边距。 */
+.console-layout .ant-pro-sider .ant-menu .ant-menu-item-group-title {
+  padding: 14px 16px 6px;
+  color: var(--zb-muted-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+}
+
+.console-layout .ant-menu-item-group:first-child .ant-menu-item-group-title {
+  padding-top: 2px;
+}
+
+.console-layout .ant-menu-item-group-list {
+  margin: 0;
+  padding: 0;
+}
+
+.console-layout .ant-pro-base-menu-divider {
+  display: none;
+}
+
+.console-layout .ant-pro-sider-links {
+  padding: 0;
+}
+
+/* 240px 常驻导航不需要手动收起按钮，窄屏由 ProLayout 自动切换为抽屉。 */
+.console-layout .ant-pro-sider-collapsed-button {
+  display: none;
+}
+
+/* ---- 顶栏：ProLayout side 模式不渲染 header，这里自绘一条 56px 顶栏 ---- */
+.console-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 56px;
+  padding: 0 28px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--zb-line);
+  backdrop-filter: saturate(180%) blur(8px);
+}
+
+.console-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.console-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--zb-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.console-crumbs-sep {
+  color: var(--zb-line-strong);
+}
+
+.console-crumbs .is-current {
+  color: var(--zb-ink-2);
+  font-weight: 500;
+}
+
+/* ---- 内容与页脚 ---- */
+/* 顶栏和页面各自负责内边距，内容区不再统一加 26/28，否则报表页会双重留白。 */
+.console-layout .ant-pro-layout-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  background: var(--zb-bg);
+}
+
+.console-layout .console-footer {
+  background: var(--zb-bg);
+}
+
+/* 窄屏由 ProLayout 自带的 header 承载菜单开关、模式与账号，自绘顶栏隐藏。 */
+@media (max-width: 767.98px) {
+  .console-topbar {
+    display: none;
+  }
+
+  .console-layout .ant-pro-sider-logo {
+    padding: 0 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .console-layout .ant-pro-layout-header .mode-chip-sub {
+    display: none;
+  }
+
+  .console-layout .ant-pro-layout-header .mode-chip {
+    padding: 0 8px;
+  }
+}

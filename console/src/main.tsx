@@ -9,20 +9,11 @@ import './styles.css';
 
 import App from './App.tsx';
 import { AuthProvider } from './auth/AuthContext.tsx';
+import { consoleTheme } from './theme/antd-theme.ts';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        token: {
-          colorPrimary: '#0f766e',
-          borderRadius: 8,
-          fontFamily:
-            '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
-        },
-      }}
-    >
+    <ConfigProvider locale={zhCN} theme={consoleTheme}>
       <AntApp>
         <BrowserRouter>
           <AuthProvider>

@@ -1,84 +1,373 @@
-.reports-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* 数据报表：指标带、图表组合与表格 */
+.report-page {
+  /* 内容区不再统一加内边距，页面自己负责；width:100% 避免在 flex 容器里收缩居中。 */
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 26px 28px 40px;
 }
 
-.report-summary {
+/* ---- 指标带 ---- */
+.report-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: var(--zb-surface);
+  border: 1px solid var(--zb-line);
+  border-radius: var(--zb-radius);
 }
 
-.report-summary-item {
+.report-metric {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px 18px;
-  border: 1px solid var(--zb-line);
-  border-radius: 14px;
-  background: #fff;
+  min-width: 0;
+  padding: 18px 22px 17px;
 }
 
-.report-summary-label {
+.report-metric + .report-metric {
+  border-left: 1px solid var(--zb-line);
+}
+
+.report-metric-label {
   color: var(--zb-muted);
   font-size: 12px;
+  line-height: 1.4;
 }
 
-.report-summary-value {
+.report-metric-value {
+  margin-top: 6px;
   color: var(--zb-ink);
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
-.report-summary-unit {
+.report-metric-value small {
   margin-left: 3px;
+  color: var(--zb-muted);
   font-size: 13px;
   font-weight: 500;
-  color: var(--zb-muted);
+  letter-spacing: 0;
 }
 
-.report-summary-hint {
+.report-metric-hint {
+  margin-top: 3px;
+  color: var(--zb-muted-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.report-metric-hint strong {
+  color: var(--zb-positive);
+  font-weight: 600;
+}
+
+/* ---- 图表区块 ---- */
+.report-grid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.report-grid-main {
+  grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+}
+
+.report-grid-secondary {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+.report-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   color: var(--zb-muted);
   font-size: 11px;
 }
 
-.reports-chart-grid {
+.report-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.report-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.report-legend i.is-line {
+  border-radius: 99px;
+}
+
+.report-chart-note {
+  margin: 6px 0 0;
+  color: var(--zb-muted-2);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ---- 响应时效 ---- */
+.report-response-panel .zb-panel-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-response {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.report-response-rows {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 20px;
+}
+
+.report-response-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 52px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
 }
 
-.reports-chart-grid-wide {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-}
-
-.report-notes {
-  margin: 0 0 8px !important;
-  color: #475569;
+.report-response-name {
+  color: var(--zb-ink-2);
   font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.report-response-track {
+  position: relative;
+  display: block;
+  height: 14px;
+  overflow: hidden;
+  background: #f0f4f3;
+  border-radius: 3px;
+}
+
+.report-response-track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  background: var(--zb-primary);
+  border-radius: 3px;
+}
+
+.report-response-row:nth-child(3) .report-response-track i {
+  background: #3d8f88;
+}
+
+.report-response-row:nth-child(4) .report-response-track i {
+  background: #6fa8a2;
+}
+
+.report-response-value {
+  color: var(--zb-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.report-response-target {
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  border-left: 1px dashed var(--zb-warning);
+  pointer-events: none;
+}
+
+.report-response-target span {
+  position: absolute;
+  top: -17px;
+  left: -1px;
+  transform: translateX(-50%);
+  color: var(--zb-warning);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.report-response-scale {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 44px;
+  gap: 10px;
+  margin-top: 7px;
+}
+
+.report-response-axis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  color: var(--zb-muted-2);
+  font-size: 10px;
+}
+
+.report-response-summary {
+  margin: auto 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--zb-line);
+  color: var(--zb-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.report-response-summary strong {
+  color: var(--zb-ink-2);
+  font-weight: 600;
+}
+
+/* ---- 口径说明 ---- */
+.report-notes {
+  margin: 0;
+  padding: 0;
+}
+
+.report-notes > div {
+  padding: 9px 0;
+  border-top: 1px solid var(--zb-line);
+}
+
+.report-notes > div:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.report-notes dt {
+  color: var(--zb-ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.report-notes dd {
+  margin: 2px 0 0;
+  color: var(--zb-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+/* ---- 表格 ---- */
+.report-table-panel {
+  margin-bottom: 16px;
+}
+
+.report-cell-strong {
+  color: var(--zb-ink);
+  font-weight: 500;
+}
+
+.report-cell-muted {
+  color: var(--zb-muted);
+}
+
+.report-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.report-rate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.report-rate-bar {
+  display: block;
+  width: 46px;
+  height: 4px;
+  overflow: hidden;
+  background: #e9efed;
+  border-radius: 2px;
+}
+
+.report-rate-bar i {
+  display: block;
+  height: 100%;
+  background: var(--zb-primary);
+  border-radius: 2px;
+}
+
+.report-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.report-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.report-state.is-on {
+  color: var(--zb-ink-2);
+}
+
+.report-state.is-on i {
+  background: var(--zb-positive);
+}
+
+.report-state.is-off {
+  color: var(--zb-muted);
+}
+
+.report-state.is-off i {
+  background: var(--zb-muted-2);
+}
+
+/* ---- 页脚说明 ---- */
+.report-sample-note {
+  margin: 0;
+  color: var(--zb-muted-2);
+  font-size: 11px;
   line-height: 1.7;
 }
 
-.report-notes:last-child {
-  margin-bottom: 0 !important;
-}
-
 @media (max-width: 1180px) {
-  .report-summary {
+  .report-page {
+    padding: 22px 20px 32px;
+  }
+
+  .report-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .reports-chart-grid,
-  .reports-chart-grid-wide {
+  .report-metric:nth-child(3) {
+    border-left: 0;
+  }
+
+  .report-metric:nth-child(n + 3) {
+    border-top: 1px solid var(--zb-line);
+  }
+
+  .report-grid-main,
+  .report-grid-secondary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 640px) {
-  .report-summary {
+  .report-metrics {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .report-metric + .report-metric {
+    border-left: 0;
+    border-top: 1px solid var(--zb-line);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-page * {
+    transition: none !important;
   }
 }
