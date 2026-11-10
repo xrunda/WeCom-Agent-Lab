@@ -451,10 +451,20 @@ export class PatientAgentRuntime {
 
   private scheduleFlush(roomId: string): void {
     if (this.flushTimers.has(roomId)) return;
+    // 不能固定等 windowMs：定时器可能在「最后一条消息」之后不足 30 秒就到点
+    // （例如图片先到、文字 10 秒后才到）。到点后若仍未满静默窗口，必须按
+    // 剩余时间重排，否则这一批会永远留在合并队列里。
+    const delay = this.merger.msUntilDue(roomId, this.now());
     const handle = this.schedule(() => {
       this.flushTimers.delete(roomId);
-      void this.flushDue();
-    }, this.merger.windowMs);
+      void this.flushDue()
+        .catch((error: unknown) => {
+          this.log(`合并放行失败：${error instanceof Error ? error.message : String(error)}`);
+        })
+        .finally(() => {
+          if (this.merger.pending(roomId) > 0) this.scheduleFlush(roomId);
+        });
+    }, delay);
     this.flushTimers.set(roomId, handle);
   }
 

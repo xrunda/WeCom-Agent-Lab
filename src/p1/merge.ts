@@ -60,6 +60,18 @@ export class InboundMerger {
     return due;
   }
 
+  /**
+   * 距离该群下一次可放行还有多久（毫秒）。
+   * 取「安静窗口」与「最长等待」两者中先到的一个；0 表示已经到点。
+   */
+  msUntilDue(roomId: string, now: number): number {
+    const batch = this.batches.get(roomId);
+    if (!batch) return 0;
+    const quietIn = batch.lastAt + this.windowMsValue - now;
+    const maxWaitIn = batch.firstAt + this.maxWaitMs - now;
+    return Math.max(0, Math.min(quietIn, maxWaitIn));
+  }
+
   /** 取出并清空一个群的批次；消息按时间升序 */
   take(roomId: string): InboundMessage[] {
     const batch = this.batches.get(roomId);
