@@ -313,10 +313,14 @@ export class PatientAgentRuntime {
         /** 客户联系 API 拿到的群昵称；缺省时患者域回退 id 尾号 */
         displayName?: string;
       }>;
+      /** 整群昵称映射；用于更新本轮未发言的成员并回填患者 */
+      memberNames?: Record<string, string>;
     }>,
   ): void {
     for (const room of rooms) {
-      this.service.observeGroup(room.roomId, room.members);
+      this.service.observeGroup(room.roomId, room.members, {
+        memberNames: room.memberNames,
+      });
     }
   }
 

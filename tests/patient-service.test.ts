@@ -302,3 +302,43 @@ test('真实群昵称回填存量患者；手工名与其他成员昵称不覆�
   ]);
   assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
 });
+
+test('整群昵称映射回填未发言的存量患者，手工名不覆盖', () => {
+  const h = setupPatient();
+  const group = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_zhang', isExternal: true, lastActiveAt: h.clock.now() }],
+    { groupName: '减重-张女士' },
+  );
+  h.service.setGroupStatus(group.id, 'serving');
+
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_zhang',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId;
+  assert.ok(patientId);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '外部成员 …_zhang');
+
+  // 本轮只有家属发言；整群映射里带了患者昵称 → 没发言的患者也回填
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { memberNames: { wm_zhang: '张女士', wm_family: '张女士的女儿' } },
+  );
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+  assert.equal(h.store.findMember(group.id, 'wm_zhang')?.displayName, '张女士');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.displayName, '张女士的女儿');
+
+  // 手工改名优先于整群映射
+  h.service.updatePatient(patientId, { displayName: '张女士（本人）' });
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { memberNames: { wm_zhang: '张女士（群昵称）' } },
+  );
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
+});
