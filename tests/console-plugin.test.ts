@@ -5,6 +5,9 @@
  * PDF 断言依赖部署机上的中文字体：没有字体时只验证 502 降级，不伪造成功。
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { apply } from '../plugins/zhiban-console/index.ts';
@@ -94,6 +97,8 @@ class FakeWebResponse {
   status = 0;
   headers: Record<string, string | number> = {};
   body = '';
+  /** 二进制响应（图片等）原样保留，供断言字节 */
+  readonly chunks: Buffer[] = [];
   headersSent = false;
   readonly done: Promise<void>;
   private resolveDone!: () => void;
@@ -113,11 +118,12 @@ class FakeWebResponse {
 
   write(chunk: string | Buffer): boolean {
     this.body += chunk.toString();
+    if (typeof chunk !== 'string') this.chunks.push(chunk);
     return true;
   }
 
   end(chunk?: string | Buffer): this {
-    if (chunk) this.body += chunk.toString();
+    if (chunk) this.write(chunk);
     this.headersSent = true;
     this.resolveDone();
     return this;
@@ -129,6 +135,10 @@ class FakeWebResponse {
 
   json(): Record<string, unknown> {
     return JSON.parse(this.body) as Record<string, unknown>;
+  }
+
+  bytes(): Buffer {
+    return Buffer.concat(this.chunks);
   }
 }
 
@@ -936,10 +946,19 @@ test('患者服务记录 PDF：时间范围校验、404、导出审计与文件�
   assert.equal((audit.json() as { total: number }).total, font ? 1 : 0);
 });
 
-test('#55 饮食记录：按患者读取、时间过滤、分页，且不暴露服务器路径', async () => {
+test('#55 饮食记录：按患者读取、时间过滤、分页，照片经鉴权接口回读且不暴露服务器路径', async () => {
   const { ctx, call } = await start();
   ctx.patientApi.getPatient = (id) =>
     id === 'pat_1' ? { id: 'pat_1', displayName: '张女士' } : undefined;
+  // 存档里扩展名不可信：真实文件是 PNG，路径故意写成 .jpg
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from([0x01, 0x02, 0x03, 0x04]),
+  ]);
+  const photoDir = await mkdtemp(join(tmpdir(), 'zhiban-meal-'));
+  const photoPath = join(photoDir, 'dinner.jpg');
+  await writeFile(photoPath, png);
+
   const records: MealLogRecord[] = [
     {
       id: 'meal_2',
@@ -947,7 +966,7 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，且不暴露�
       patientId: 'pat_1',
       groupId: 'grp_1',
       messageId: 'msg_2',
-      mediaPath: '/srv/media/pat_1/dinner.jpg',
+      mediaPath: photoPath,
       mealType: 'dinner',
       foods: [{ name: '清蒸鲈鱼', portion: '约 150g' }],
       confidence: 0.9,
@@ -975,8 +994,25 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，且不暴露�
   const body = all.json() as { items: Array<Record<string, unknown>>; total: number };
   assert.equal(body.total, 2);
   assert.equal(body.items[0]!.id, 'meal_2');
-  assert.equal(body.items[0]!.photoUrl, null);
-  assert.equal(JSON.stringify(body).includes('/srv/media'), false);
+  assert.equal(body.items[0]!.photoUrl, '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo');
+  assert.equal(body.items[1]!.photoUrl, null);
+  assert.equal(JSON.stringify(body).includes(photoDir), false);
+  assert.equal(JSON.stringify(body).includes('.jpg'), false);
+
+  const photo = await call('GET', '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo', { cookie });
+  assert.equal(photo.status, 200);
+  assert.equal(photo.headers['content-type'], 'image/png');
+  assert.deepEqual(photo.bytes(), png);
+
+  // 没有原图或日志不存在的记录返回 404，不拼路径探测
+  const noPhoto = await call('GET', '/zhiban/api/patients/pat_1/meal-logs/meal_1/photo', {
+    cookie,
+  });
+  assert.equal(noPhoto.status, 404);
+  const unknownPhoto = await call('GET', '/zhiban/api/patients/pat_1/meal-logs/meal_404/photo', {
+    cookie,
+  });
+  assert.equal(unknownPhoto.status, 404);
 
   const ranged = await call(
     'GET',
