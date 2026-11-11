@@ -76,6 +76,9 @@ export function formatMessage(message: InboundMessage): string {
   if (message.msgtype === 'image') {
     return `- ${time} [图片] ${message.mediaPath ?? '（原图未落盘）'}`;
   }
+  if (message.msgtype === 'voice') {
+    return `- ${time} [语音] ${message.text}`;
+  }
   return `- ${time} ${message.text}`;
 }
 

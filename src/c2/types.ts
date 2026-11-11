@@ -161,7 +161,7 @@ export interface ArchivedInbound {
   text: string;
   msgtime: number;
   action?: 'send' | 'recv';
-  /** 存档消息类型；P1 只会为 text / image 生成记录 */
+  /** 存档消息类型；text / image / voice（已转写）会进入服务流 */
   msgtype?: string;
   /** #54：图片落盘后的本地路径；未启用媒体或下载失败时为空 */
   mediaPath?: string;

@@ -37,15 +37,21 @@ export interface ArchiveRecord {
   text?: { content: string };
   /** 图片消息的媒体元数据（#54） */
   image?: { sdkfileid?: string; md5?: string; filesize?: number; [key: string]: unknown };
+  /** 语音消息的媒体元数据；转写后 text 会被填入识别结果 */
+  voice?: { sdkfileid?: string; md5sum?: string; voice_size?: number; play_length?: number; [key: string]: unknown };
   [key: string]: unknown;
 }
 
-/** 图片落盘后写回缓存记录的字段，供服务流读取 */
+/** 图片落盘 / 语音转写后写回缓存记录的字段，供服务流读取 */
 export interface ArchiveMediaFields {
   mediaPath?: string;
   mediaMd5?: string;
   mediaSize?: number;
   mediaFailed?: boolean;
+  /** 语音转写失败：消息不进入服务流，避免空上下文起回合 */
+  voiceFailed?: boolean;
+  /** 语音正文来自 ASR 转写 */
+  voiceTranscript?: boolean;
 }
 
 export interface WeComArchiveMediaConfig {
@@ -90,6 +96,11 @@ export interface WeComArchiveConfig {
   isServiceGroup?: (roomId: string) => boolean;
   /** #54：图片拉取配置；缺省只登记图片类型，不下载 */
   media?: WeComArchiveMediaConfig;
+  /**
+   * 语音转写；缺省时语音消息保持不处理（旧行为）。
+   * 只有服务群的语音才会调用；音频字节只在内存里流转，不落盘。
+   */
+  transcribeVoice?: (audio: Buffer) => Promise<string>;
   logger?: (message: string) => void;
   /** 测试注入：返回 archive_dump 的 stdout */
   run?: (args: string[]) => Promise<string>;
@@ -343,8 +354,16 @@ export class WeComArchiveAdapter implements ArchivePort {
         reject(record, '非服务群');
         continue;
       }
-      if (record.msgtype !== 'text' && !(params.includeMedia && record.msgtype === 'image')) {
+      const mediaAllowed =
+        params.includeMedia === true &&
+        (record.msgtype === 'image' ||
+          (record.msgtype === 'voice' && this.config.transcribeVoice !== undefined));
+      if (record.msgtype !== 'text' && !mediaAllowed) {
         reject(record, `msgtype=${record.msgtype}`);
+        continue;
+      }
+      if (record.msgtype === 'voice' && (record.voiceFailed === true || !record.text?.content)) {
+        reject(record, '语音转写失败');
         continue;
       }
       if (roomid === '' || !rooms.has(roomid)) {
@@ -403,7 +422,12 @@ export class WeComArchiveAdapter implements ArchivePort {
     for (const record of this.cache) {
       const roomid = record.roomid ?? '';
       if (!this.isServiceGroup(roomid) || !rooms.has(roomid)) continue;
-      if (record.msgtype !== 'text' && !(params.includeMedia && record.msgtype === 'image')) continue;
+      const mediaAllowed =
+        params.includeMedia === true &&
+        (record.msgtype === 'image' ||
+          (record.msgtype === 'voice' && this.config.transcribeVoice !== undefined));
+      if (record.msgtype !== 'text' && !mediaAllowed) continue;
+      if (record.msgtype === 'voice' && (record.voiceFailed === true || !record.text?.content)) continue;
       if (record.msgtime < params.since || record.msgtime > params.until) continue;
       const media = record as ArchiveRecord & ArchiveMediaFields;
       result.push({
@@ -471,6 +495,7 @@ export class WeComArchiveAdapter implements ArchivePort {
       if (service) {
         if (!quiet) this.log(`  记录 ${describeRecord(message)}`);
         if (withMedia && message.msgtype === 'image') await this.fetchMedia(record);
+        if (withMedia && message.msgtype === 'voice') await this.transcribeVoiceMessage(record);
       } else if (!quiet) {
         this.nonServiceCount += 1;
       }
@@ -512,6 +537,58 @@ export class WeComArchiveAdapter implements ArchivePort {
       const code = error instanceof Error ? error.message : 'MEDIA_FAILED';
       this.log(`  图片下载失败 msgid=${tailId(record.msgid)}：${code}`);
     }
+  }
+
+  /**
+   * 语音转写：只有服务群、且配置了 transcribeVoice 时才拉取音频。
+   * 音频只在内存里转给 ASR，不落盘、不进日志；失败只记错误码。
+   */
+  private async transcribeVoiceMessage(record: ArchiveRecord & ArchiveMediaFields): Promise<void> {
+    const transcribe = this.config.transcribeVoice;
+    if (!transcribe) return;
+    if (!this.media) {
+      record.voiceFailed = true;
+      this.log(`  语音缺少媒体下载器 msgid=${tailId(record.msgid)}`);
+      return;
+    }
+
+    const voice = record.voice;
+    const sdkfileid = typeof voice?.sdkfileid === 'string' ? voice.sdkfileid : '';
+    if (sdkfileid === '') {
+      record.voiceFailed = true;
+      this.log(`  语音缺少 sdkfileid msgid=${tailId(record.msgid)}`);
+      return;
+    }
+
+    let text: string;
+    try {
+      const audio = await this.media.download({
+        sdkfileid,
+        expectedMd5: typeof voice?.md5sum === 'string' ? voice.md5sum : undefined,
+      });
+      // 只记大小，不记音频内容
+      this.log(`  语音拉取 msgid=${tailId(record.msgid)} size=${audio.size}`);
+      text = (await transcribe(audio.buffer)).trim();
+    } catch (error) {
+      const code =
+        error instanceof Error && 'code' in error
+          ? String((error as { code: unknown }).code)
+          : 'VOICE_FAILED';
+      record.voiceFailed = true;
+      this.log(`  语音转写失败 msgid=${tailId(record.msgid)}：${code}`);
+      return;
+    }
+
+    if (text === '') {
+      record.voiceFailed = true;
+      this.log(`  语音识别结果为空 msgid=${tailId(record.msgid)}`);
+      return;
+    }
+
+    record.text = { content: text };
+    record.voiceTranscript = true;
+    // 转写正文不落日志，只记长度
+    this.log(`  语音转写完成 msgid=${tailId(record.msgid)} chars=${text.length}`);
   }
 
   private exec(args: string[]): Promise<string> {
