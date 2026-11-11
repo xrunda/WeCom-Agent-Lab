@@ -93,6 +93,8 @@ import {
 import { parseEventTypes, SseHub } from './sse.ts';
 import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
 import type { KnowledgeApi } from './routes/h-knowledge.ts';
+import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
+import type { GuardRulesApi } from './routes/h-risk-rules.ts';
 import { applyTenantPatch, publicTenant, validateTenantPatch } from './tenant.ts';
 
 export const name = 'zhiban-console';
@@ -1075,6 +1077,22 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           auditRecord(config.tenantId, actor, action, 'knowledge', record.id, {
             title: record.title,
             category: record.category,
+          }),
+        );
+      },
+    });
+
+    // #119 风险规则：存储与命中判定由 zhiban-guard 执行，控制台只做权限与审计。
+    registerRiskRuleRoutes({
+      router,
+      getGuard: (): GuardRulesApi | undefined => ctx.get<GuardRulesApi>('zhibanGuard'),
+      tenantActor,
+      audit: (actor, action, detail) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'risk_rule', detail.ruleId, {
+            kind: detail.kind,
+            name: detail.name,
+            changes: detail.changes,
           }),
         );
       },

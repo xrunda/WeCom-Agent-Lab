@@ -829,15 +829,24 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "kind": "keyword", "name": "急症-胸痛", "keywords": ["胸口痛", "胸痛"], "riskLevel": "high", "action": "escalate", "enabled": true }
 ```
 
-响应 `201`：risk_rule。`kind="redline"` 返回 `422`。
+响应 `201`：risk_rule。`kind="redline"` 返回 `422 VALIDATION_FAILED`。
+
+- `name` trim 后非空且 ≤ 40 字；`keywords` 1–20 个，逐项 trim、去重，每个 ≤ 30 字。
+- `riskLevel` ∈ `low | medium | high`；`action` ∈ `flag | guide | escalate`，缺省 `flag`；`enabled` 缺省 `true`。
+- 类型或枚举非法返回 `422`。
 
 ### `PATCH /risk-rules/{id}`
 
 角色：admin。请求：`name`、`keywords`、`riskLevel`、`action`、`enabled`。内置规则返回 `409 BUILTIN_RULE`。响应 `200`：risk_rule。
 
+- 规则不存在返回 `404`；字段校验与创建一致。
+- 只校验传入字段，未传字段保持原值。
+
 ### `DELETE /risk-rules/{id}`
 
-角色：admin。内置规则 `409 BUILTIN_RULE`；关键词规则响应 `204`。
+角色：admin。内置规则 `409 BUILTIN_RULE`；规则不存在 `404`；关键词规则响应 `204`。
+
+写操作写控制台审计 `rule.created` / `rule.updated` / `rule.deleted`，`detail` 含规则 id、`kind`、名称与启停/改名前后的变化，不含关键词正文。
 
 ### `GET /scripts?category=`
 
