@@ -145,6 +145,7 @@ test('#38 skill 资源：按分类生成，只含启用条目，文件名稳定'
   assert.match(diet.content, /\ndescription: /);
   assert.match(diet.content, /## \[knw_seed_01\] 晚餐建议在 19 点前完成/);
   assert.match(diet.content, /citedKnowledgeIds/);
+  assert.match(diet.content, /一轮最多引用 2 条/);
 
   const target = h.service.list().find((item) => item.id === 'knw_seed_01')!;
   h.service.update(target.id, { enabled: false });
