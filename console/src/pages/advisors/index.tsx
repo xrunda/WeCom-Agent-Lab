@@ -39,7 +39,7 @@ export default function AdvisorsPage() {
   const { can } = useAuth();
   const settings = useTenantSettings();
   const { message } = App.useApp();
-  const canPause = can('advisor.pause');
+  const canPause = can('advisor.operate');
 
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [loading, setLoading] = useState(true);

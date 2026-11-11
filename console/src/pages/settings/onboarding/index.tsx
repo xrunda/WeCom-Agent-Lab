@@ -60,8 +60,8 @@ interface ApplyFormValues {
 export default function OnboardingSettingsPage() {
   const { message } = App.useApp();
   const { can } = useAuth();
-  const canApply = can('onboarding.write');
-  const canConfigurePrice = can('setting.write');
+  const canApply = can('onboarding.submit');
+  const canConfigurePrice = can('tenant.write');
 
   const [info, setInfo] = useState<OnboardingInfo | null>(null);
   const [monthValue, setMonthValue] = useState<DashboardValue | null>(null);

@@ -130,7 +130,7 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
       width={920}
       destroyOnHidden
       extra={
-        patient && can('draft.export') ? (
+        patient && can('export') ? (
           <Button icon={<FilePdfOutlined />} onClick={openExport}>
             导出服务记录
           </Button>

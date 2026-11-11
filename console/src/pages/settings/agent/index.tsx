@@ -21,7 +21,7 @@ interface AgentFormValues {
 export default function AgentSettingsPage() {
   const { tenant, updateTenant, can } = useAuth();
   const { message } = App.useApp();
-  const canWrite = can('setting.write');
+  const canWrite = can('tenant.write');
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<AgentFormValues>();
 
@@ -71,8 +71,8 @@ export default function AgentSettingsPage() {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="只读账号"
-              description="当前角色可以查看设定，但不能修改。"
+              message="当前角色不能修改 Agent 设定"
+              description="名字、称谓与语气会写进所有草稿和沙盒回复，只有机构管理员可以修改；其他角色可以查看。"
             />
           ) : null}
           <Form<AgentFormValues>
