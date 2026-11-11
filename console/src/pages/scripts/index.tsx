@@ -206,7 +206,7 @@ export default function ScriptsPage() {
     >
       <Card className="zb-card" variant="borderless">
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          顾问不用登录后台：在企微私聊机器人发「话术 关键词」查询，回复「话术 1」取全文，再自行粘贴到客户群。机器人不会自动发送。
+          顾问不用登录后台：在企微私聊机器人发「话术 饮食」按分类查，回「1」取全文；也可以直接发「话术 饮食 1」。复制后自行粘贴到客户群，机器人不会自动发送。
         </Paragraph>
         <div className="zb-toolbar">
           <Input.Search

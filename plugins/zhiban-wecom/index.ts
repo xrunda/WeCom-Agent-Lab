@@ -615,8 +615,10 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
-              // 「话术 …」是查询指令，其余文本仍按改稿指令处理（#56）
-              const reply = scriptQuery.reply(message.userid, message.text);
+              // 「话术 …」是查询指令；看过列表后直接发编号也取全文；其余文本按改稿指令处理（#56）
+              const reply =
+                scriptQuery.reply(message.userid, message.text) ??
+                scriptQuery.replyToSelection(message.userid, message.text);
               if (reply !== undefined) {
                 const target = botRef;
                 if (target) {
