@@ -52,6 +52,38 @@ function build(options: {
   return { clock, store, archive, trigger };
 }
 
+test('roomIds 传函数时每轮重新取值：运行时新增服务群无需重建 trigger', async () => {
+  let rooms = [ROOM];
+  const store = new MemoryStore();
+  seedGroup(store);
+  seedGroup(store, { roomId: 'wrGROUP2', name: '新群' });
+  const archive = new MockArchive();
+  archive.add({
+    msgid: 'c_new',
+    roomid: 'wrGROUP2',
+    from: 'wmCUST_NEW',
+    text: '刚建的新群',
+    msgtime: 10_500,
+  });
+  const trigger = new ArchiveTrigger({
+    archive,
+    store,
+    clock: new FakeClock(20_000),
+    compose: echoCompose(),
+    config: {
+      roomIds: () => rooms,
+      excludeSender: ADV,
+      startedAt: 10_000,
+    },
+  });
+
+  assert.equal((await trigger.poll()).length, 0);
+  rooms = [ROOM, 'wrGROUP2'];
+  const events = await trigger.poll();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].message.roomid, 'wrGROUP2');
+});
+
 test('客户在群里发消息 → 生成一条草稿事件', async () => {
   const { archive, store, trigger } = build();
   seedGroup(store);

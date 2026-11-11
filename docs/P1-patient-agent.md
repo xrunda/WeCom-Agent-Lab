@@ -69,6 +69,16 @@
   取回企微当前群名，经 `observeGroup({ groupName, groupNameSource: 'api' })` 写回群名；
   群里改名后下一轮存档轮询（昵称缓存 10 分钟）内生效。控制台手工改名把
   `nameSource` 置为 `manual`，此后企微群名不再覆盖；空群名不覆盖已有名称。
+- **服务群自动发现**（#106）：
+  - `zhiban-wecom` 启动后立即扫一轮，之后每 5 分钟（`serviceGroupDiscovery.intervalMs`）
+    调客户联系 API `externalcontact/groupchat/list`，只发现**企业创建的客户群**；
+    配置 `ownerUserIds` 后只发现本环境群主名下的群（demo / dev 共用 corpid 时的隔离）。
+  - 新群自动登记为 `pending` 候选（带群名与成员，经 `observeRooms` 写入患者域），
+    出现在控制台群列表；**不会拉取存档消息、不会生成草稿**。
+  - 管理员在控制台点「开始服务」后状态变为 `serving`，同时该群加入存档拉取白名单，
+    下一轮轮询即开始处理新消息；「忽略 / 移出服务」写入停用名单，重启后不会被重新发现。
+  - 白名单 = profile `serviceGroupRoomIds`（种子）∪ 已开始服务的群 − 停用名单，
+    持久化在 `zhiban_wecom` 元数据 `service_roster`，改状态无需重启。
 
 ### 2.2 回复与降级
 
@@ -191,6 +201,9 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 | 成员角色与同意状态 | `tests/patient-service.test.ts` |
 | 群名同步（企微改名生效、手工改名优先、空名不覆盖） | `tests/patient-service.test.ts`、`tests/wecom-group-info.test.ts` |
 | 同意状态自动同步（映射、缓存、token 重试、失败降级、不落 id） | `tests/wecom-room-agree.test.ts`、`tests/wecom-runtime.test.ts` |
+| 服务群名单（种子、候选、开始服务、移出后不复发、快照容错） | `tests/wecom-service-groups.test.ts` |
+| 自动发现（列表翻页、候选登记、刷新、跳过、失败降级、日志不含群名/昵称） | `tests/wecom-group-discovery.test.ts` |
+| 控制台状态 ↔ 存档白名单同步（失败回滚） | `tests/console-plugin.test.ts` |
 | 工具参数校验、正常草稿、四种降级 | `tests/agent-reply.test.ts` |
 | reply_skip、重复调用、核验回写 | `tests/agent-reply.test.ts` |
 | 连发合并、2 分钟上限、内部上下文、去重、家属提示 | `tests/group-context.test.ts` |
@@ -215,13 +228,20 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 7. **同意状态**：让真实客户在群里分别点「已同意保存 / 不同意保存」，等一轮轮询后确认
    控制台成员与患者状态自动变化；同时核对接口返回的 `exteranalopenid` 与成员
    `externalUserId` 一致。`disagreed` 的消息不再触发自动服务，且顾问能看到提示。
-7. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
+8. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
    `image_classify` / `meal_log_write`、卡片出现「客户发来图片 · 餐食」、
    原图转发到顾问 1:1，控制台饮食记录可见。
-8. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
+9. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
    正文不解读指标、不判断能否服用。
+10. **自动发现端到端**：在企业微信里新建一个客户群（企业创建、有外部客户），
+    等一轮发现周期后确认控制台出现 `pending` 候选、群名与成员正确，且此时客户发言
+    不产生草稿；点「开始服务」后客户再发一条，确认出现草稿。同时核对
+    `groupchat/list` 返回的 `chat_id` 与存档 roomid 是同一个值——不一致会导致
+    白名单对不上，需按真机返回值调整映射。
+11. **停用持久化**：把已发现的群「忽略 / 移出服务」后重启服务，确认它仍是停用状态、
+    不会重新变成候选。
 
-> 以上 1–8 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
+> 以上 1–11 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
 
 ---
 

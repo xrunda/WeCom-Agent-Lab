@@ -734,7 +734,27 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 
 ### 4.2 group.status
 
-`pending → serving ⇄ collect_only / disabled`；任何状态可回到 `pending`（重新确认）。状态变更下一轮存档轮询生效。
+`pending → serving ⇄ collect_only / disabled`；任何状态可回到 `pending`（重新确认）。
+
+`group.status` 同时决定该群是否进入存档拉取白名单（#106）：`serving` / `collect_only` 拉取，
+`pending` / `disabled` 不拉取。白名单由 `zhiban-wecom` 的 `ServiceGroupRegistry` 维护并持久化在
+`zhiban_wecom` 域元数据 `service_roster`（不是业务库表）：
+
+```json
+{
+  "version": 1,
+  "allowed": ["wr..."],
+  "denied": ["wr..."],
+  "known": { "wr...": { "state": "candidate|active|inactive", "updatedAt": 1762645800000 } },
+  "updatedAt": 1762645800000
+}
+```
+
+- 白名单 = profile `serviceGroupRoomIds`（种子）∪ `allowed` − `denied`；`denied` 优先于种子，
+  保证管理员移出的群重启后不会被重新加入。
+- `known` 记录已发现群的来源状态；`candidate` 只出现在控制台，不拉取消息。
+- 客户群发现每轮用 `externalcontact/groupchat/list` 得到企微侧群列表，与 `known` 比对后
+  只登记未知群。快照损坏或版本不符时按种子重建，不阻塞启动。
 
 ### 4.3 care_plan.status
 

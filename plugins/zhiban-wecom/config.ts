@@ -23,6 +23,18 @@ export interface WecomPluginConfigInput {
     cacheLimit?: unknown;
   };
   serviceGroupRoomIds?: unknown;
+  /** #106：客户群自动发现（只发现企业创建的客户群，登记为候选） */
+  serviceGroupDiscovery?: {
+    enabled?: unknown;
+    intervalMs?: unknown;
+    maxPerScan?: unknown;
+    /**
+     * 只发现这些企微成员（群主 userid）名下的客户群。
+     * demo / dev 共用同一个 corpid，必须各自配置，避免一个环境把另一个环境的群
+     * 登记进自己的控制台。为空表示不按群主过滤。
+     */
+    ownerUserIds?: unknown;
+  };
   advisorId?: unknown;
   advisorName?: unknown;
   advisorChatId?: unknown;
@@ -59,6 +71,14 @@ export interface WecomPluginConfig {
   };
   /** 本环境允许处理的存档群；两个环境共用存档席位，靠白名单隔离 */
   serviceGroupRoomIds: string[];
+  /** 客户群自动发现：轮询客户群列表，把新群登记为候选 */
+  serviceGroupDiscovery: {
+    enabled: boolean;
+    intervalMs: number;
+    maxPerScan: number;
+    /** 只发现这些群主的客户群；空数组表示不过滤 */
+    ownerUserIds: string[];
+  };
   advisorId: string;
   advisorName: string;
   advisorChatId: string;
@@ -92,6 +112,8 @@ const DEFAULTS = {
   batchSize: 100,
   maxBatchesPerPoll: 5,
   cacheLimit: 2000,
+  discoveryIntervalMs: 5 * 60_000,
+  discoveryMaxPerScan: 50,
 };
 
 function requiredString(value: unknown, field: string): string {
@@ -147,6 +169,53 @@ function parseEnvironment(value: unknown): ZhibanEnv {
     throw new WecomConfigError('CONFIG_INVALID', 'environment 必须是 demo 或 dev');
   }
   return value;
+}
+
+function parseDiscovery(value: unknown): WecomPluginConfig['serviceGroupDiscovery'] {
+  const defaults = {
+    enabled: true,
+    intervalMs: DEFAULTS.discoveryIntervalMs,
+    maxPerScan: DEFAULTS.discoveryMaxPerScan,
+    ownerUserIds: [] as string[],
+  };
+  if (value === undefined || value === null) return defaults;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new WecomConfigError('CONFIG_INVALID', 'serviceGroupDiscovery 必须是对象');
+  }
+  const input = value as {
+    enabled?: unknown;
+    intervalMs?: unknown;
+    maxPerScan?: unknown;
+    ownerUserIds?: unknown;
+  };
+  let enabled = defaults.enabled;
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== 'boolean') {
+      throw new WecomConfigError('CONFIG_INVALID', 'serviceGroupDiscovery.enabled 必须是布尔值');
+    }
+    enabled = input.enabled;
+  }
+  return {
+    enabled,
+    intervalMs: boundedInt(
+      input.intervalMs,
+      'serviceGroupDiscovery.intervalMs',
+      60_000,
+      24 * 60 * 60_000,
+      defaults.intervalMs,
+    ),
+    maxPerScan: boundedInt(
+      input.maxPerScan,
+      'serviceGroupDiscovery.maxPerScan',
+      1,
+      500,
+      defaults.maxPerScan,
+    ),
+    ownerUserIds: optionalStringList(
+      input.ownerUserIds,
+      'serviceGroupDiscovery.ownerUserIds',
+    ),
+  };
 }
 
 /**
@@ -209,6 +278,7 @@ export function parsePluginConfig(
       cacheLimit: boundedInt(archive.cacheLimit, 'archive.cacheLimit', 100, 20_000, DEFAULTS.cacheLimit),
     },
     serviceGroupRoomIds: stringList(input.serviceGroupRoomIds, 'serviceGroupRoomIds'),
+    serviceGroupDiscovery: parseDiscovery(input.serviceGroupDiscovery),
     advisorId: requiredString(input.advisorId, 'advisorId'),
     advisorName: requiredString(input.advisorName, 'advisorName'),
     advisorChatId: requiredString(input.advisorChatId, 'advisorChatId'),
