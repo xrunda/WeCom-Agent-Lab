@@ -1,9 +1,10 @@
-import { RobotOutlined, SaveOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, RobotOutlined, SaveOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, App, Avatar, Button, Card, Form, Input, Select, Space, Typography } from 'antd';
+import { Alert, App, Avatar, Button, Card, Form, Input, Select, Space, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
+import { ENABLED_CAPABILITIES } from '../../../capabilities.ts';
 import { PATIENT_TERMS, type PatientTerm } from '../../../types.ts';
 import { formatDateTime } from '../../../utils/format.ts';
 import '../settings.css';
@@ -155,6 +156,25 @@ export default function AgentSettingsPage() {
           </Space>
         </Card>
       </div>
+
+      <Card
+        className="zb-card"
+        variant="borderless"
+        title="已启用能力"
+        extra={<Text type="secondary">由平台统一安装</Text>}
+        style={{ marginTop: 16 }}
+      >
+        <Space size={[8, 8]} wrap>
+          {ENABLED_CAPABILITIES.map((name) => (
+            <Tag key={name} bordered={false} color="green" icon={<CheckCircleOutlined />}>
+              {name}
+            </Tag>
+          ))}
+        </Space>
+        <Paragraph type="secondary" style={{ margin: '12px 0 0' }}>
+          能力随服务包以插件形式启用，机构无需安装或升级；需要新增能力时走开通申请。
+        </Paragraph>
+      </Card>
     </PageContainer>
   );
 }

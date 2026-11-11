@@ -74,8 +74,8 @@ export default function SolutionsPage() {
                   查看知识库
                 </Button>
                 <Button onClick={() => navigate('/rules')}>查看风险规则</Button>
-                <Button type="text" onClick={() => navigate('/skills')}>
-                  查看技能 <ArrowRightOutlined />
+                <Button type="text" onClick={() => navigate('/settings/agent')}>
+                  查看 Agent 能力 <ArrowRightOutlined />
                 </Button>
               </Space>
             </div>

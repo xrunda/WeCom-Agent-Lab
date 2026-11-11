@@ -76,21 +76,6 @@ describe('WP-L 工作台与报表', () => {
 });
 
 describe('WP-L 技能与方案包', () => {
-  it('技能市场显示已启用与即将上线', async () => {
-    await renderAt('/skills');
-
-    expect(await screen.findByText('餐食图片识别')).toBeInTheDocument();
-    expect(screen.getByText('体检报告解读')).toBeInTheDocument();
-    expect(screen.getByText('消息通道、记忆、红线与知识问答，都以插件形式工作')).toBeInTheDocument();
-  });
-
-  it('C 档技能卡片可进入介绍页', async () => {
-    await renderAt('/skills/skl_device');
-
-    expect(await screen.findByText('智能设备数据接入 · 即将上线')).toBeInTheDocument();
-    expect(screen.getByText(/接入血糖、血压等设备数据/)).toBeInTheDocument();
-  });
-
   it('行业方案包显示已启用方案与 C 档介绍页', async () => {
     await renderAt('/solutions');
 
@@ -118,6 +103,8 @@ describe('WP-L 系统设置', () => {
       expect((await getTenant()).agentName).toBe('小康');
     });
     expect(screen.getByText(/已保存，下一条草稿与沙盒中的名字立即同步/)).toBeInTheDocument();
+    expect(screen.getByText('已启用能力')).toBeInTheDocument();
+    expect(screen.getByText('餐食图片识别')).toBeInTheDocument();
   });
 
   it('只读账号能查看 Agent 设定但不能修改', async () => {
