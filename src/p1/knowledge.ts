@@ -379,7 +379,8 @@ export function buildSkillFiles(records: KnowledgeRecord[]): SkillFile[] {
       `# 机构知识库 · ${safeCategory}`,
       '',
       '回答患者时，如果用到下面任一条，请把方括号里的 id 填进 reply_draft 的 citedKnowledgeIds。',
-      '只引用与当前问题直接相关的条目；没有列出的内容不要编造。',
+      '只引用直接支撑本轮回答的条目，一轮最多引用 2 条；宁可少引，不要为了凑数把同分类条目全部带上。',
+      '没有列出的内容不要编造。',
       '',
     ];
     for (const entry of entries) {
