@@ -97,6 +97,9 @@ export interface Memory {
   createdById: string | null;
   createdAt: number;
   updatedAt: number;
+  /** 内容/分类/归属被真正修正的时间；只更新来源时不设置 */
+  revisedAt?: number | null;
+  updatedBy?: 'agent' | 'staff' | null;
   deletedAt: number | null;
   deletedBy: string | null;
   sandbox: boolean;
@@ -710,6 +713,11 @@ export async function updateMemory(
   const memory = state.memories.find((item) => item.id === memoryId && item.deletedAt === null);
   if (!memory) throw new ApiError('NOT_FOUND', '记忆不存在或已删除', 404);
 
+  const before = {
+    category: memory.category,
+    content: memory.content,
+    subject: memory.subject,
+  };
   if (patch.content !== undefined) {
     const content = patch.content.trim();
     if (!content) throw new ApiError('VALIDATION_FAILED', '记忆内容不能为空', 422);
@@ -718,7 +726,16 @@ export async function updateMemory(
   }
   if (patch.category) memory.category = patch.category;
   if (patch.subject) memory.subject = patch.subject;
-  memory.updatedAt = now();
+  const at = now();
+  memory.updatedAt = at;
+  const corrected =
+    memory.category !== before.category ||
+    memory.content !== before.content ||
+    memory.subject !== before.subject;
+  if (corrected) {
+    memory.revisedAt = at;
+    memory.updatedBy = 'staff';
+  }
   writeState(state);
   return memory;
 }
@@ -951,16 +968,34 @@ export function buildTimeline(patientId: string): TimelineEvent[] {
     }
   }
 
-  return events.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  // 与真实接口一致：最新事件在前，分页第一页永远是最新的一段。
+  return events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id));
 }
 
-export async function getTimeline(patientId: string): Promise<TimelineEvent[]> {
+export interface TimelinePage {
+  items: TimelineEvent[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export async function getTimeline(
+  patientId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<TimelinePage> {
   if (!isMockMode) {
-    return apiRequest<{ items: TimelineEvent[] }>(`/patients/${patientId}/timeline`).then(
-      (result) => result.items,
-    );
+    const query = `?page=${page}&pageSize=${pageSize}`;
+    return apiRequest<TimelinePage>(`/patients/${patientId}/timeline${query}`);
   }
-  return buildTimeline(patientId);
+  const events = buildTimeline(patientId);
+  const start = (Math.max(1, page) - 1) * pageSize;
+  return {
+    items: events.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total: events.length,
+  };
 }
 
 export async function getHealthProfile(patientId: string): Promise<HealthProfile> {

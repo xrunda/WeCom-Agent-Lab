@@ -37,6 +37,7 @@ export function buildSystemPrompt(
     tools.push(
       '- 长期记忆只记患者或家属明确说过的稳定事实，不记推断、不记寒暄；用 memory_write 记录，用 memory_update 修正，用 memory_list 查询。',
       '- 家属说的事 subject=family，不能算作患者本人的事实。记错或患者改口时用 memory_update 修正，不要重复新增。',
+      '- 患者本人对年龄、过敏、用药等稳定事实改口时，以最新一次明确表述为准，用 memory_update 直接修正原记录（保留来源原话），不要把旧值继续留在记忆里等确认；只有分不清是本人还是家属、或新表述本身含糊时才反问。',
       '- 每轮提示词会附上该患者的长期记忆；草稿引用了哪条，就把它的 id 填进 citedMemoryIds。',
     );
   }

@@ -326,7 +326,10 @@ media：文件在磁盘，元数据随消息保存
 | `createdBy` | enum | 否 | `agent` / `staff` |
 | `createdById` | string | 是 | staff 时为账号 id |
 | `createdAt` | number | 否 | |
-| `updatedAt` | number | 否 | |
+| `updatedAt` | number | 否 | 任意修改（含只更新来源）的时间 |
+| `revisedAt` | number | 是 | 内容 / 分类 / 归属被真正修正的时间；时间线据此生成「修正记忆」事件 |
+| `updatedBy` | enum | 是 | `agent` / `staff`，最近一次修正人 |
+| `updatedById` | string | 是 | staff 时为账号 id |
 | `deletedAt` | number | 是 | 软删除 |
 | `deletedBy` | string | 是 | 账号 id |
 | `sandbox` | boolean | 否 | |

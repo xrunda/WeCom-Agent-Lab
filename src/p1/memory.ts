@@ -58,6 +58,11 @@ export interface MemoryRecord {
   createdById?: string;
   createdAt: number;
   updatedAt: number;
+  /** 最近一次修正由谁完成；未修正过时为空 */
+  updatedBy?: MemoryCreatedBy;
+  updatedById?: string;
+  /** 内容/分类/归属真正被改动的时间；只更新来源不会设置。用于时间线展示「修正记忆」 */
+  revisedAt?: number;
   deletedAt?: number;
   deletedBy?: string;
   sandbox: boolean;
@@ -233,6 +238,8 @@ export class MemoryService {
       sourceMsgId: input.sourceMsgId ?? existing.sourceMsgId,
       sourceText: optionalSourceText(input.sourceText) ?? existing.sourceText,
       updatedAt: at,
+      updatedBy: 'agent',
+      updatedById: undefined,
     };
     this.records.set(updated.id, updated);
     this.persist(updated);
@@ -244,12 +251,28 @@ export class MemoryService {
   update(id: string, patch: MemoryUpdateInput, actor: 'agent' | 'staff' = 'agent', actorId?: string): MemoryRecord {
     const existing = this.get(id);
     if (!existing) throw new MemoryError('NOT_FOUND', `记忆 ${id} 不存在`);
+    const nextCategory =
+      patch.category === undefined ? existing.category : assertCategory(patch.category);
+    const nextContent = patch.content === undefined ? existing.content : assertContent(patch.content);
+    const nextSubject = patch.subject === undefined ? existing.subject : assertSubject(patch.subject);
+    const corrected =
+      nextCategory !== existing.category ||
+      nextContent !== existing.content ||
+      nextSubject !== existing.subject;
+    const at = this.now();
     const updated: MemoryRecord = {
       ...existing,
-      category: patch.category === undefined ? existing.category : assertCategory(patch.category),
-      content: patch.content === undefined ? existing.content : assertContent(patch.content),
-      subject: patch.subject === undefined ? existing.subject : assertSubject(patch.subject),
-      updatedAt: this.now(),
+      category: nextCategory,
+      content: nextContent,
+      subject: nextSubject,
+      updatedAt: at,
+      ...(corrected
+        ? {
+            updatedBy: actor,
+            revisedAt: at,
+            updatedById: actorId,
+          }
+        : {}),
     };
     this.records.set(id, updated);
     this.persist(updated);

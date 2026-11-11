@@ -8,6 +8,7 @@ import {
   getHealthProfile,
   getPatientDetail,
   getServicePlan,
+  getTimeline,
   listCarePlans,
   listMemories,
   listPatients,
@@ -71,17 +72,22 @@ describe('患者 mock 数据', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
-  it('时间线按时间递增，包含客户消息、草稿、发送与核验', () => {
+  it('时间线按时间倒序，包含客户消息、草稿、发送与核验', async () => {
     const events = buildTimeline('pat_01');
     expect(events.length).toBeGreaterThan(0);
     const timestamps = events.map((item) => item.at);
-    expect([...timestamps].sort((a, b) => a - b)).toEqual(timestamps);
+    expect([...timestamps].sort((a, b) => b - a)).toEqual(timestamps);
 
     const types = new Set(events.map((item) => item.type));
     expect(types.has('inbound')).toBe(true);
     expect(types.has('draft')).toBe(true);
     expect(types.has('delivery')).toBe(true);
     expect(types.has('verification')).toBe(true);
+
+    const page = await getTimeline('pat_01', 1, 2);
+    expect(page.items).toHaveLength(2);
+    expect(page.items[0].id).toBe(events[0].id);
+    expect(page.total).toBe(events.length);
   });
 
   it('健康档案与服务计划带 sample 标记', async () => {
