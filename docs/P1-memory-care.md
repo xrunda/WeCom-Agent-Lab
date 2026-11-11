@@ -247,7 +247,8 @@ PatientAgentRuntime.startProactiveTurn
 - **控制台 HTTP 接口未实现**：`zhibanMemory` / `zhibanCare` 已提供列表、编辑、
   软删除、手动新建、取消的进程内函数；[P1 API](./P1-api.md) 里的
   `/memories`、`/care-plans` 路由待控制台工作包接入。
-- **同意状态**仍靠手工写入（#35 / #36 不解决 `check_room_agree` 同步）。
+- **同意状态**：`zhiban-wecom` 已接入 `check_room_agree` 自动同步；本段 #35 / #36 不涉及，
+  自动同步的 ⏳ 真机验收项见 [P1 患者 Agent §4](./P1-patient-agent.md)。
 - **事件只到 DSH bus**：没有 SSE / 控制台订阅；`memory.*`、`care_plan.*`
   事件与审计已发出，前端接入随控制台包。
 - **rrule 未实现**：非空直接拒绝，复杂随访方案二期。

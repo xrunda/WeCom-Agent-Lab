@@ -29,6 +29,7 @@ import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../
 import { parsePluginConfig, serviceGroupFilter } from './config.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
 import { GroupInfoClient } from './group-info.ts';
+import { RoomAgreeClient } from './room-agree.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
 
@@ -405,6 +406,16 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         log('群昵称查询未启用：缺少 contactSecret / corpId，成员显示 id 尾号');
       }
 
+      // 会话存档同意状态：复用存档 config.txt 的 corpid/secret（msgaudit 应用）
+      const roomAgree = new RoomAgreeClient({
+        configPath: config.archive.configPath,
+        clock,
+        logger: log,
+      });
+      if (!roomAgree.enabled) {
+        log('存档同意同步未启用：无法读取存档凭据，成员保持「存档待确认」');
+      }
+
       const archive = new WeComArchiveAdapter({
         binaryPath: config.archive.binaryPath,
         privateKeyPath: config.archive.privateKeyPath,
@@ -521,6 +532,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         clock,
         patient: patientSink,
         groupInfo,
+        roomAgree,
         emit: (type, data) => {
           ctx.emit(type, data);
         },

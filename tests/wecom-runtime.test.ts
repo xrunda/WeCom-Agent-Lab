@@ -9,6 +9,7 @@ import type { Draft } from '../src/c2/types.ts';
 import { parsePluginConfig, type WecomPluginConfig } from '../plugins/zhiban-wecom/config.ts';
 import { DomainStore, MemoryStoreBackend } from '../plugins/zhiban-wecom/domain.ts';
 import type { GroupInfoClient } from '../plugins/zhiban-wecom/group-info.ts';
+import type { RoomAgreeClient } from '../plugins/zhiban-wecom/room-agree.ts';
 import { WecomRuntime, makeTemplateCompose } from '../plugins/zhiban-wecom/runtime.ts';
 import type { PatientSink } from '../plugins/zhiban-wecom/runtime.ts';
 
@@ -52,6 +53,7 @@ function harness(
   options: {
     environment?: 'demo' | 'dev';
     groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+    roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
     patient?: PatientSink;
   } = {},
 ): Harness {
@@ -128,6 +130,7 @@ function harness(
     },
     logger: (line) => logs.push(line),
     groupInfo: options.groupInfo,
+    roomAgree: options.roomAgree,
     patient: options.patient,
   });
 
@@ -542,4 +545,55 @@ test('群昵称查询失败或异常时保持 id 尾号回退，草稿链路不�
   // 昵称失败不影响草稿生成
   assert.equal(h.store.listDrafts().length, 1);
   assert.ok(!h.logs.join('\n').includes('WECOM_DOWN'));
+});
+
+test('群发现时用会话存档接口补同意状态，和群昵称一起交给患者域', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      memberNames: async () => new Map([['wmCUSTOMER', '张女士']]),
+    },
+    roomAgree: {
+      roomConsent: async (roomId) =>
+        roomId === 'wrGROUP1'
+          ? { wmCUSTOMER: 'agreed', wmFAMILY: 'disagreed' }
+          : undefined,
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.deepEqual(room?.memberConsent, { wmCUSTOMER: 'agreed', wmFAMILY: 'disagreed' });
+  // 两个来源互不影响
+  assert.equal(room?.memberNames?.wmCUSTOMER, '张女士');
+  assert.equal(room?.members.find((item) => item.id === 'wmCUSTOMER')?.displayName, '张女士');
+});
+
+test('同意状态查询失败时缺省该字段，草稿链路不受影响', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    roomAgree: {
+      roomConsent: async () => {
+        throw new Error('MSGAUDIT_DOWN');
+      },
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.equal(room?.memberConsent, undefined);
+  assert.equal(h.store.listDrafts().length, 1);
+  assert.ok(!h.logs.join('\n').includes('MSGAUDIT_DOWN'));
 });

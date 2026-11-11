@@ -50,9 +50,10 @@
    脚本只调控制台公开接口，不直写数据库；账号密码走 `ZHIBAN_CONSOLE_USERNAME` /
    `ZHIBAN_CONSOLE_PASSWORD` 环境变量，不会打印。先用 `--dry-run` 确认匹配到的群唯一，
    再正式提交。真实生效仍需 demo 实例加载本 PR 后的版本——**本地单测不能替代真机确认**。
-2. **同意状态未自动同步。** 目前靠 `setMemberConsent` / `refreshConsent` 手工写入
-   （见 [P1 患者 Agent §4](./P1-patient-agent.md)）。播种前必须逐群确认状态为 `agreed` 或
-   `unknown`（`requireConsentForTurn=false` 时 `unknown` 可服务；`disagreed` 永不服务）。
+2. **同意状态已接入自动同步（⏳ 待真机）。** `zhiban-wecom` 按 roomid 调
+   `check_room_agree` 刷新成员与患者状态（见 [P1 患者 Agent §4](./P1-patient-agent.md)）；
+   真机确认前，播种仍应逐群核对状态为 `agreed` 或 `unknown`
+   （`requireConsentForTurn=false` 时 `unknown` 可服务；`disagreed` 永不服务）。
 3. **原图转推依赖 #55 真机验证。** 若企微图片消息发送失败，图片回合仍会出草稿，
    但服务群收不到原图；此时把「图片转发」记为 ❌/⏳，不要把草稿成功当成转发成功。
 
@@ -257,7 +258,9 @@
 
 1. **群状态入口已实现、待真机确认**：API 与脚本已随本 PR 提供；在 demo 实例加载新版并
    实际改成一个群之前，仍不能宣称真实播种可开跑（见 §2.2）。
-2. **同意状态手工维护**：无法自动同步企微 `check_room_agree`，播种前需人工确认。
+2. **同意状态自动同步待真机**：已接入 `check_room_agree`，但需在 demo 实例确认返回的
+   `exteranalopenid` 与成员 `externalUserId` 一致；真机确认前播种仍以控制台显示为准，
+   必要时用 `setMemberConsent` 手工修正。
 3. **红线关键词误报**：安全表述「不建议自行停药」会命中「停药」，产生 warning。
    本次保留为告警样例；是否改为否定词排除，由红线规则负责人决定。
 4. **图片转推**：依赖 #55 的真机验证；图片草稿成功不等于原图送达。

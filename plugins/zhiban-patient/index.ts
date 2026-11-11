@@ -115,6 +115,8 @@ export interface PatientRuntimeApi {
       }>;
       /** 整群昵称映射；用于更新本轮未发言的成员并回填患者 */
       memberNames?: Record<string, string>;
+      /** 会话存档同意状态；由企微 check_room_agree 返回，缺省时保持原状态 */
+      memberConsent?: Record<string, ConsentStatus>;
     }>,
   ): void;
   routeInbound(message: InboundMessage): { handled: boolean; decision: RouteDecision };

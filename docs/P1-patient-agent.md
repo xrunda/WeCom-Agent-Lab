@@ -157,11 +157,20 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 
 ---
 
-## 4. 同意状态（已知缺口）
+## 4. 同意状态自动同步
 
-- 目前没有调用企微 `check_room_agree` 接口；同意状态通过
-  `PatientService.setMemberConsent` / `refreshConsent` 手工写入（控制台接口后续补）。
-- 因此真机验收中「客户同意存档状态自动同步」为 ⏳ 待真机，不能写成已通过。
+- `zhiban-wecom` 启动时用存档凭据（`/etc/zhiban/archive/config.txt` 第 1 行 corpid、
+  第 2 行会话存档 Secret）创建 `RoomAgreeClient`，轮询存档时按 roomid 调
+  `msgaudit/check_room_agree`，把 `Agree` / `Disagree` 映射为 `agreed` / `disagreed`，
+  经 `memberConsent` 交给 `PatientService.observeGroup`，再刷新成员与患者的同意状态。
+- 成功结果缓存 5 分钟、失败负缓存 10 分钟；token 失效（40014/42001）自动换一次。
+  凭据缺失、权限不足（如内部群 90501）或网络失败时静默保持原状态，不阻塞存档链路。
+- Secret / access_token / 外部联系人 id / 昵称都不进日志；只记群 id 尾号、成员数量与
+  errcode。本插件仍没有任何 Secret，凭据只从环境或存档配置文件读取。
+- 控制台仍保留 `setMemberConsent` / `refreshConsent` 手工修正入口。
+- ⏳ 待真机：确认 `check_room_agree` 返回的 `exteranalopenid` 与存档/成员表里的
+  `externalUserId` 是同一个值；若不一致，状态不会落到成员上（需按真机返回值调整映射）。
+  本项在真机确认前不能写成「已通过」。
 - 未同意时的提示文案固定为「该成员未同意存档，需人工服务（状态待确认）」。
 
 ---
@@ -176,6 +185,7 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 | serving / collect_only / disabled 即时生效 | `tests/patient-service.test.ts` |
 | 两群绑同一患者、重启后状态与会话不丢 | `tests/patient-service.test.ts` |
 | 成员角色与同意状态 | `tests/patient-service.test.ts` |
+| 同意状态自动同步（映射、缓存、token 重试、失败降级、不落 id） | `tests/wecom-room-agree.test.ts`、`tests/wecom-runtime.test.ts` |
 | 工具参数校验、正常草稿、四种降级 | `tests/agent-reply.test.ts` |
 | reply_skip、重复调用、核验回写 | `tests/agent-reply.test.ts` |
 | 连发合并、2 分钟上限、内部上下文、去重、家属提示 | `tests/group-context.test.ts` |
@@ -195,8 +205,9 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 4. **顾问改稿**：顾问在机器人 1:1 回一句改稿指令，确认收到「正在改第 2 版」、
    新卡片标题为「第 2 版」、点旧卡片提示新版本。
 5. **停用与采集**：把群改为 `collect_only` / `disabled`，确认不再生成新草稿。
-6. **同意状态**：手工把成员同意改为 `disagreed`，确认消息不再触发自动服务，
-   且顾问能看到提示。
+6. **同意状态**：让真实客户在群里分别点「已同意保存 / 不同意保存」，等一轮轮询后确认
+   控制台成员与患者状态自动变化；同时核对接口返回的 `exteranalopenid` 与成员
+   `externalUserId` 一致。`disagreed` 的消息不再触发自动服务，且顾问能看到提示。
 7. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
    `image_classify` / `meal_log_write`、卡片出现「客户发来图片 · 餐食」、
    原图转发到顾问 1:1，控制台饮食记录可见。
