@@ -62,6 +62,17 @@ describe('WP-K 页面', () => {
     expect(await screen.findByText('提醒量血压')).toBeInTheDocument();
   });
 
+  it('群编辑弹窗说明负责顾问是谁、各绑定方式怎么选', async () => {
+    const user = userEvent.setup();
+    await renderPage(<GroupsPage />);
+
+    await user.click((await screen.findAllByText('编辑'))[0]);
+
+    expect(await screen.findByText('（群内企微用户）')).toBeInTheDocument();
+    expect(screen.getByLabelText('负责顾问说明')).toBeInTheDocument();
+    expect(screen.getByText(/从群成员选：.*选择已有：.*新建：/)).toBeInTheDocument();
+  });
+
   it('服务群页面展示待确认提示与群列表', async () => {
     await renderPage(<GroupsPage />);
 

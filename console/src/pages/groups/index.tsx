@@ -12,12 +12,14 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth, useTerm } from '../../auth/AuthContext.tsx';
+import { FieldHint } from '../../components/FieldHint.tsx';
 import { listAdvisors, type Advisor } from '../../mock/advisors.ts';
 import {
   listGroupMembers,
@@ -73,6 +75,25 @@ function memberOption(member: PatientGroupMember) {
     value: member.id,
   };
 }
+
+/** 「负责顾问」这一栏填的是机构自己的员工，不是客户；给新手一句常驻提示 + 问号补充 */
+function AdvisorLabel() {
+  return (
+    <Space size={4}>
+      <span>负责顾问</span>
+      <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>
+        （群内企微用户）
+      </Text>
+      <FieldHint
+        label="负责顾问说明"
+        text="负责顾问是你们机构自己的员工，需要在客户群里，并且已开通会话存档席位。客户本人不会出现在这里。"
+      />
+    </Space>
+  );
+}
+
+const BIND_MODE_HINT =
+  '从群成员选：直接绑定本群里的客户；选择已有：复用系统里已建档的客户；新建：给新客户建档。暂不绑定不会生成草稿。';
 
 export default function GroupsPage() {
   const term = useTerm();
@@ -337,20 +358,22 @@ export default function GroupsPage() {
       dataIndex: 'externalMemberCount',
       width: 170,
       render: (value: number, group) => (
-        <Space size={4} wrap>
-          <Text>
-            {value}/{group.memberCount}
-          </Text>
-          {group.consent.agreed > 0 ? (
-            <Tag bordered={false} color="green">
-              同意 {group.consent.agreed}
-            </Tag>
-          ) : (
-            <Tag bordered={false} color="gold">
-              待确认 {group.consent.unknown + group.consent.disagreed}
-            </Tag>
-          )}
-        </Space>
+        <Tooltip title="外部成员数 / 群成员总数。同意 = 已确认同意会话存档的客户；待确认 = 尚未同步到同意状态的客户。不同意的客户消息不会进入会话存档，也无法生成草稿。">
+          <Space size={4} wrap>
+            <Text>
+              {value}/{group.memberCount}
+            </Text>
+            {group.consent.agreed > 0 ? (
+              <Tag bordered={false} color="green">
+                同意 {group.consent.agreed}
+              </Tag>
+            ) : (
+              <Tag bordered={false} color="gold">
+                待确认 {group.consent.unknown + group.consent.disagreed}
+              </Tag>
+            )}
+          </Space>
+        </Tooltip>
       ),
     },
     {
@@ -492,7 +515,7 @@ export default function GroupsPage() {
           />
           <Form form={serviceForm} layout="vertical" requiredMark={false}>
             <Form.Item
-              label="负责顾问"
+              label={<AdvisorLabel />}
               name="advisorId"
               rules={[{ required: true, message: '请选择负责顾问' }]}
             >
@@ -555,7 +578,7 @@ export default function GroupsPage() {
           <Form.Item label="群名" name="name" rules={[{ required: true, message: '请填写群名' }]}>
             <Input maxLength={40} />
           </Form.Item>
-          <Form.Item label="负责顾问" name="advisorId">
+          <Form.Item label={<AdvisorLabel />} name="advisorId">
             <Select
               allowClear
               placeholder="选择顾问"
@@ -564,7 +587,7 @@ export default function GroupsPage() {
                 .map((item) => ({ label: item.name, value: item.id }))}
             />
           </Form.Item>
-          <Form.Item label={`服务${term}对象`} name="bindMode">
+          <Form.Item label={`服务${term}对象`} name="bindMode" extra={BIND_MODE_HINT}>
             <Radio.Group
               optionType="button"
               options={[
