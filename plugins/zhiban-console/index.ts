@@ -1306,7 +1306,35 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         if (!group) throw new ConsoleError('NOT_FOUND', '群不存在');
         const body = await rc.json<Record<string, unknown>>();
         let patientId: string;
-        if (typeof body.patientId === 'string' && body.patientId.trim() !== '') {
+        // memberId：从群成员里选服务对象（开始服务主路径）。
+        // 同一 externalUserId 已有患者时复用，避免一个客户多个 Agent。
+        let pickedMember: { externalUserId: string; displayName: string } | undefined;
+        if (typeof body.memberId === 'string' && body.memberId.trim() !== '') {
+          const memberId = body.memberId.trim();
+          const member = (api.listGroupMembers?.(groupId) ?? []).find((item) => item.id === memberId);
+          if (!member) throw new ConsoleError('VALIDATION_FAILED', '群成员不存在');
+          if (!member.isExternal || !member.externalUserId) {
+            throw new ConsoleError('VALIDATION_FAILED', '只能选择外部成员作为服务对象');
+          }
+          const existing = api
+            .listPatients?.()
+            .find((item) => item.externalUserId === member.externalUserId);
+          if (existing) {
+            patientId = existing.id;
+          } else {
+            if (!api.createPatient) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+            patientId = api.createPatient({
+              displayName: member.displayName,
+              externalUserId: member.externalUserId,
+              consent: member.consent,
+              advisorId: group.advisorId,
+            }).id;
+          }
+          pickedMember = {
+            externalUserId: member.externalUserId,
+            displayName: member.displayName,
+          };
+        } else if (typeof body.patientId === 'string' && body.patientId.trim() !== '') {
           patientId = body.patientId.trim();
         } else if (body.newPatient && typeof body.newPatient === 'object') {
           if (!api.createPatient) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
@@ -1334,6 +1362,17 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             throw new ConsoleError('NOT_FOUND', '群不存在');
           }
           throw error;
+        }
+        // 从群成员选时，把患者身份指向该成员（role=self、同意状态跟随）。
+        // 绑定已经生效，标注失败不阻断开始服务，可在患者详情重新确认。
+        if (pickedMember && api.setPatientIdentity) {
+          try {
+            api.setPatientIdentity(groupId, patientId, pickedMember.externalUserId, {
+              displayName: pickedMember.displayName,
+            });
+          } catch {
+            // 保留绑定结果
+          }
         }
         const patient =
           api.getPatientAdmin?.(patientId) ??

@@ -587,8 +587,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 7. 服务群
 
-> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}`、`GET /groups/{id}/members` 已实现并有单测覆盖；
-> `GET /groups/{id}`、绑定（`POST /groups/{id}/bindings`）与成员角色标注（`PATCH .../members/{id}`）仍为契约待实现。
+> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}`、`GET /groups/{id}/members`、
+> 绑定（`POST /groups/{id}/bindings`）已实现并有单测覆盖；
+> `GET /groups/{id}` 与成员角色标注（`PATCH .../members/{id}`）仍为契约待实现。
 > 控制台前端群页面已接入真实数据。
 > 运维脚本 `npm run group:status` 基于本节接口，用于把演示群从 `pending` 改为 `serving`。
 >
@@ -625,12 +626,18 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 - `pending` / `disabled` → 移出白名单（`deactivateServiceGroup`）；
 - 状态变更立即写入内存白名单，**下一轮存档轮询（默认 5 秒）即生效，无需重启**；
 - 企微域未加载时（如仅患者域的测试装配）跳过同步，只改患者域状态。
+- 控制台「开始服务」= 指定负责顾问 + 服务对象（`POST .../bindings { memberId }`）后
+  再 `PATCH status=serving`；接口层仍允许直接改状态（运维脚本需要），UI 保证不会出现没有服务对象的服务中群。
 
 错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）、`502 UPSTREAM_UNAVAILABLE`（白名单同步失败，状态已回滚为变更前值，提示「企微服务群同步失败，服务状态未变更」）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
 
 ### `POST /groups/{id}/bindings`
 
-角色：admin / supervisor。请求二选一：
+角色：admin / supervisor（`patient.write`）。请求三选一：
+
+```json
+{ "memberId": "gm_..." }
+```
 
 ```json
 { "patientId": "pat_..." }
@@ -640,9 +647,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "newPatient": { "displayName": "周先生", "tags": ["作息"], "consent": "unknown" } }
 ```
 
+`memberId` 是「开始服务」的指定服务对象：
+
+- 只能是该群的**外部成员**；员工成员或未知成员返回 `422 VALIDATION_FAILED`；
+- 该 `externalUserId` 已有患者时**直接复用**（一个客户多个群共用一位患者 / 一个 Agent），不会重复建档；
+- 没有患者时按成员昵称建档，`advisorId` 取群当前负责顾问，并把患者身份指向该成员（`identityStatus=confirmed`、`identitySource=manual`、同意状态跟随成员）；
+- 身份回填失败不回滚绑定（可在患者详情重新确认）。
+
 响应 `201`：`{ "binding": { "id": "gbd_...", "groupId": "grp_...", "patientId": "pat_...", "isPrimary": true, "createdAt": 1762646400000, "deletedAt": null }, "patient": { "id": "pat_...", "displayName": "周先生" } }`。
 
-错误：`CONFLICT`（该群已绑定该患者）。
+错误：`CONFLICT`（该群已绑定该患者）、`404 NOT_FOUND`（群或患者不存在）、`422 VALIDATION_FAILED`（成员不存在 / 非外部成员 / 无绑定参数）。
 
 ### `DELETE /groups/{id}/bindings/{patientId}`
 
