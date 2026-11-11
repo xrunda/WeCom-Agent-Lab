@@ -29,11 +29,9 @@ describe('控制台外壳', () => {
 
     await waitFor(() => expect(screen.getByText('每一条草稿，都在为顾问省时间')).toBeInTheDocument());
     // jsdom 下 ProLayout 不渲染侧边菜单（菜单结构由 menu.test.tsx 覆盖），
-    // 这里验证外壳其余部分：租户面板、模式标识、称谓控件与页面标题。
-    expect(screen.getByText('安康健康管理中心')).toBeInTheDocument();
-    expect(screen.getByText('Agent：小安')).toBeInTheDocument();
+    // 这里验证外壳其余部分：模式标识、称谓控件与页面标题。
     expect(screen.getByText('MOCK')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: '切换客户称谓' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '切换服务对象称谓' })).toBeInTheDocument();
     expect(screen.getAllByText('工作台').length).toBeGreaterThan(0);
   });
 

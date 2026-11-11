@@ -55,7 +55,7 @@ describe('WP-K 页面', () => {
     expect(screen.getByRole('tab', { name: '主动计划' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '办事记录' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '对话时间线' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '健康档案' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '慢病管理' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '服务计划' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: '主动计划' }));

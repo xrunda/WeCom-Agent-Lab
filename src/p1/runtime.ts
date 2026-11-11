@@ -34,6 +34,7 @@ import type {
   TenantAgentSettings,
 } from './types.ts';
 import type { RiskLevel, VerifyOutcome } from '../c2/types.ts';
+import type { ChronicProfile, ChronicRecordInput } from './chronic.ts';
 import {
   IMAGE_MAX_BYTES,
   IMAGE_MAX_PER_TURN,
@@ -1167,6 +1168,48 @@ export class PatientAgentRuntime {
       mealLogId: record.id,
       confidence: record.confidence,
       needsConfirmation: record.confidence < MEAL_CONFIDENCE_ASK,
+    };
+  }
+
+  // ---------- 慢病管理（对话提取） ----------
+
+  /**
+   * 模型把客户原话里的体征写入慢病档案。
+   * 沙盒回合不落真实档案；写入来源固定为 agent，控制台据此展示「对话提取」。
+   */
+  chronicRecordWrite(
+    sessionId: string,
+    input: ChronicRecordInput,
+  ): { savedMeasurements: number; savedConditions: number; savedNotes: boolean; sandbox: boolean } {
+    const turn = this.activeBySession.get(sessionId);
+    if (!turn) throw new Error('NO_ACTIVE_TURN');
+    if (turn.closed) throw new Error('TURN_CLOSED');
+    if (turn.sandbox) {
+      return { savedMeasurements: 0, savedConditions: 0, savedNotes: false, sandbox: true };
+    }
+
+    const profile: ChronicProfile = this.service.updateChronicProfile(
+      turn.patient.id,
+      {
+        ...(input.measurements ? { measurements: input.measurements } : {}),
+        ...(input.conditions !== undefined ? { conditions: input.conditions } : {}),
+        ...(input.notes ? { notes: input.notes } : {}),
+      },
+      { name: 'Agent', source: 'agent' },
+    );
+    this.emit('patient.chronic.recorded', {
+      patientId: turn.patient.id,
+      groupId: turn.group.id,
+      measurementCount: input.measurements?.length ?? 0,
+      conditionCount: input.conditions?.length ?? 0,
+      totalMeasurements: profile.measurements.length,
+      sandbox: false,
+    });
+    return {
+      savedMeasurements: input.measurements?.length ?? 0,
+      savedConditions: input.conditions?.length ?? 0,
+      savedNotes: input.notes !== undefined,
+      sandbox: false,
     };
   }
 

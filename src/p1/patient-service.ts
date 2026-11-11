@@ -10,6 +10,13 @@
  */
 import type { Clock } from '../c2/ports.ts';
 import { tailId } from '../c2/redact.ts';
+import {
+  applyChronicPatch,
+  emptyChronicProfile,
+  type ChronicActor,
+  type ChronicProfile,
+  type ChronicProfilePatch,
+} from './chronic.ts';
 import { MemoryPatientStore } from './patient-store.ts';
 import type {
   AdvisorRecord,
@@ -378,6 +385,46 @@ export class PatientService {
     this.store.savePatient(patient);
     this.audit('admin', 'patient.delete', patient.id, 'ok');
     return patient;
+  }
+
+  // ---------- 慢病管理 ----------
+
+  /** 没有记录时返回空档案，不落盘，避免「读一次就多一张表」 */
+  getChronicProfile(patientId: string): ChronicProfile {
+    const patient = this.requirePatient(patientId);
+    return (
+      this.store.getChronicProfile(patientId) ??
+      emptyChronicProfile(patientId, patient.tenantId)
+    );
+  }
+
+  /**
+   * 合并写入慢病档案；调用方已完成入参校验，这里只保证患者存在、
+   * 档案归属正确。审计只记动作，不记体征数值。
+   */
+  updateChronicProfile(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile {
+    const patient = this.requirePatient(patientId);
+    const existing =
+      this.store.getChronicProfile(patientId) ??
+      emptyChronicProfile(patientId, patient.tenantId);
+    const next = applyChronicPatch(existing, patch, {
+      now: this.clock.now(),
+      actor,
+      nextMeasurementId: () => this.store.nextId('cme'),
+    });
+    next.tenantId = patient.tenantId;
+    this.store.saveChronicProfile(next);
+    this.audit(
+      actor.name ?? (actor.source === 'agent' ? 'agent' : 'advisor'),
+      'patient.chronic.update',
+      patient.id,
+      `source=${actor.source}`,
+    );
+    return next;
   }
 
   bindPatient(groupId: string, patientId: string, isPrimary = false): GroupBinding {

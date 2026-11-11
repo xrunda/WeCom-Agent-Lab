@@ -32,6 +32,13 @@ import type { MemoryRecord } from '../src/p1/memory.ts';
 import type { AdvisorRecord, ConsentStatus, Patient } from '../src/p1/types.ts';
 import type { Draft } from '../src/c2/types.ts';
 import type { MealLogRecord } from '../src/p1/vision.ts';
+import {
+  applyChronicPatch,
+  emptyChronicProfile,
+  type ChronicActor,
+  type ChronicProfile,
+  type ChronicProfilePatch,
+} from '../src/p1/chronic.ts';
 
 const ADMIN_PASSWORD = 'AdminPass123';
 const PLATFORM_PASSWORD = 'PlatformPass123';
@@ -173,6 +180,12 @@ interface PatientApi {
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
+  getChronicProfile?(patientId: string): ChronicProfile;
+  updateChronicProfile?(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile;
   getPatientGroups?(id: string):
     | {
         patient: { id: string; displayName: string };
@@ -1194,6 +1207,7 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
     realDraft({ id: 'draft_4', status: 'QUEUED', createdAt: Date.now() - 8 * 60_000 }),
   ];
   const paused: string[] = [];
+  const chronicProfiles = new Map<string, ChronicProfile>();
 
   Object.assign(ctx.patientApi, {
     listPatients: () => patients,
@@ -1308,6 +1322,24 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
       };
       patients[index] = updated;
       return updated;
+    },
+    getChronicProfile: (id: string) =>
+      chronicProfiles.get(id) ?? emptyChronicProfile(id, 'tn_test'),
+    updateChronicProfile: (
+      id: string,
+      patch: ChronicProfilePatch,
+      actor: ChronicActor,
+    ) => {
+      const current = chronicProfiles.get(id) ?? emptyChronicProfile(id, 'tn_test');
+      const now = Date.now();
+      let seq = 0;
+      const next = applyChronicPatch(current, patch, {
+        now,
+        actor,
+        nextMeasurementId: () => `cme_${now}_${++seq}`,
+      });
+      chronicProfiles.set(id, next);
+      return next;
     },
     getPatientGroups: (id: string) =>
       id === 'pat_1'
@@ -1763,9 +1795,28 @@ test('患者：真实患者列表区分 demo，详情含群与顾问，健康档
   });
   assert.equal(invalid.status, 422);
 
-  const profile = await call('GET', '/zhiban/api/patients/pat_1/health-profile', { cookie });
+  const profile = await call('GET', '/zhiban/api/patients/pat_1/chronic-profile', { cookie });
   assert.equal(profile.status, 200);
-  assert.deepEqual(profile.json(), { profile: null, sample: true });
+  assert.deepEqual((profile.json() as { profile: ChronicProfile }).profile.conditions, []);
+
+  const recorded = await call('PATCH', '/zhiban/api/patients/pat_1/chronic-profile', {
+    cookie,
+    body: {
+      conditions: ['高血压'],
+      measurements: [{ metric: 'bp', value: 138, secondaryValue: 86 }],
+    },
+  });
+  assert.equal(recorded.status, 200);
+  const recordedProfile = (recorded.json() as { profile: ChronicProfile }).profile;
+  assert.deepEqual(recordedProfile.conditions, ['高血压']);
+  assert.equal(recordedProfile.measurements[0]?.source, 'advisor');
+  assert.equal(recordedProfile.measurements[0]?.recordedBy, '林主管');
+
+  const badMeasurement = await call('PATCH', '/zhiban/api/patients/pat_1/chronic-profile', {
+    cookie,
+    body: { measurements: [{ metric: 'bp', value: 138 }] },
+  });
+  assert.equal(badMeasurement.status, 422);
 
   const plan = await call('GET', '/zhiban/api/patients/pat_1/service-plan', { cookie });
   assert.equal(plan.status, 200);

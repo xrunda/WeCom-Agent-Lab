@@ -40,6 +40,12 @@ import type {
   SandboxPatient,
 } from '../../src/p1/sandbox.ts';
 import { buildSecurityOverview } from '../../src/p1/security.ts';
+import { validateChronicPatch } from '../../src/p1/chronic.ts';
+import type {
+  ChronicActor,
+  ChronicProfile,
+  ChronicProfilePatch,
+} from '../../src/p1/chronic.ts';
 import type { CarePlanRecord } from '../../src/p1/care.ts';
 import type { KnowledgeRecord } from '../../src/p1/knowledge.ts';
 import type { MemoryRecord } from '../../src/p1/memory.ts';
@@ -206,6 +212,13 @@ interface PatientApiLike {
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
+  /** 慢病管理：结构化档案 */
+  getChronicProfile?(patientId: string): ChronicProfile;
+  updateChronicProfile?(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile;
   /** #60 上线：群列表与服务状态入口 */
   listGroups?(): PatientGroupViewLike[];
   updateGroup?(
@@ -1977,18 +1990,61 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       { permission: 'patient.read' },
     );
 
-    // -- B 档：真实健康档案 / 服务计划暂未接入，按契约返回空 --
+    // -- 慢病管理：结构化档案（顾问手工录入 + Agent 对话提取） --
 
     router.add(
       'GET',
-      '/patients/:id/health-profile',
+      '/patients/:id/chronic-profile',
       (rc) => {
         tenantActor(rc);
-        requirePatient(rc.params.id!);
-        respond(rc, 200, { profile: null, sample: true });
+        const api = patientReadApi();
+        if (!api?.getChronicProfile) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        const patient = requirePatient(rc.params.id!);
+        respond(rc, 200, { profile: api.getChronicProfile(patient.id) });
       },
       { permission: 'patient.read' },
     );
+
+    router.add(
+      'PATCH',
+      '/patients/:id/chronic-profile',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const api = patientReadApi();
+        if (!api?.updateChronicProfile || !api.getChronicProfile) {
+          throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        }
+        const patient = requirePatient(rc.params.id!);
+        const body = await rc.json<Record<string, unknown>>();
+        const parsed = validateChronicPatch(body, Date.now());
+        if (!parsed.ok) {
+          throw new ConsoleError('VALIDATION_FAILED', parsed.violations.join('；'));
+        }
+        let profile: ChronicProfile;
+        try {
+          profile = api.updateChronicProfile(patient.id, parsed.value, {
+            id: actor.account.id,
+            name: actor.account.displayName,
+            source: 'advisor',
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('PATIENT_NOT_FOUND')) {
+            throw new ConsoleError('NOT_FOUND', '患者不存在');
+          }
+          throw error;
+        }
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'patient.chronic.update', 'patient', patient.id, {
+            fields: Object.keys(parsed.value),
+          }),
+        );
+        respond(rc, 200, { profile });
+      },
+      { permission: 'patient.write' },
+    );
+
+    // -- B 档：服务计划暂未接入，按契约返回空 --
 
     router.add(
       'GET',

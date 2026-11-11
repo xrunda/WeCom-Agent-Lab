@@ -269,8 +269,14 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
               },
               {
                 key: 'health',
-                label: '健康档案',
-                children: <HealthProfileTab patientId={detail.patient.id} term={term} />,
+                label: '慢病管理',
+                children: (
+                  <HealthProfileTab
+                    patientId={detail.patient.id}
+                    term={term}
+                    canWrite={can('patient.write')}
+                  />
+                ),
               },
               {
                 key: 'service-plan',

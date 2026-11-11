@@ -9,7 +9,7 @@ import {
   resetMockState,
   updateTenant,
 } from '../src/mock/api.ts';
-import { PATIENT_TERMS } from '../src/types.ts';
+import { PATIENT_TERM_MAX_LENGTH } from '../src/types.ts';
 
 describe('mock API', () => {
   it('管理员用演示密码登录', async () => {
@@ -43,10 +43,17 @@ describe('mock API', () => {
     expect((await getSession())?.tenant.patientTerm).toBe('会员');
   });
 
-  it('称谓只接受契约里的三个值', async () => {
+  it('称谓支持自定义，长度与空白受约束', async () => {
     await login('admin', MOCK_PASSWORD);
+
+    const tenant = await updateTenant({ patientTerm: ' 亲人 ' });
+    expect(tenant.patientTerm).toBe('亲人');
+
+    await expect(updateTenant({ patientTerm: '   ' })).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
     await expect(
-      updateTenant({ patientTerm: '病人' as (typeof PATIENT_TERMS)[number] }),
+      updateTenant({ patientTerm: 'x'.repeat(PATIENT_TERM_MAX_LENGTH + 1) }),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 

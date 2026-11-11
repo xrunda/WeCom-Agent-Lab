@@ -229,7 +229,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 响应 `200`：更新后的 tenant。保存即生效：`agentName` / `patientTerm` / `tone` 下一轮 Agent 回合使用（#41），前端下次刷新全局文案。
 
-错误：`VALIDATION_FAILED`（称谓只能是「患者 / 客户 / 会员」；`writeMinutesPerDraft` 1–30；`quietHours` 必须合法 HH:mm）。
+错误：`VALIDATION_FAILED`（称谓为 1–8 个字符、不能只含空白，预设为「患者 / 客户 / 会员 / 亲人 / 家人」但允许自定义；`writeMinutesPerDraft` 1–30；`quietHours` 必须合法 HH:mm）。
 
 ---
 
@@ -499,11 +499,53 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 角色：全部（`patient.read`）。按记录 id 回读存档原图，`content-type` 按文件魔数判断（扩展名不可信），
 `cache-control: private, max-age=300`。错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在）。
 
-### B 档 Tab
+### 慢病管理
 
-#### `GET /patients/{id}/health-profile`
+界面称「慢病管理」（原「健康档案」）。数据落在患者域 `chronic_profiles` 表，顾问手工录入与 Agent 对话提取共用同一份档案。
 
-角色：全部。响应 `200`：`{ "profile": { ... }, "sample": true }`；无数据时 `profile: null, sample: true`。前端显示示例数据标签。
+#### `GET /patients/{id}/chronic-profile`
+
+角色：全部（`patient.read`）。响应 `200`：`{ "profile": ChronicProfile }`。没有记录时返回空档案（`conditions: []`、`medications: []`、`measurements: []`、`updatedAt: 0`），不返回 `404`。
+
+```json
+{
+  "profile": {
+    "patientId": "pat_01",
+    "tenantId": "tn_default",
+    "conditions": ["高血压", "2 型糖尿病"],
+    "heightCm": 162,
+    "weightKg": 58,
+    "medications": [
+      { "name": "氨氯地平", "dose": "5 mg", "frequency": "每日一次", "source": "advisor", "updatedAt": 1760000000000, "updatedBy": "李顾问" }
+    ],
+    "measurements": [
+      { "id": "cme_12", "metric": "bp", "value": 138, "secondaryValue": 86, "measuredAt": 1760000000000, "source": "agent", "recordedAt": 1760000000000, "recordedBy": "Agent" }
+    ],
+    "notes": "近两周晨起血压偏高",
+    "updatedAt": 1760000000000,
+    "updatedBy": "李顾问"
+  }
+}
+```
+
+`metric` 枚举：`bp`（血压，需 `secondaryValue` 舒张压）、`glucose`（血糖，可带 `context`：空腹 / 餐后 2 小时 / 随机 / 睡前）、`hba1c`、`weight`、`heart_rate`、`uric_acid`、`ldl`。
+`source` 枚举：`advisor`（顾问录入）/ `agent`（对话提取）；页面必须展示来源，避免把模型提取当成顾问确认过的事实。`measurements` 按 `measuredAt` 倒序，单患者最多 500 条。
+
+#### `PATCH /patients/{id}/chronic-profile`
+
+角色：`patient.write`。请求体（至少一个字段）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `conditions` | array<string> | 整体替换；常见慢病可多选，也允许自定义诊断 |
+| `heightCm` | number / null | 80–250；`null` 清除 |
+| `weightKg` | number / null | 20–250；`null` 清除 |
+| `medications` | array<object> | 整体替换；`name` 必填，可带 `dose` / `frequency` / `note` |
+| `notes` | string / null | 最多 500 字；`null` 清除 |
+| `measurements` | array<object> | 追加体征（兼容单条写法 `measurement`）；一次最多 5 条 |
+
+响应 `200`：`{ "profile": ChronicProfile }`。来源固定写为 `advisor`，`recordedBy` 为当前账号显示名；操作写 `patient.chronic.update` 审计（只记字段名，不记体征数值）。
+校验失败返回 `422 VALIDATION_FAILED`：血压缺舒张压、舒张压不小于收缩压、数值超范围、测量时间晚于当前时间等。
 
 #### `GET /patients/{id}/service-plan`
 
@@ -1274,7 +1316,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 患者 Agent 主页 | 办事记录 | `GET /patients/{id}/actions` | A |
 | 患者 Agent 主页 | 对话时间线 | `GET /patients/{id}/timeline` | A |
 | 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /patients/{id}/meal-logs/{logId}/photo` | A |
-| 患者 Agent 主页 | 健康档案 | `GET /patients/{id}/health-profile`（`sample:true`） | B |
+| 患者 Agent 主页 | 慢病管理（原健康档案） | `GET/PATCH /patients/{id}/chronic-profile` | A |
 | 患者 Agent 主页 | 服务计划 | `GET /patients/{id}/service-plan`（`sample:true`） | B |
 | 实时服务流 | 列表 + SSE | `GET /service-flow`、`GET /stream` | A |
 | 实时服务流 | 详情抽屉 | `GET /service-flow/{id}` | A |

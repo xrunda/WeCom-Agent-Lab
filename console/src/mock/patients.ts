@@ -154,16 +154,111 @@ export interface TimelineEvent {
   verificationOutcome: 'verified' | 'edit_sent' | 'misroute' | 'unverified' | null;
 }
 
-export interface HealthProfile {
-  patientId: string;
-  heightCm: number;
-  weightKg: number;
-  bmi: number;
-  bloodPressure: string;
-  conditions: string[];
-  medications: string[];
+/** 慢病管理：与后端 src/p1/chronic.ts 保持同一套字段与枚举 */
+export const CHRONIC_CONDITION_PRESETS = [
+  '高血压',
+  '2 型糖尿病',
+  '1 型糖尿病',
+  '高脂血症',
+  '冠心病',
+  '慢性心力衰竭',
+  '慢性肾脏病',
+  '慢性阻塞性肺疾病',
+  '哮喘',
+  '痛风',
+  '高尿酸血症',
+  '脂肪肝',
+  '骨质疏松',
+  '甲状腺功能异常',
+  '脑卒中后遗症',
+  '类风湿关节炎',
+  '慢性胃炎',
+] as const;
+
+export interface ChronicMetricSpec {
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+  dual?: { label: string; min: number; max: number };
+  contexts?: readonly string[];
+}
+
+export const CHRONIC_METRICS = {
+  bp: { label: '血压', unit: 'mmHg', min: 50, max: 260, dual: { label: '舒张压', min: 30, max: 180 } },
+  glucose: { label: '血糖', unit: 'mmol/L', min: 1, max: 40, contexts: ['空腹', '餐后 2 小时', '随机', '睡前'] },
+  hba1c: { label: '糖化血红蛋白', unit: '%', min: 3, max: 20 },
+  weight: { label: '体重', unit: 'kg', min: 20, max: 250 },
+  heart_rate: { label: '心率', unit: '次/分', min: 30, max: 220 },
+  uric_acid: { label: '血尿酸', unit: 'μmol/L', min: 50, max: 1200 },
+  ldl: { label: '低密度脂蛋白', unit: 'mmol/L', min: 0.2, max: 15 },
+} as const;
+
+export type ChronicMetric = keyof typeof CHRONIC_METRICS;
+export type ChronicSource = 'advisor' | 'agent';
+
+export const CHRONIC_SOURCE_LABELS: Record<ChronicSource, string> = {
+  advisor: '顾问录入',
+  agent: '对话提取',
+};
+
+export interface ChronicMeasurement {
+  id: string;
+  metric: ChronicMetric;
+  value: number;
+  secondaryValue?: number;
+  context?: string;
+  measuredAt: number;
+  source: ChronicSource;
+  recordedAt: number;
+  recordedBy?: string;
+}
+
+export interface ChronicMedication {
+  name: string;
+  dose?: string;
+  frequency?: string;
+  note?: string;
+  source: ChronicSource;
   updatedAt: number;
-  sample: true;
+  updatedBy?: string;
+}
+
+export interface ChronicProfile {
+  patientId: string;
+  tenantId: string;
+  conditions: string[];
+  heightCm?: number;
+  weightKg?: number;
+  medications: ChronicMedication[];
+  measurements: ChronicMeasurement[];
+  notes?: string;
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+export interface ChronicMeasurementInput {
+  metric: ChronicMetric;
+  value: number;
+  secondaryValue?: number;
+  context?: string;
+  measuredAt?: number;
+}
+
+export interface ChronicMedicationInput {
+  name: string;
+  dose?: string;
+  frequency?: string;
+  note?: string;
+}
+
+export interface ChronicProfilePatch {
+  conditions?: string[];
+  heightCm?: number | null;
+  weightKg?: number | null;
+  medications?: ChronicMedicationInput[];
+  notes?: string | null;
+  measurements?: ChronicMeasurementInput[];
 }
 
 export interface ServicePlanSample {
@@ -254,6 +349,8 @@ interface PatientsState {
   carePlans: CarePlan[];
   actions: AgentAction[];
   members: PatientGroupMember[];
+  /** 慢病档案：patientId → profile；旧缓存缺省时按需生成 */
+  chronicProfiles?: Record<string, ChronicProfile>;
 }
 
 const STATE_KEY = 'zhiban.console.k.patients';
@@ -368,6 +465,84 @@ function ensureMembers(state: PatientsState): PatientGroupMember[] {
   return state.members;
 }
 
+function ensureChronicProfiles(state: PatientsState): Record<string, ChronicProfile> {
+  if (!state.chronicProfiles || typeof state.chronicProfiles !== 'object') {
+    state.chronicProfiles = {};
+  }
+  return state.chronicProfiles;
+}
+
+/** 演示档案：用患者标签做慢病标签，并给几条虚构体征，便于看清布局 */
+function seedChronicProfile(patient: Patient): ChronicProfile {
+  const now = Date.now();
+  const day = 86_400_000;
+  const heightCm = 158 + (patient.id.length % 6) * 3;
+  const weightKg = 55 + (patient.id.length % 5) * 4;
+  return {
+    patientId: patient.id,
+    tenantId: patient.tenantId,
+    conditions: patient.tags.length > 0 ? [...patient.tags] : ['高血压'],
+    heightCm,
+    weightKg,
+    medications: [
+      {
+        name: '示例降压药',
+        dose: '5 mg',
+        frequency: '每日一次',
+        note: '虚构示例，仅用于展示',
+        source: 'advisor',
+        updatedAt: now - 3 * day,
+        updatedBy: '李顾问',
+      },
+    ],
+    measurements: [
+      {
+        id: `cme_demo_${patient.id}_1`,
+        metric: 'bp',
+        value: 128,
+        secondaryValue: 82,
+        measuredAt: now - day,
+        source: 'advisor',
+        recordedAt: now - day,
+        recordedBy: '李顾问',
+      },
+      {
+        id: `cme_demo_${patient.id}_2`,
+        metric: 'glucose',
+        value: 6.4,
+        context: '空腹',
+        measuredAt: now - 2 * day,
+        source: 'agent',
+        recordedAt: now - 2 * day,
+        recordedBy: 'Agent',
+      },
+      {
+        id: `cme_demo_${patient.id}_3`,
+        metric: 'hba1c',
+        value: 6.8,
+        measuredAt: now - 30 * day,
+        source: 'advisor',
+        recordedAt: now - 30 * day,
+        recordedBy: '李顾问',
+      },
+    ],
+    notes: '示例档案：演示慢病标签、体征与用药的结构化展示。',
+    updatedAt: now - day,
+    updatedBy: '李顾问',
+  };
+}
+
+function ensureChronicProfile(state: PatientsState, patientId: string): ChronicProfile | undefined {
+  const profiles = ensureChronicProfiles(state);
+  const existing = profiles[patientId];
+  if (existing) return existing;
+  const patient = state.patients.find((item) => item.id === patientId);
+  if (!patient) return undefined;
+  const profile = seedChronicProfile(patient);
+  profiles[patientId] = profile;
+  return profile;
+}
+
 function readState(): PatientsState {
   if (cachedState) return cachedState;
   try {
@@ -378,6 +553,7 @@ function readState(): PatientsState {
     cachedState = seedState();
   }
   ensureMembers(cachedState);
+  ensureChronicProfiles(cachedState);
   return cachedState;
 }
 
@@ -998,32 +1174,137 @@ export async function getTimeline(
   };
 }
 
-export async function getHealthProfile(patientId: string): Promise<HealthProfile> {
+export function chronicMetricSpec(metric: ChronicMetric): ChronicMetricSpec {
+  return CHRONIC_METRICS[metric];
+}
+
+export function formatChronicValue(input: {
+  metric: ChronicMetric;
+  value: number;
+  secondaryValue?: number;
+}): string {
+  const spec = chronicMetricSpec(input.metric);
+  if (spec.dual) {
+    return `${input.value}/${input.secondaryValue ?? '—'} ${spec.unit}`;
+  }
+  return `${input.value} ${spec.unit}`;
+}
+
+function validateMockMeasurements(
+  inputs: ChronicMeasurementInput[],
+  now: number,
+): ChronicMeasurementInput[] {
+  if (!Array.isArray(inputs) || inputs.length === 0) throw new Error('至少提供一条体征');
+  if (inputs.length > 5) throw new Error('一次最多录入 5 条体征');
+  return inputs.map((input) => {
+    const spec = chronicMetricSpec(input.metric);
+    if (!spec) throw new Error('体征指标无效');
+    if (!Number.isFinite(input.value) || input.value < spec.min || input.value > spec.max) {
+      throw new Error(`${spec.label}需在 ${spec.min}–${spec.max} ${spec.unit} 之间`);
+    }
+    if (spec.dual) {
+      if (input.secondaryValue === undefined) throw new Error('血压需要填写舒张压');
+      if (
+        !Number.isFinite(input.secondaryValue) ||
+        input.secondaryValue < spec.dual.min ||
+        input.secondaryValue > spec.dual.max
+      ) {
+        throw new Error(`舒张压需在 ${spec.dual.min}–${spec.dual.max} mmHg 之间`);
+      }
+      if (input.secondaryValue >= input.value) throw new Error('舒张压必须小于收缩压');
+    }
+    if (input.measuredAt !== undefined && input.measuredAt > now + 5 * 60_000) {
+      throw new Error('测量时间不能晚于当前时间');
+    }
+    return input;
+  });
+}
+
+export async function getChronicProfile(patientId: string): Promise<ChronicProfile> {
   if (!isMockMode) {
-    const response = await apiRequest<{ profile: HealthProfile | null; sample: boolean }>(
-      `/patients/${patientId}/health-profile`,
+    const response = await apiRequest<{ profile: ChronicProfile }>(
+      `/patients/${patientId}/chronic-profile`,
     );
-    if (!response.profile) throw new Error('暂无健康档案：真实体检数据尚未接入（P1）');
     return response.profile;
   }
+  const state = readState();
+  const profile = ensureChronicProfile(state, patientId);
+  if (!profile) throw new Error('患者不存在');
+  return clone(profile);
+}
 
-  const patient = findPatient(patientId);
-  const index = readState().patients.findIndex((item) => item.id === patientId);
-  const heightCm = 158 + (index % 6) * 3;
-  const weightKg = 55 + (index % 5) * 4;
-  const bmi = Number((weightKg / (heightCm / 100) ** 2).toFixed(1));
-
-  return {
-    patientId,
-    heightCm,
-    weightKg,
-    bmi,
-    bloodPressure: index % 2 === 0 ? '128/82' : '135/88',
-    conditions: patient.tags.length > 0 ? patient.tags : ['暂无记录'],
-    medications: index % 2 === 0 ? ['示例药物 A（每日一次）'] : ['示例药物 B（随餐）'],
-    updatedAt: patient.updatedAt,
-    sample: true,
+export async function updateChronicProfile(
+  patientId: string,
+  patch: ChronicProfilePatch,
+): Promise<ChronicProfile> {
+  if (!isMockMode) {
+    const response = await apiRequest<{ profile: ChronicProfile }>(
+      `/patients/${patientId}/chronic-profile`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    );
+    return response.profile;
+  }
+  const state = readState();
+  const existing = ensureChronicProfile(state, patientId);
+  if (!existing) throw new Error('患者不存在');
+  const now = Date.now();
+  const next: ChronicProfile = {
+    ...existing,
+    conditions: [...existing.conditions],
+    medications: [...existing.medications],
+    measurements: [...existing.measurements],
   };
+  if (patch.conditions !== undefined) {
+    next.conditions = patch.conditions.map((item) => item.trim()).filter(Boolean).slice(0, 30);
+  }
+  if (patch.heightCm !== undefined) {
+    if (patch.heightCm === null) delete next.heightCm;
+    else if (patch.heightCm < 80 || patch.heightCm > 250) throw new Error('身高需在 80–250 cm 之间');
+    else next.heightCm = patch.heightCm;
+  }
+  if (patch.weightKg !== undefined) {
+    if (patch.weightKg === null) delete next.weightKg;
+    else if (patch.weightKg < 20 || patch.weightKg > 250) throw new Error('体重需在 20–250 kg 之间');
+    else next.weightKg = patch.weightKg;
+  }
+  if (patch.notes !== undefined) {
+    if (patch.notes === null) delete next.notes;
+    else next.notes = patch.notes.trim().slice(0, 500);
+  }
+  if (patch.medications !== undefined) {
+    next.medications = patch.medications.map((item) => ({
+      name: item.name.trim(),
+      ...(item.dose ? { dose: item.dose } : {}),
+      ...(item.frequency ? { frequency: item.frequency } : {}),
+      ...(item.note ? { note: item.note } : {}),
+      source: 'advisor' as const,
+      updatedAt: now,
+      updatedBy: '当前账号',
+    }));
+  }
+  if (patch.measurements !== undefined) {
+    const checked = validateMockMeasurements(patch.measurements, now);
+    const added = checked.map((input, index) => ({
+      id: `cme_${now}_${index}`,
+      metric: input.metric,
+      value: input.value,
+      ...(input.secondaryValue !== undefined ? { secondaryValue: input.secondaryValue } : {}),
+      ...(input.context ? { context: input.context } : {}),
+      measuredAt: input.measuredAt ?? now,
+      source: 'advisor' as const,
+      recordedAt: now,
+      recordedBy: '当前账号',
+    }));
+    next.measurements = [...added, ...next.measurements]
+      .sort((a, b) => b.measuredAt - a.measuredAt || b.recordedAt - a.recordedAt)
+      .slice(0, 500);
+  }
+  next.updatedAt = now;
+  next.updatedBy = '当前账号';
+  const profiles = ensureChronicProfiles(state);
+  profiles[patientId] = next;
+  writeState(state);
+  return clone(next);
 }
 
 export async function getServicePlan(patientId: string): Promise<ServicePlanSample> {

@@ -79,7 +79,27 @@ export function isTenantRole(role: Role): boolean {
 
 // ---------- 租户 ----------
 
-export type PatientTerm = '患者' | '客户' | '会员';
+/**
+ * 服务对象称谓：保留常用预设，也允许机构自定义（如「亲人」「家人」「长者」）。
+ * 只约束长度与字符，不再限定枚举，保证不同机构各用各的叫法。
+ */
+export type PatientTerm = string;
+
+/** 自定义称谓的最大长度（按字符计） */
+export const PATIENT_TERM_MAX_LENGTH = 8;
+
+/** 控制台下拉里给出的预设；不是白名单 */
+export const PATIENT_TERMS: readonly PatientTerm[] = ['患者', '客户', '会员', '亲人', '家人'];
+
+/** 去空白后 1–8 个字符，且不含控制字符 */
+export function isValidPatientTerm(value: string): boolean {
+  const term = value.trim();
+  return (
+    term.length >= 1 &&
+    term.length <= PATIENT_TERM_MAX_LENGTH &&
+    !/[\u0000-\u001f\u007f]/.test(term)
+  );
+}
 
 export interface TenantSettings {
   archiveSeatPriceYuan: number;
@@ -115,8 +135,6 @@ export const DEFAULT_TENANT_SETTINGS: TenantSettings = {
   retentionNotice: '按合同约定；当前演示环境不自动删除',
   memoryInjectLimit: 30,
 };
-
-export const PATIENT_TERMS: readonly PatientTerm[] = ['患者', '客户', '会员'];
 
 // ---------- 账号与会话 ----------
 

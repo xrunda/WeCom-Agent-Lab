@@ -2,7 +2,7 @@ import accountsFixture from './fixtures/accounts.json';
 import tenantFixture from './fixtures/tenant.json';
 import { ApiError, apiRequest, isMockMode } from './http.ts';
 import type { Account, PatientTerm, Session, Tenant, TenantSettings } from '../types.ts';
-import { PATIENT_TERMS } from '../types.ts';
+import { isValidPatientTerm, PATIENT_TERM_MAX_LENGTH } from '../types.ts';
 import { permissionsForRole } from '../utils/permissions.ts';
 
 export { ApiError, isMockMode } from './http.ts';
@@ -154,14 +154,20 @@ export async function updateTenant(patch: TenantPatch): Promise<Tenant> {
     });
   }
 
-  if (patch.patientTerm && !PATIENT_TERMS.includes(patch.patientTerm)) {
-    throw new ApiError('VALIDATION_FAILED', '称谓只能是「患者 / 客户 / 会员」', 422);
+  const patientTerm = patch.patientTerm?.trim();
+  if (patch.patientTerm !== undefined && !isValidPatientTerm(patientTerm ?? '')) {
+    throw new ApiError(
+      'VALIDATION_FAILED',
+      `称谓必须是 1–${PATIENT_TERM_MAX_LENGTH} 个字符`,
+      422,
+    );
   }
 
   const current = loadTenant();
   const next: Tenant = {
     ...current,
     ...patch,
+    ...(patientTerm !== undefined ? { patientTerm } : {}),
     settings: {
       ...current.settings,
       ...patch.settings,

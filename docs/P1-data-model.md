@@ -139,7 +139,7 @@ media：文件在磁盘，元数据随消息保存
 | `name` | string | 否 | 机构名称，展示在控制台左上角 |
 | `agentName` | string | 否 | Agent 名字，默认「小安」 |
 | `agentAvatar` | string | 是 | 头像 URL；空时用默认图 |
-| `patientTerm` | string | 否 | 对服务对象的称谓：患者 / 客户 / 会员，默认「患者」 |
+| `patientTerm` | string | 否 | 对服务对象的称谓：预设「患者 / 客户 / 会员 / 亲人 / 家人」，允许机构自定义（1–8 个字符），默认「患者」 |
 | `tone` | string | 否 | 语气说明，注入系统提示词 |
 | `timezone` | string | 否 | IANA 时区，默认 `Asia/Shanghai` |
 | `settings` | object | 否 | 运营参数，见下表 |
@@ -606,7 +606,7 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 | `tenantId` | string | 否 | |
 | `patientId` | string | 否 | |
 | `draftId` | string | 是 | 由该动作产出的草稿 |
-| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `image_classify` / `meal_log_write` |
+| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `image_classify` / `meal_log_write` / `chronic_record_write` |
 | `summary` | string | 否 | 一句话结果，如「新增饮食禁忌：海鲜过敏」 |
 | `result` | enum | 否 | `success` / `failed` / `skipped` |
 | `errorCode` | string | 是 | |
@@ -664,23 +664,29 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 | `ruleCount` | number | 否 | |
 | `updatedAt` | number | 否 | |
 
-### 3.22 B 档示例实体（只在前端 sample 层，不落后端库）
+### 3.22 chronic_profile（慢病管理，真实实体）
 
-以下实体的数据只存在于 `console/src/sample/` 与 mock fixtures，接口返回时必须带 `sample: true`。
-
-**health_profile**（患者主页「健康档案」Tab）
+患者域表 `chronic_profiles`，主键 `patientId`。顾问在控制台手工录入，Agent 通过 `chronic_record_write` 从对话中提取；两条入口写同一份档案，用 `source` 区分来源。不存检验报告原文，也不做诊断。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `patientId` | string | |
-| `heightCm` | number | |
-| `weightKg` | number | |
-| `bmi` | number | |
-| `bloodPressure` | string | 如 `128/82` |
-| `conditions` | array<string> | |
-| `medications` | array<string> | |
+| `patientId` | string | 主键 |
+| `tenantId` | string | |
+| `conditions` | array<string> | 慢病 / 合并症；预设常见慢病，也允许自定义 |
+| `heightCm` | number? | 80–250 |
+| `weightKg` | number? | 20–250；BMI 由页面按身高体重计算，不另存 |
+| `medications` | array<object> | `{ name, dose?, frequency?, note?, source, updatedAt, updatedBy? }`，整体替换 |
+| `measurements` | array<object> | `{ id, metric, value, secondaryValue?, context?, measuredAt, source, recordedAt, recordedBy? }`，按 `measuredAt` 倒序，最多 500 条 |
+| `notes` | string? | 最多 500 字 |
 | `updatedAt` | number | |
-| `sample` | boolean | 恒为 `true` |
+| `updatedBy` | string? | |
+
+`metric`：`bp`（血压，`secondaryValue` 为舒张压）、`glucose`（血糖，`context` 可记空腹 / 餐后 2 小时 / 随机 / 睡前）、`hba1c`、`weight`、`heart_rate`、`uric_acid`、`ldl`。
+`source`：`advisor` / `agent`。
+
+### 3.23 B 档示例实体（只在前端 sample 层，不落后端库）
+
+以下实体的数据只存在于 mock fixtures，接口返回时必须带 `sample: true`。
 
 **service_plan**（患者主页「服务计划」Tab）
 
@@ -838,7 +844,7 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 
 ## 7. 存储约定
 
-- 使用 DSH `storage-sqlite`；表名 snake_case 复数：`tenants`、`accounts`、`advisors`、`groups`、`group_members`、`group_bindings`、`patients`、`memories`、`care_plans`、`meal_logs`、`knowledge`、`risk_rules`、`drafts`、`draft_revisions`、`deliveries`、`verifications`、`alerts`、`audit_events`、`agent_actions`、`onboarding_requests`。
+- 使用 DSH `storage-sqlite`；表名 snake_case 复数：`tenants`、`accounts`、`advisors`、`groups`、`group_members`、`group_bindings`、`patients`、`memories`、`care_plans`、`meal_logs`、`chronic_profiles`、`knowledge`、`risk_rules`、`drafts`、`draft_revisions`、`deliveries`、`verifications`、`alerts`、`audit_events`、`agent_actions`、`onboarding_requests`。
 - 列名 snake_case；JSON 数组/对象存 `TEXT`（JSON 字符串），读时解析。
 - 所有业务表带 `tenant_id`，且为联合索引首列。
 - 建议索引：

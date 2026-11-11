@@ -17,3 +17,5 @@ evidence/media/
 # #64 评测生成物（图片夹具自动生成，报告默认不入库）
 eval/drafts/images/
 eval/drafts/last-report.md
+
+docs/Images

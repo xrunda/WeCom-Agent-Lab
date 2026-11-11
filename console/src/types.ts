@@ -1,8 +1,25 @@
 export type Role = 'admin' | 'supervisor' | 'viewer';
 
-export type PatientTerm = '患者' | '客户' | '会员';
+/**
+ * 服务对象称谓：内置预设之外，机构可自定义（如「亲人」「家人」）。
+ * 只约束长度，不限定枚举。
+ */
+export type PatientTerm = string;
 
-export const PATIENT_TERMS: PatientTerm[] = ['患者', '客户', '会员'];
+/** 自定义称谓最大长度（按字符计） */
+export const PATIENT_TERM_MAX_LENGTH = 8;
+
+/** 下拉与快捷选项里给出的预设；不是白名单 */
+export const PATIENT_TERMS: PatientTerm[] = ['患者', '客户', '会员', '亲人', '家人'];
+
+export function isValidPatientTerm(value: string): boolean {
+  const term = value.trim();
+  return (
+    term.length >= 1 &&
+    term.length <= PATIENT_TERM_MAX_LENGTH &&
+    !/[\u0000-\u001f\u007f]/.test(term)
+  );
+}
 
 export interface TenantSettings {
   archiveSeatPriceYuan: number;

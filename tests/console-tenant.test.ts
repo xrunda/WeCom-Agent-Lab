@@ -64,6 +64,11 @@ test('合法 patch 去空白并保留字段', () => {
   });
 });
 
+test('称谓支持自定义并去除首尾空白', () => {
+  const patch = validateTenantPatch({ patientTerm: ' 亲人 ' }, tenant());
+  assert.equal(patch.patientTerm, '亲人');
+});
+
 test('agentAvatar 可显式清空', () => {
   const patch = validateTenantPatch({ agentAvatar: null }, tenant());
   assert.equal(patch.agentAvatar, null);
@@ -75,7 +80,8 @@ test('非法字段逐项拒绝', () => {
   expectValidation(() => validateTenantPatch({ name: '   ' }, tenant()), 'name');
   expectValidation(() => validateTenantPatch({ agentName: 'x'.repeat(41) }, tenant()), 'agentName');
   expectValidation(() => validateTenantPatch({ tone: 'x'.repeat(501) }, tenant()), 'tone');
-  expectValidation(() => validateTenantPatch({ patientTerm: '病人' }, tenant()), 'patientTerm');
+  expectValidation(() => validateTenantPatch({ patientTerm: '   ' }, tenant()), 'patientTerm');
+  expectValidation(() => validateTenantPatch({ patientTerm: 'x'.repeat(9) }, tenant()), 'patientTerm');
   expectValidation(() => validateTenantPatch({ timezone: 'Mars/Olympus' }, tenant()), 'timezone');
   expectValidation(() => validateTenantPatch({ timezone: 'x'.repeat(65) }, tenant()), 'timezone');
 });

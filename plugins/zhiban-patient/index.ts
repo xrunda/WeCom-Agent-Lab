@@ -14,6 +14,12 @@ import { join } from 'node:path';
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import { buildMealToolDefinitions } from '../../src/p1/meal-tools.ts';
+import { buildChronicToolDefinitions } from '../../src/p1/chronic-tools.ts';
+import type {
+  ChronicActor,
+  ChronicProfile,
+  ChronicProfilePatch,
+} from '../../src/p1/chronic.ts';
 import { MemoryPatientStore } from '../../src/p1/patient-store.ts';
 import { PatientService } from '../../src/p1/patient-service.ts';
 import { buildReplyToolDefinitions } from '../../src/p1/reply-tools.ts';
@@ -200,6 +206,14 @@ export interface PatientRuntimeApi {
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录，控制台 Agent 主页读取 */
   listMealLogs(patientId: string): MealLogRecord[];
+  /** 慢病管理：结构化档案（无记录时返回空档案） */
+  getChronicProfile(patientId: string): ChronicProfile;
+  /** 慢病管理：顾问手工 / Agent 对话提取写入 */
+  updateChronicProfile(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile;
   /** 控制台群管理：列表与服务状态入口 */
   listGroups(): PatientGroupView[];
   updateGroup(groupId: string, patch: PatientGroupPatch): PatientGroupView;
@@ -405,6 +419,13 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       })) {
         ctx.tools.register(tool);
       }
+      // 慢病管理：只写客户明确说出的体征
+      for (const tool of buildChronicToolDefinitions({
+        chronicRecordWrite: (sessionId, input) =>
+          runtime!.chronicRecordWrite(sessionId, input),
+      })) {
+        ctx.tools.register(tool);
+      }
 
       const groupView = (group: ManagedGroup): PatientGroupView => {
         const members = store?.listMembers(group.id) ?? [];
@@ -555,12 +576,17 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           return stats;
         },
         listMealLogs: (patientId) => store?.listMealLogs(patientId) ?? [],
+        getChronicProfile: (patientId) => service.getChronicProfile(patientId),
+        updateChronicProfile: (patientId, patch, actor) =>
+          service.updateChronicProfile(patientId, patch, actor),
         listGroups: () => service.listGroups().map(groupView),
         updateGroup: (groupId, patch) => groupView(service.updateGroup(groupId, patch)),
       };
       ctx.provide('zhibanPatient', api);
 
-      log('已就绪：reply_draft / reply_skip / image_classify / meal_log_write 已注册');
+      log(
+        '已就绪：reply_draft / reply_skip / image_classify / meal_log_write / chronic_record_write 已注册',
+      );
 
       return async () => {
         runtime?.dispose();
