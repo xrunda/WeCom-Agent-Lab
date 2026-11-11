@@ -52,7 +52,7 @@ interface Harness {
 function harness(
   options: {
     environment?: 'demo' | 'dev';
-    groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+    groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
     roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
     patient?: PatientSink;
   } = {},
@@ -497,13 +497,21 @@ test('群发现时用客户联系 API 补真实群昵称', async () => {
   const h = harness({
     patient: recordingPatient(observed),
     groupInfo: {
-      memberNames: async (roomId) =>
+      roomInfo: async (roomId) =>
         roomId === 'wrGROUP1'
-          ? new Map([
-              ['wmCUSTOMER', '张女士'],
-              ['wmFAMILY', '张女士的女儿'],
-            ])
+          ? {
+              name: '客户-张女士',
+              names: new Map([
+                ['wmCUSTOMER', '张女士'],
+                ['wmFAMILY', '张女士的女儿'],
+              ]),
+            }
           : undefined,
+      memberNames: async () =>
+        new Map([
+          ['wmCUSTOMER', '张女士'],
+          ['wmFAMILY', '张女士的女儿'],
+        ]),
     },
   });
   h.runtime.start();
@@ -518,6 +526,7 @@ test('群发现时用客户联系 API 补真实群昵称', async () => {
 
   // 整群映射一并交给患者域：本轮没发言的成员也能回填
   const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.equal(room?.groupName, '客户-张女士');
   assert.equal(room?.memberNames?.wmCUSTOMER, '张女士');
   assert.equal(room?.memberNames?.wmFAMILY, '张女士的女儿');
   assert.ok(!observed.flatMap((item) => item.members).some((item) => item.id === 'wmFAMILY'));
@@ -528,6 +537,9 @@ test('群昵称查询失败或异常时保持 id 尾号回退，草稿链路不�
   const h = harness({
     patient: recordingPatient(observed),
     groupInfo: {
+      roomInfo: async () => {
+        throw new Error('WECOM_DOWN');
+      },
       memberNames: async () => {
         throw new Error('WECOM_DOWN');
       },
@@ -552,6 +564,7 @@ test('群发现时用会话存档接口补同意状态，和群昵称一起交�
   const h = harness({
     patient: recordingPatient(observed),
     groupInfo: {
+      roomInfo: async () => ({ names: new Map([['wmCUSTOMER', '张女士']]) }),
       memberNames: async () => new Map([['wmCUSTOMER', '张女士']]),
     },
     roomAgree: {

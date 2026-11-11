@@ -113,6 +113,8 @@ export interface PatientRuntimeApi {
         /** 客户联系 API 拿到的群昵称；缺省时患者域回退 id 尾号 */
         displayName?: string;
       }>;
+      /** 企微里当前的群名；缺省时保持原名称，控制台手工改名优先 */
+      groupName?: string;
       /** 整群昵称映射；用于更新本轮未发言的成员并回填患者 */
       memberNames?: Record<string, string>;
       /** 会话存档同意状态；由企微 check_room_agree 返回，缺省时保持原状态 */

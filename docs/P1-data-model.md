@@ -215,7 +215,7 @@ media：文件在磁盘，元数据随消息保存
 | `roomId` | string | 否 | 会话存档 roomid（`wr` 前缀），全局唯一 |
 | `chatId` | string | 是 | 客户群 API 的 chat_id，可能与 roomId 不同 |
 | `name` | string | 否 | 群名；来源见 `nameSource` |
-| `nameSource` | enum | 否 | `config` / `api` / `members` / `roomid` |
+| `nameSource` | enum | 否 | `config` / `api` / `members` / `roomid` / `manual`；`api` = 企微群名同步，`manual` = 控制台手工改名（优先，不被企微覆盖） |
 | `status` | enum | 否 | `pending` / `serving` / `collect_only` / `disabled` |
 | `advisorId` | string | 是 | 负责顾问；`pending` 时可能为空 |
 | `patientIds` | array<string> | 否 | 派生：绑定患者，来自 group_binding |

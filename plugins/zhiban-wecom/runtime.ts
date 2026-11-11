@@ -21,7 +21,7 @@ import type {
 } from '../../src/p1/types.ts';
 import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
-import type { GroupInfoClient } from './group-info.ts';
+import type { GroupInfoClient, RoomInfo } from './group-info.ts';
 import type { RoomAgreeClient } from './room-agree.ts';
 
 /**
@@ -39,6 +39,10 @@ export interface PatientSink {
         /** 客户联系 API 拿到的群昵称；拿不到时缺省，由患者域回退 id 尾号 */
         displayName?: string;
       }>;
+      /**
+       * 企微里当前的群名；拿不到时缺省。患者域按「非手工命名才覆盖」的规则同步。
+       */
+      groupName?: string;
       /**
        * 整群 userid → 昵称映射。本轮没发言、但已经在患者域里的成员
        * 也能据此更新名称与回填患者；拿不到昵称时缺省。
@@ -70,8 +74,8 @@ export interface WecomRuntimeDeps {
   logger?: (line: string) => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
-  /** 群昵称查询（可选）：未配置凭据或查询失败时静默回退 id 尾号 */
-  groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+  /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
+  groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   /** 会话存档同意状态（可选）：查询失败时静默保留原状态 */
   roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
 }
@@ -134,7 +138,7 @@ export class WecomRuntime {
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
   private readonly patient?: PatientSink;
-  private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames'>;
+  private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
 
   private pollTimer?: ReturnType<typeof setInterval>;
@@ -284,9 +288,9 @@ export class WecomRuntime {
   }
 
   /**
-   * 用客户联系 API 补群昵称，用会话存档 API 补同意状态。
+   * 用客户联系 API 补群名与群昵称，用会话存档 API 补同意状态。
    * 未配置凭据、内部群（90501）或查询失败时原样返回对应字段，
-   * 患者域继续用「外部成员 …尾号」/ 原同意状态，不影响草稿链路。
+   * 患者域继续用「外部成员 …尾号」/ 原群名与同意状态，不影响草稿链路。
    */
   private async enrichRooms(
     rooms: Array<{
@@ -307,6 +311,8 @@ export class WecomRuntime {
         lastActiveAt: number;
         displayName?: string;
       }>;
+      /** 企微里当前的群名；空群名不返回，避免覆盖已有名称 */
+      groupName?: string;
       memberNames?: Record<string, string>;
       memberConsent?: Record<string, ConsentStatus>;
     }>
@@ -317,33 +323,35 @@ export class WecomRuntime {
 
     return Promise.all(
       rooms.map(async (room) => {
-        const [names, consent] = await Promise.all([
-          groupInfo ? this.safeMemberNames(groupInfo, room.roomId) : undefined,
+        const [info, consent] = await Promise.all([
+          groupInfo ? this.safeRoomInfo(groupInfo, room.roomId) : undefined,
           roomAgree ? this.safeRoomConsent(roomAgree, room.roomId) : undefined,
         ]);
-        if ((!names || names.size === 0) && !consent) return room;
+        const hasNames = info !== undefined && info.names.size > 0;
+        if (!hasNames && !info?.name && !consent) return room;
 
         const enriched = { ...room };
-        if (names && names.size > 0) {
+        if (hasNames && info) {
           enriched.members = room.members.map((member) => {
-            const displayName = names.get(member.id);
+            const displayName = info.names.get(member.id);
             return displayName ? { ...member, displayName } : member;
           });
           // 整群映射交给患者域：本轮没发言的成员也能更新名称、回填患者
-          Object.assign(enriched, { memberNames: Object.fromEntries(names) });
+          Object.assign(enriched, { memberNames: Object.fromEntries(info.names) });
         }
+        if (info?.name) Object.assign(enriched, { groupName: info.name });
         if (consent) Object.assign(enriched, { memberConsent: consent });
         return enriched;
       }),
     );
   }
 
-  private async safeMemberNames(
-    client: Pick<GroupInfoClient, 'memberNames'>,
+  private async safeRoomInfo(
+    client: Pick<GroupInfoClient, 'roomInfo'>,
     roomId: string,
-  ): Promise<Map<string, string> | undefined> {
+  ): Promise<RoomInfo | undefined> {
     try {
-      return await client.memberNames(roomId);
+      return await client.roomInfo(roomId);
     } catch {
       return undefined;
     }

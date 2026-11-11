@@ -97,6 +97,7 @@ export class PatientService {
   ): ManagedGroup {
     const now = this.clock.now();
     let group = this.store.getGroupByRoomId(roomId);
+    const created = group === undefined;
     if (!group) {
       group = {
         id: this.store.nextId('grp'),
@@ -140,6 +141,10 @@ export class PatientService {
     );
     group.updatedAt = now;
     this.store.saveGroup(group);
+    // 已存在的群同步企微当前群名；新建时名称已按 options.groupName 写入
+    if (!created && options.groupName) {
+      group = this.syncGroupName(group.id, options.groupName, options.groupNameSource ?? 'api');
+    }
     if (options.memberConsent) {
       this.refreshConsent(group.id, options.memberConsent);
     }
@@ -283,10 +288,32 @@ export class PatientService {
     const trimmed = name.trim();
     if (trimmed.length === 0) throw new Error('EMPTY_GROUP_NAME');
     group.name = trimmed;
-    group.nameSource = 'config';
+    // 手工改名后不再被企微群名覆盖
+    group.nameSource = 'manual';
     group.updatedAt = this.clock.now();
     this.store.saveGroup(group);
     this.audit('admin', 'group.rename', group.id, 'ok');
+    return group;
+  }
+
+  /**
+   * 企微群名变更同步（客户联系 API 的 group_chat.name）。
+   * 空名不覆盖；控制台手工改名（nameSource=manual）优先，保持不动。
+   */
+  syncGroupName(
+    groupId: string,
+    name: string,
+    source: GroupNameSource = 'api',
+  ): ManagedGroup {
+    const group = this.requireGroup(groupId);
+    const trimmed = name.trim();
+    if (trimmed.length === 0 || group.nameSource === 'manual') return group;
+    if (group.name === trimmed && group.nameSource === source) return group;
+    group.name = trimmed;
+    group.nameSource = source;
+    group.updatedAt = this.clock.now();
+    this.store.saveGroup(group);
+    this.audit('pipeline', 'group.name.sync', group.id, 'ok');
     return group;
   }
 

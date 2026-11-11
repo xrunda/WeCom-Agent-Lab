@@ -66,7 +66,7 @@ test('#60 上线：控制台可列出服务群并一次更新名称/状态/顾�
     advisorId: 'adv_1',
   });
   assert.equal(updated.name, '陈嘉禾');
-  assert.equal(updated.nameSource, 'config');
+  assert.equal(updated.nameSource, 'manual');
   assert.equal(updated.status, 'serving');
   assert.equal(updated.advisorId, 'adv_1');
   assert.equal(h.service.isServiceable('wr_g1', 'wm_patient'), 'serve');
@@ -529,4 +529,33 @@ test('接口未返回某成员时不清空已有同意状态', () => {
   );
   assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'disagreed');
   assert.equal(h.store.findMember(group.id, 'wm_family')?.consent, 'agreed');
+});
+
+test('企微群名变更同步到系统；控制台手工改名优先', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h);
+  assert.equal(group.name, '减重-张女士');
+
+  // 企微里改了群名：下一轮群发现带 groupName 回来就同步
+  const synced = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { groupName: '客户－汪女士－20261111 (6)', groupNameSource: 'api' },
+  );
+  assert.equal(synced.name, '客户－汪女士－20261111 (6)');
+  assert.equal(synced.nameSource, 'api');
+
+  // 控制台手工改名后，企微群名不再覆盖
+  h.service.renameGroup(group.id, '汪女士（手工）');
+  const afterRename = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { groupName: '企微又改了', groupNameSource: 'api' },
+  );
+  assert.equal(afterRename.name, '汪女士（手工）');
+  assert.equal(afterRename.nameSource, 'manual');
+
+  // 空群名不覆盖已有名称
+  const empty = h.service.syncGroupName(group.id, '   ');
+  assert.equal(empty.name, '汪女士（手工）');
 });

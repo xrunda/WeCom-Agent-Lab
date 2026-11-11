@@ -65,6 +65,10 @@
 - 家属/身份未知的发言会在回合提示词里明确「不能当作患者本人的事实」，并要求
   用自然提问核实（如「请问是您本人还是家属？」），不把「家属说」「群里有人问到」
   这类来源说明写进正文。
+- **群名同步**：`zhiban-wecom` 用客户联系 API（`groupchat/get?need_name=1`，与昵称同一次请求）
+  取回企微当前群名，经 `observeGroup({ groupName, groupNameSource: 'api' })` 写回群名；
+  群里改名后下一轮存档轮询（昵称缓存 10 分钟）内生效。控制台手工改名把
+  `nameSource` 置为 `manual`，此后企微群名不再覆盖；空群名不覆盖已有名称。
 
 ### 2.2 回复与降级
 
@@ -185,6 +189,7 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 | serving / collect_only / disabled 即时生效 | `tests/patient-service.test.ts` |
 | 两群绑同一患者、重启后状态与会话不丢 | `tests/patient-service.test.ts` |
 | 成员角色与同意状态 | `tests/patient-service.test.ts` |
+| 群名同步（企微改名生效、手工改名优先、空名不覆盖） | `tests/patient-service.test.ts`、`tests/wecom-group-info.test.ts` |
 | 同意状态自动同步（映射、缓存、token 重试、失败降级、不落 id） | `tests/wecom-room-agree.test.ts`、`tests/wecom-runtime.test.ts` |
 | 工具参数校验、正常草稿、四种降级 | `tests/agent-reply.test.ts` |
 | reply_skip、重复调用、核验回写 | `tests/agent-reply.test.ts` |
@@ -205,7 +210,9 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 4. **顾问改稿**：顾问在机器人 1:1 回一句改稿指令，确认收到「正在改第 2 版」、
    新卡片标题为「第 2 版」、点旧卡片提示新版本。
 5. **停用与采集**：把群改为 `collect_only` / `disabled`，确认不再生成新草稿。
-6. **同意状态**：让真实客户在群里分别点「已同意保存 / 不同意保存」，等一轮轮询后确认
+6. **群名同步**：在企业微信里改群名，等一轮存档轮询后确认控制台群名变化；
+   再在控制台手工改名，确认随后的轮询不再把它改回企微群名。
+7. **同意状态**：让真实客户在群里分别点「已同意保存 / 不同意保存」，等一轮轮询后确认
    控制台成员与患者状态自动变化；同时核对接口返回的 `exteranalopenid` 与成员
    `externalUserId` 一致。`disagreed` 的消息不再触发自动服务，且顾问能看到提示。
 7. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用

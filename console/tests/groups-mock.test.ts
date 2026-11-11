@@ -29,9 +29,9 @@ describe('服务群 mock 数据', () => {
     expect(collectOnly.items.map((item) => item.id)).toContain('grp_04');
   });
 
-  it('改群名后 nameSource 变为 config', async () => {
+  it('改群名后 nameSource 变为 manual（不再被企微群名同步覆盖）', async () => {
     const updated = await updateGroup('grp_01', { name: '控糖-张女士' });
-    expect(updated).toMatchObject({ name: '控糖-张女士', nameSource: 'config' });
+    expect(updated).toMatchObject({ name: '控糖-张女士', nameSource: 'manual' });
   });
 
   it('可以绑定已有患者，重复绑定报冲突', async () => {
