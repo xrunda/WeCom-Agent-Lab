@@ -19,8 +19,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth, useTerm } from '../../auth/AuthContext.tsx';
 import { listAdvisors, type Advisor } from '../../mock/advisors.ts';
-import { listPatients, type Patient } from '../../mock/patients.ts';
 import {
+  listGroupMembers,
+  listPatients,
+  type Patient,
+  type PatientGroupMember,
+} from '../../mock/patients.ts';
+import {
+  bindGroupMember,
   bindPatient,
   GROUP_STATUS_COLORS,
   GROUP_STATUS_LABELS,
@@ -37,7 +43,8 @@ const { Text } = Typography;
 interface EditForm {
   name: string;
   advisorId?: string;
-  bindMode: 'none' | 'existing' | 'new';
+  bindMode: 'none' | 'member' | 'existing' | 'new';
+  memberId?: string;
   patientId?: string;
   newPatientName?: string;
   newPatientTags?: string[];
@@ -47,6 +54,25 @@ const STATUS_OPTIONS = (Object.keys(GROUP_STATUS_LABELS) as GroupStatus[]).map((
   label: GROUP_STATUS_LABELS[status],
   value: status,
 }));
+
+const CONSENT_LABELS = {
+  agreed: '已同意',
+  unknown: '同意待确认',
+  disagreed: '已拒绝',
+} as const;
+
+/** 只有外部成员才能作为服务对象；员工账号不能建患者。 */
+function externalMembers(members: PatientGroupMember[]): PatientGroupMember[] {
+  return members.filter((member) => member.isExternal && member.externalUserId);
+}
+
+function memberOption(member: PatientGroupMember) {
+  const tail = member.externalUserIdTail ? `（尾号 ${member.externalUserIdTail}）` : '';
+  return {
+    label: `${member.displayName}${tail} · ${CONSENT_LABELS[member.consent]}`,
+    value: member.id,
+  };
+}
 
 export default function GroupsPage() {
   const term = useTerm();
@@ -68,8 +94,11 @@ export default function GroupsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [starting, setStarting] = useState<Group | null>(null);
   const [serviceSaving, setServiceSaving] = useState(false);
+  const [startMembers, setStartMembers] = useState<PatientGroupMember[]>([]);
+  const [startMembersLoading, setStartMembersLoading] = useState(false);
+  const [editMembers, setEditMembers] = useState<PatientGroupMember[]>([]);
   const [form] = Form.useForm<EditForm>();
-  const [serviceForm] = Form.useForm<{ advisorId: string }>();
+  const [serviceForm] = Form.useForm<{ advisorId: string; memberId?: string }>();
 
   const refresh = useCallback(() => {
     setRefreshKey((value) => value + 1);
@@ -112,7 +141,17 @@ export default function GroupsPage() {
     [advisors],
   );
 
+  const loadMembers = useCallback(
+    async (groupId: string) => externalMembers(await listGroupMembers(groupId)),
+    [],
+  );
+
   const changeStatus = async (group: Group, next: GroupStatus) => {
+    // 进入「服务中」必须指定顾问和服务对象，统一走开始服务弹窗
+    if (next === 'serving') {
+      openStart(group);
+      return;
+    }
     try {
       await updateGroup(group.id, { status: next });
       message.success(`「${group.name}」已切换为${GROUP_STATUS_LABELS[next]}`);
@@ -124,7 +163,17 @@ export default function GroupsPage() {
 
   const openStart = (group: Group) => {
     setStarting(group);
-    serviceForm.setFieldsValue({ advisorId: group.advisorId ?? undefined });
+    setStartMembers([]);
+    serviceForm.setFieldsValue({ advisorId: group.advisorId ?? undefined, memberId: undefined });
+    // 已绑定服务对象的群（例如重新开始服务）不需要再选成员
+    if (group.patientIds.length > 0) return;
+    setStartMembersLoading(true);
+    loadMembers(group.id)
+      .then(setStartMembers)
+      .catch((error: unknown) => {
+        message.error(error instanceof Error ? error.message : '群成员加载失败');
+      })
+      .finally(() => setStartMembersLoading(false));
   };
 
   const submitStart = async () => {
@@ -132,6 +181,10 @@ export default function GroupsPage() {
     const values = await serviceForm.validateFields();
     setServiceSaving(true);
     try {
+      // 先绑定服务对象：绑定失败就不进入服务中，避免出现没有 Agent 的服务群
+      if (starting.patientIds.length === 0 && values.memberId) {
+        await bindGroupMember(starting.id, values.memberId);
+      }
       await updateGroup(starting.id, { status: 'serving', advisorId: values.advisorId });
       message.success(`「${starting.name}」已开始服务，新消息会生成草稿`);
       setStarting(null);
@@ -159,14 +212,22 @@ export default function GroupsPage() {
 
   const openEdit = (group: Group) => {
     setEditing(group);
+    setEditMembers([]);
     form.setFieldsValue({
       name: group.name,
       advisorId: group.advisorId ?? undefined,
       bindMode: 'none',
+      memberId: undefined,
       patientId: undefined,
       newPatientName: undefined,
       newPatientTags: [],
     });
+    loadMembers(group.id)
+      .then(setEditMembers)
+      .catch(() => {
+        // 成员列表只服务于「从群成员选」，加载失败时仍可用已有患者/新建
+        setEditMembers([]);
+      });
   };
 
   const submitEdit = async () => {
@@ -178,7 +239,9 @@ export default function GroupsPage() {
         name: values.name,
         advisorId: values.advisorId ?? null,
       });
-      if (values.bindMode === 'existing' && values.patientId) {
+      if (values.bindMode === 'member' && values.memberId) {
+        await bindGroupMember(editing.id, values.memberId);
+      } else if (values.bindMode === 'existing' && values.patientId) {
         await bindPatient(editing.id, { patientId: values.patientId });
       } else if (values.bindMode === 'new' && values.newPatientName) {
         await bindPatient(editing.id, {
@@ -202,6 +265,13 @@ export default function GroupsPage() {
   const bindablePatients = editing
     ? patients.filter((item) => !editing.patientIds.includes(item.id))
     : [];
+
+  // 新群必须选服务对象；已绑定过的群沿用原绑定
+  const needsStartMember = Boolean(starting && starting.patientIds.length === 0);
+  const startBlocked = needsStartMember && !startMembersLoading && startMembers.length === 0;
+  const boundNames = starting
+    ? starting.patientIds.map((id) => patientName.get(id) ?? id).join('、')
+    : '';
 
   const columns: TableProps<Group>['columns'] = [
     {
@@ -349,7 +419,7 @@ export default function GroupsPage() {
       header={{
         title: '服务群',
         subTitle:
-          '企业创建的客户群会自动出现在待确认；只有「服务中」的群会生成草稿。开始服务只处理新消息。',
+          '企业创建的客户群会自动出现在待确认；只有「服务中」的群会生成草稿。开始服务时指定负责顾问和服务对象。',
       }}
     >
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -358,7 +428,7 @@ export default function GroupsPage() {
             type="warning"
             showIcon
             message={`有 ${pending} 个待确认群`}
-            description="自动发现的客户群默认待确认。点「开始服务」选择顾问后，只有「服务中」的群会触发 Agent。"
+            description="自动发现的客户群默认待确认。点「开始服务」选择顾问和服务对象后，只有「服务中」的群会触发 Agent。"
             action={
               <Button size="small" onClick={() => setStatus('pending')}>
                 只看待确认
@@ -410,6 +480,7 @@ export default function GroupsPage() {
         okText="开始服务"
         cancelText="取消"
         confirmLoading={serviceSaving}
+        okButtonProps={{ disabled: startBlocked }}
         destroyOnHidden
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -432,7 +503,41 @@ export default function GroupsPage() {
                   .map((item) => ({ label: item.name, value: item.id }))}
               />
             </Form.Item>
+            {needsStartMember ? (
+              <Form.Item
+                label="服务对象"
+                name="memberId"
+                extra="从群成员中选一位客户；绑定后该客户的 Agent 会立即出现在客户 Agent 列表。"
+                rules={[{ required: true, message: '请选择服务对象' }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  loading={startMembersLoading}
+                  placeholder="选择群里的外部成员"
+                  options={startMembers.map(memberOption)}
+                  notFoundContent={
+                    startMembersLoading ? '加载中…' : '该群还没有可识别的外部成员'
+                  }
+                />
+              </Form.Item>
+            ) : (
+              <Alert
+                type="success"
+                showIcon
+                message="服务对象已指定"
+                description={boundNames || '该群已绑定服务对象'}
+              />
+            )}
           </Form>
+          {startBlocked ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="暂时无法开始服务"
+              description="这个群还没有同步到外部成员。等群里有人发言、或稍后自动同步完成后重试。"
+            />
+          ) : null}
         </Space>
       </Modal>
 
@@ -459,19 +564,38 @@ export default function GroupsPage() {
                 .map((item) => ({ label: item.name, value: item.id }))}
             />
           </Form.Item>
-          <Form.Item label="绑定患者" name="bindMode">
+          <Form.Item label={`服务${term}对象`} name="bindMode">
             <Radio.Group
               optionType="button"
               options={[
                 { label: '暂不绑定', value: 'none' },
+                { label: '从群成员选', value: 'member' },
                 { label: '选择已有', value: 'existing' },
-                { label: '新建患者', value: 'new' },
+                { label: '新建', value: 'new' },
               ]}
             />
           </Form.Item>
           <Form.Item noStyle shouldUpdate>
             {({ getFieldValue }) => {
               const mode = getFieldValue('bindMode') as EditForm['bindMode'];
+              if (mode === 'member') {
+                return (
+                  <Form.Item
+                    label="群里的服务对象"
+                    name="memberId"
+                    extra="同一位客户已有 Agent 时直接复用，不会重复建。"
+                    rules={[{ required: true, message: '请选择群成员' }]}
+                  >
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择群里的外部成员"
+                      options={editMembers.map(memberOption)}
+                      notFoundContent="该群还没有可识别的外部成员"
+                    />
+                  </Form.Item>
+                );
+              }
               if (mode === 'existing') {
                 return (
                   <Form.Item

@@ -262,6 +262,8 @@ const groups = groupsFixture as unknown as {
   status: string;
   roomId: string;
   advisorId?: string;
+  memberCount?: number;
+  externalMemberCount?: number;
 }[];
 
 let cachedState: PatientsState | null = null;
@@ -322,6 +324,26 @@ function seedMembers(patients: Patient[]): PatientGroupMember[] {
         });
       }
     }
+  }
+  // 待确认群的成员还没同步到患者域；给有外部成员的群补一个占位成员，
+  // 让「开始服务」可以选服务对象。真实模式由群成员同步提供。
+  for (const group of groups) {
+    if (!group.externalMemberCount) continue;
+    if (members.some((member) => member.groupId === group.id)) continue;
+    const externalUserId = `wm_demo_external_${group.id}`;
+    members.push({
+      id: `gm_external_${group.id}`,
+      groupId: group.id,
+      externalUserId,
+      externalUserIdTail: externalUserId.slice(-6),
+      displayName: `外部成员 ${externalUserId.slice(-4)}`,
+      isExternal: true,
+      role: 'self',
+      consent: 'unknown',
+      lastActiveAt: null,
+      annotatedBy: null,
+      annotatedAt: null,
+    });
   }
   return members;
 }

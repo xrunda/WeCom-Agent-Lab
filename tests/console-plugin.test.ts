@@ -1162,12 +1162,18 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
       Object.assign(advisor, patch, { updatedAt: Date.now() });
       return advisor;
     },
-    createPatient: (input: { displayName: string; tags?: string[]; consent?: ConsentStatus }) => {
+    createPatient: (input: {
+      displayName: string;
+      externalUserId?: string;
+      tags?: string[];
+      advisorId?: string;
+      consent?: ConsentStatus;
+    }) => {
       const created = realPatient({
         id: `pat_new_${patients.length + 1}`,
         displayName: input.displayName,
-        externalUserId: undefined,
-        advisorId: undefined,
+        externalUserId: input.externalUserId,
+        advisorId: input.advisorId,
         demo: false,
         tags: input.tags ?? [],
         consent: input.consent ?? 'unknown',
@@ -1692,6 +1698,67 @@ test('群绑定：绑定已有患者或新建患者，未知群 404，写权限�
 
   const empty = await call('POST', '/zhiban/api/groups/grp_1/bindings', { cookie, body: {} });
   assert.equal(empty.status, 422);
+
+  // 从群成员选服务对象：外部成员没有患者时新建，并回填身份
+  const beforeMembers = ports.patients.length;
+  const byMember = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { memberId: 'gm_2' },
+  });
+  assert.equal(byMember.status, 201);
+  const memberBody = byMember.json() as {
+    binding: { patientId: string };
+    patient: {
+      id: string;
+      displayName: string;
+      externalUserId: string | null;
+      advisorId: string | null;
+      identityStatus: string;
+    };
+  };
+  assert.equal(memberBody.patient.displayName, '家人小张');
+  assert.equal(memberBody.patient.externalUserId, 'wm_family_1');
+  assert.equal(memberBody.patient.advisorId, 'adv_1');
+  assert.equal(memberBody.patient.identityStatus, 'confirmed');
+  assert.equal(ports.patients.length, beforeMembers + 1);
+
+  // 同一 externalUserId 再次选择时复用患者，不再重复建 Agent
+  const reused = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { memberId: 'gm_2' },
+  });
+  assert.equal(reused.status, 201);
+  assert.equal(
+    (reused.json() as { patient: { id: string } }).patient.id,
+    memberBody.patient.id,
+  );
+  assert.equal(ports.patients.length, beforeMembers + 1);
+
+  // 已在其他群有患者的客户（wm_test_1 → pat_1）直接复用
+  const existingCustomer = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { memberId: 'gm_1' },
+  });
+  assert.equal(existingCustomer.status, 201);
+  assert.equal(
+    (existingCustomer.json() as { patient: { id: string } }).patient.id,
+    'pat_1',
+  );
+  assert.equal(ports.patients.length, beforeMembers + 1);
+
+  // 员工成员不能作为服务对象，未知成员 422
+  const staff = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { memberId: 'gm_3' },
+  });
+  assert.equal(staff.status, 422);
+  assert.equal((staff.json() as { error: { code: string } }).error.code, 'VALIDATION_FAILED');
+
+  const unknownMember = await call('POST', '/zhiban/api/groups/grp_1/bindings', {
+    cookie,
+    body: { memberId: 'gm_404' },
+  });
+  assert.equal(unknownMember.status, 422);
 
   const createdPatient = await call('POST', '/zhiban/api/patients', {
     cookie,
