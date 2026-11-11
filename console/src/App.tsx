@@ -82,30 +82,9 @@ export default function App() {
           <Route path="/checkins" element={<CheckinsPage />} />
           <Route path="/advisors" element={<AdvisorsPage />} />
           <Route path="/shifts" element={<ShiftsPage />} />
-          <Route
-            path="/knowledge"
-            element={
-              <RealModeOnly title="知识库" description="分类维护知识条目；保存后重新生成 skill 资源。">
-                <KnowledgePage />
-              </RealModeOnly>
-            }
-          />
-          <Route
-            path="/rules"
-            element={
-              <RealModeOnly title="风险规则" description="健康红线与关键词规则。">
-                <RulesPage />
-              </RealModeOnly>
-            }
-          />
-          <Route
-            path="/scripts"
-            element={
-              <RealModeOnly title="话术库" description="团队常用表达，可按分类查找。">
-                <ScriptsPage />
-              </RealModeOnly>
-            }
-          />
+          <Route path="/knowledge" element={<KnowledgePage />} />
+          <Route path="/rules" element={<RulesPage />} />
+          <Route path="/scripts" element={<ScriptsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route
             path="/solutions"
