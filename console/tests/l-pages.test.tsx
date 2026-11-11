@@ -50,7 +50,9 @@ describe('WP-L 配置页', () => {
 
     expect(await screen.findByText('首次服务问候')).toBeInTheDocument();
     expect(screen.getAllByText('示例数据').length).toBeGreaterThan(0);
-    expect(screen.getByText('团队常用表达示例，可按分类查找并复制到企微。')).toBeInTheDocument();
+    expect(
+      screen.getByText('团队常用表达示例；顾问在企微私聊机器人发「话术 关键词」即可查询。'),
+    ).toBeInTheDocument();
   });
 });
 
