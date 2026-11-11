@@ -549,12 +549,13 @@ test('#37 配置：tenantId 必填，sandbox 默认 false', () => {
 
 // ---------- 员工发言质检 ----------
 
-test('员工发言命中红线：告警带顾问 / 群 / msgid 维度，正文不落库', () => {
+test('员工发言命中红线：告警带顾问 / 群 / msgid 与原文摘录供人工复核', () => {
   const h = harness();
   const text = '建议加量服用，效果会更好';
   const result = h.service.reviewStaffMessage({
     text,
     advisorId: 'LiGuang',
+    advisorName: '李光',
     groupId: 'wr_test_1',
     groupName: '测试服务群',
     messageId: 'msg_staff_1',
@@ -572,21 +573,25 @@ test('员工发言命中红线：告警带顾问 / 群 / msgid 维度，正文�
   assert.equal(alert.groupId, 'wr_test_1');
   assert.equal(alert.messageId, 'msg_staff_1');
   assert.equal(alert.source, 'staff');
-  assert.equal(JSON.stringify(alert).includes(text), false);
   assert.equal(alert.message.includes('测试服务群'), true);
+  // 详情给人工复核：带发言人与原文；日志、审计与规则命中事件仍不带正文
+  assert.equal(alert.message.includes('李光'), true);
+  assert.equal(alert.message.includes(text), true);
   assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 1);
 
-  // 事件与审计同样不能带正文；告警事件要给控制台 ingest 所需字段
-  assert.equal(JSON.stringify(h.events).includes(text), false);
   assert.equal(JSON.stringify(h.service.audits()).includes(text), false);
   const hit = h.events.find((event) => event.type === 'risk_rule.hit')!.data as Record<string, unknown>;
   assert.equal(hit.source, 'staff');
   assert.equal(hit.advisorId, 'LiGuang');
+  assert.equal(JSON.stringify(hit).includes(text), false);
   const created = h.events.find((event) => event.type === 'alert.created')!.data as Record<string, unknown>;
   assert.equal(created.id, alert.id);
   assert.equal(created.advisorId, 'LiGuang');
   assert.equal(created.groupId, 'wr_test_1');
   assert.equal(created.title, '员工发言命中红线');
+  assert.equal(created.source, 'staff');
+  // 控制台靠 alert.created 拿到详情，事件里必须带摘录
+  assert.equal(String(created.message).includes(text), true);
 });
 
 test('员工发言质检：否定句、症状复述不算违规；同一 msgid 只记一次', () => {

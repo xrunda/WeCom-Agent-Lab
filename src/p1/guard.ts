@@ -124,10 +124,12 @@ export const REFERRAL_BODY =
 // ---------- 员工发言质检 ----------
 
 export interface StaffMessageReviewInput {
-  /** 员工在服务群里的发言原文；只用于关键词匹配，不落盘、不进日志 */
+  /** 员工在服务群里的发言原文；截断后写入告警详情供人工复核，日志与审计仍不带正文 */
   text: string;
   /** 发言人的顾问 id（P1 里就是企微 userid）；其他同事可能为空 */
   advisorId?: string;
+  /** 发言人显示名；未登记为顾问时为空 */
+  advisorName?: string;
   groupId?: string;
   groupName?: string;
   /** 存档 msgid；同一条消息重复扫描时只记一次 */
@@ -589,13 +591,21 @@ export class GuardService {
     }
 
     const hitNames = hits.map((rule) => rule.name);
+    const senderName =
+      typeof input.advisorName === 'string' && input.advisorName.trim() !== ''
+        ? input.advisorName.trim()
+        : '员工';
+    // 告警详情给人工复核看：带上发言人和原文摘要（最长 300 字）。
+    // 日志、审计与 risk_rule.hit 事件仍然不带正文。
+    const normalized = text.trim().replace(/\s+/g, ' ');
+    const excerpt = normalized.length > 300 ? `${normalized.slice(0, 300)}…` : normalized;
     const alert = this.createAlert({
       kind: 'redline',
       severity: 'warning',
       title: '员工发言命中红线',
       message:
-        `群「${input.groupName ?? input.groupId ?? '未知群'}」的员工发言命中规则：` +
-        hitNames.join('、'),
+        `群「${input.groupName ?? input.groupId ?? '未知群'}」${senderName}的发言命中规则：` +
+        `${hitNames.join('、')}。发言内容：「${excerpt}」`,
       advisorId: input.advisorId,
       groupId: input.groupId,
       messageId: input.messageId,

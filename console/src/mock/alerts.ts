@@ -36,6 +36,8 @@ export interface Alert {
   patientId: string | null;
   advisorId: string | null;
   groupId: string | null;
+  /** 告警来源：员工群发言 / AI 草稿；历史告警可能没有该字段 */
+  source?: 'draft' | 'staff' | null;
   note: string | null;
   resolvedBy: string | null;
   resolvedAt: number | null;

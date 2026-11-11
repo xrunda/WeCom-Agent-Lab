@@ -156,7 +156,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     const advisor = resolveStaffAdvisor(message.from);
     const result = guard.reviewStaffMessage({
       text: message.text,
-      ...(advisor ? { advisorId: advisor.id } : {}),
+      ...(advisor ? { advisorId: advisor.id, advisorName: advisor.name } : {}),
       groupId: message.roomId,
       ...(message.groupName ? { groupName: message.groupName } : {}),
       messageId: message.msgid,
@@ -630,7 +630,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       serviceRef = service;
       botRef = bot;
 
-      // 顾问与群绑定：已存在则保留，只同步配置里的 chatId
+      // 顾问与群绑定：已存在则保留，同步配置里的显示名与 chatId
       const advisor = store.getAdvisor(config.advisorId);
       if (!advisor) {
         service.addAdvisor({
@@ -638,8 +638,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           name: config.advisorName,
           chatId: config.advisorChatId,
         });
-      } else if (advisor.chatId !== config.advisorChatId) {
-        store.saveAdvisor({ ...advisor, chatId: config.advisorChatId });
+      } else if (advisor.chatId !== config.advisorChatId || advisor.name !== config.advisorName) {
+        store.saveAdvisor({
+          ...advisor,
+          name: config.advisorName,
+          chatId: config.advisorChatId,
+        });
       }
       for (const roomId of registry.roomIds()) {
         if (store.getGroup(roomId)) continue;

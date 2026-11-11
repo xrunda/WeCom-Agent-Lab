@@ -263,7 +263,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
     { "date": "2026-11-10", "label": "11-10", "volume": 7, "verified": 5 }
   ],
   "advisorRanking": [
-    { "advisorId": "adv_...", "name": "李广", "status": "active", "volume": 7, "verified": 5, "avgResponseSeconds": 43 }
+    { "advisorId": "adv_...", "name": "李光", "status": "active", "volume": 7, "verified": 5, "avgResponseSeconds": 43 }
   ],
   "computedAt": 1762646400000
 }
@@ -750,7 +750,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。响应 `200`：`{ "items": [alert], ... }`。
 
-员工在服务群里的发言也会过红线质检：命中时生成 `kind=redline`、`title="员工发言命中红线"` 的告警，`advisorId` 指向发言人，`groupId` 指向群，`message` 只写群名与规则名，不含发言正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
+员工在服务群里的发言也会过红线质检：命中时生成 `kind=redline`、`title="员工发言命中红线"`、`source="staff"` 的告警，`advisorId` 指向发言人，`groupId` 指向群。`message` 带发言人、群名、命中规则与**发言原文摘录**（压成一行后最多 300 字），供人工复核；日志与审计仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
 ### `GET /alerts/unresolved-count`
 
@@ -762,7 +762,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "alert": { "id": "alt_...", "kind": "misroute", "severity": "critical", "status": "open", "title": "发错群", "message": "草稿发到了「减重-刘先生」", "draftId": "draft_1003", "patientId": "pat_...", "advisorId": "adv_...", "groupId": "grp_...", "note": null, "resolvedBy": null, "resolvedAt": null, "escalatedTo": null, "createdAt": 1762640000000, "updatedAt": 1762640000000, "sandbox": false },
+  "alert": { "id": "alt_...", "kind": "misroute", "severity": "critical", "status": "open", "title": "发错群", "message": "草稿发到了「减重-刘先生」", "draftId": "draft_1003", "patientId": "pat_...", "advisorId": "adv_...", "groupId": "grp_...", "source": "draft", "note": null, "resolvedBy": null, "resolvedAt": null, "escalatedTo": null, "createdAt": 1762640000000, "updatedAt": 1762640000000, "sandbox": false },
   "draft": { "id": "draft_1003", "summary": "晚上吃点什么好", "status": "MISROUTE_ALERT", "riskLevel": "low" },
   "patient": { "id": "pat_...", "displayName": "孙女士" },
   "advisor": { "id": "adv_...", "name": "李顾问" }
