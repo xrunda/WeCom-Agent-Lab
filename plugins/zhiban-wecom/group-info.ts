@@ -200,12 +200,21 @@ export class GroupInfoClient {
   /**
    * 列出企业创建的客户群（externalcontact/groupchat/list）。
    * 只返回定位信息，不含群名/昵称；失败返回 undefined，发现任务静默跳过本轮。
-   * 同一企业不同环境（demo/dev）可能同时拿到一份列表，是否接纳由服务群名单决定。
+   *
+   * `ownerUserIds` 非空时通过请求体 `owner_filter.userid_list` 交给企微过滤。
+   * 不能拿到结果后按 `owner` 过滤：企微列表响应只返回 `chat_id` / `status`，
+   * 没有群主字段（2026-11-11 真机确认），客户端过滤会把所有群都丢掉。
    */
-  async listCustomerGroups(): Promise<CustomerGroupSummary[] | undefined> {
+  async listCustomerGroups(
+    ownerUserIds: string[] = [],
+  ): Promise<CustomerGroupSummary[] | undefined> {
     if (!this.enabled) return undefined;
     const now = this.clock.now();
     if (now < this.listFailureUntil) return undefined;
+
+    const owners = ownerUserIds
+      .map((owner) => owner.trim())
+      .filter((owner) => owner !== '');
 
     try {
       const token = await this.accessToken();
@@ -214,7 +223,7 @@ export class GroupInfoClient {
       const seen = new Map<string, CustomerGroupSummary>();
       let cursor = '';
       for (let page = 0; page < LIST_MAX_PAGES; page += 1) {
-        const data = await this.postGroupList(token, cursor);
+        const data = await this.postGroupList(token, cursor, owners);
         if (data.errcode !== undefined && data.errcode !== 0) {
           this.listFailureUntil = now + this.failureTtlMs;
           // 只打 errcode；chat_id 与群名不进日志
@@ -303,8 +312,13 @@ export class GroupInfoClient {
     return data;
   }
 
-  private async postGroupList(token: string, cursor: string): Promise<GroupListResponse> {
+  private async postGroupList(
+    token: string,
+    cursor: string,
+    ownerUserIds: string[],
+  ): Promise<GroupListResponse> {
     const body: Record<string, unknown> = { status_filter: 0, limit: LIST_PAGE_SIZE };
+    if (ownerUserIds.length > 0) body.owner_filter = { userid_list: ownerUserIds };
     if (cursor !== '') body.cursor = cursor;
     const res = await this.fetchImpl(
       `${GROUPLIST_URL}?access_token=${encodeURIComponent(token)}`,

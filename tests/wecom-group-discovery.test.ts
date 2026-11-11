@@ -26,14 +26,20 @@ function build(options: {
   const clock = new FakeClock(1_700_000_000_000);
   const logs: string[] = [];
   const observed: ObservedRoom[] = [];
+  const ownerCalls: string[][] = [];
   const registry = new ServiceGroupRegistry({
     seedRoomIds: options.seed ?? [],
     now: () => clock.now(),
     save: () => undefined,
   });
   const client = {
-    async listCustomerGroups() {
-      return options.groups;
+    async listCustomerGroups(owners: string[] = []) {
+      ownerCalls.push(owners);
+      // 模拟企微 owner_filter：未指定群主的群不会出现在结果里
+      if (owners.length === 0) return options.groups;
+      return options.groups?.filter(
+        (group) => group.owner !== undefined && owners.includes(group.owner),
+      );
     },
     async roomInfo(roomId: string) {
       return options.infos?.[roomId];
@@ -50,7 +56,7 @@ function build(options: {
     ownerUserIds: options.owners,
     logger: (line) => logs.push(line),
   });
-  return { discovery, registry, observed, logs, clock };
+  return { discovery, registry, observed, logs, clock, ownerCalls };
 }
 
 test('只登记企业创建的客户群：新群成为候选并带群名/成员交给患者域', async () => {
@@ -150,8 +156,8 @@ test('患者域未就绪时保留候选，下轮会重试', async () => {
   assert.ok(logs.some((line) => line.includes('患者域未就绪')));
 });
 
-test('配置群主后只登记本环境的群，其他环境的群不进候选', async () => {
-  const { discovery, registry } = build({
+test('配置群主后通过 owner_filter 请求本环境的群，其他环境的群不进候选', async () => {
+  const { discovery, registry, ownerCalls } = build({
     owners: ['LiGuang'],
     groups: [
       { chatId: 'wrMINE', owner: 'LiGuang' },
@@ -163,6 +169,8 @@ test('配置群主后只登记本环境的群，其他环境的群不进候选',
 
   const result = await discovery.scanOnce();
 
+  // 过滤由企微接口完成，客户端不能依赖响应里的 owner 字段
+  assert.deepEqual(ownerCalls, [['LiGuang']]);
   assert.equal(result.listed, 1);
   assert.equal(result.added, 1);
   assert.equal(registry.isKnown('wrMINE'), true);
