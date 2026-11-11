@@ -47,6 +47,9 @@ describe('WP-K 页面', () => {
 
     await user.click(screen.getByText('张女士'));
 
+    // 基本信息是第一个 Tab，默认展开
+    expect(await screen.findByRole('tab', { name: '基本信息' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: '记忆' }));
     expect(await screen.findByText('对海鲜过敏')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '记忆' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '主动计划' })).toBeInTheDocument();
