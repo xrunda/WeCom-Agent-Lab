@@ -231,6 +231,15 @@ export function resetSandboxMock(): void {
   notify();
 }
 
+/** 服务端 SSE 用命名事件（`event: sandbox.draft`），onmessage 收不到 */
+const SANDBOX_EVENT_TYPES = [
+  'sandbox.message',
+  'sandbox.draft',
+  'sandbox.memory',
+  'sandbox.verification',
+  'sandbox.state',
+] as const;
+
 export function subscribeSandbox(listener: () => void): () => void {
   if (!isMockMode) {
     listeners.add(listener);
@@ -238,7 +247,11 @@ export function subscribeSandbox(listener: () => void): () => void {
       realSource = new EventSource(`${API_BASE}/stream?types=sandbox.*`, {
         withCredentials: true,
       });
-      realSource.onmessage = () => notify();
+      const refresh = () => notify();
+      for (const type of SANDBOX_EVENT_TYPES) realSource.addEventListener(type, refresh);
+      realSource.onmessage = refresh;
+      // 重连后补拉一次，避免漏掉断线期间的事件
+      realSource.onopen = refresh;
     }
     return () => {
       listeners.delete(listener);
