@@ -1,6 +1,7 @@
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { ExportOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
+  Alert,
   App,
   Button,
   Card,
@@ -23,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
+import { listGroups } from '../../mock/groups.ts';
 import {
   ALERT_KIND_LABELS,
   ALERT_SEVERITY_LABELS,
@@ -42,9 +44,88 @@ import {
 } from '../../mock/alerts.ts';
 import { listPatients } from '../../mock/patients.ts';
 import { formatDateTime, formatRelative } from '../../utils/format.ts';
+import { alertGuidance, alertReason, relatedFlowTarget } from './alert-insights.ts';
 import './alerts.css';
 
 const { Text } = Typography;
+
+interface AlertActionsProps {
+  alert: AlertItem;
+  canWrite: boolean;
+  includeView?: boolean;
+  primary?: boolean;
+  onView?: (id: string) => void;
+  onResolve: (alert: AlertItem) => void;
+  onRelease: (alert: AlertItem) => void;
+  onRestore: (alert: AlertItem) => void;
+}
+
+function AlertActions({
+  alert,
+  canWrite,
+  includeView = false,
+  primary = false,
+  onView,
+  onResolve,
+  onRelease,
+  onRestore,
+}: AlertActionsProps) {
+  const size = primary ? 'middle' : 'small';
+  const type = primary ? 'default' : 'link';
+  const finished = alert.status === 'resolved';
+
+  return (
+    <Space wrap size={4}>
+      {includeView && (
+        <Button type="link" size="small" onClick={() => onView?.(alert.id)}>
+          查看
+        </Button>
+      )}
+      {!finished &&
+        (canWrite ? (
+          <>
+            <Button
+              type={primary ? 'primary' : 'link'}
+              size={size}
+              onClick={() => onResolve(alert)}
+            >
+              标记已处理
+            </Button>
+            {alert.draftId && (
+              <Popconfirm
+                title="释放阻塞队列？"
+                description="会把当前草稿置为已释放，并推送下一条。"
+                okText="释放"
+                cancelText="取消"
+                onConfirm={() => onRelease(alert)}
+              >
+                <Button type={type} size={size}>
+                  释放队列
+                </Button>
+              </Popconfirm>
+            )}
+            {alert.kind === 'advisor_paused' && (
+              <Popconfirm
+                title="恢复顾问接单？"
+                description="恢复后连续错群计数会清零。"
+                okText="恢复"
+                cancelText="取消"
+                onConfirm={() => onRestore(alert)}
+              >
+                <Button type={type} size={size}>
+                  恢复顾问
+                </Button>
+              </Popconfirm>
+            )}
+          </>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            只读
+          </Text>
+        ))}
+    </Space>
+  );
+}
 
 export default function AlertsPage() {
   const { can } = useAuth();
@@ -59,6 +140,7 @@ export default function AlertsPage() {
   const [status, setStatus] = useState<AlertStatus | undefined>();
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [advisorNames, setAdvisorNames] = useState<Record<string, string>>({});
+  const [groupNames, setGroupNames] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<AlertDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [resolveTarget, setResolveTarget] = useState<AlertItem | null>(null);
@@ -67,11 +149,12 @@ export default function AlertsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, unresolved, patients, advisors] = await Promise.all([
+      const [list, unresolved, patients, advisors, groups] = await Promise.all([
         listAlerts({ kind, status }),
         unresolvedCount(),
         listPatients({ pageSize: 100 }),
         listAdvisors(),
+        listGroups({ pageSize: 100 }).catch(() => ({ items: [] })),
       ]);
       setItems(list.items);
       setCount(unresolved);
@@ -79,6 +162,9 @@ export default function AlertsPage() {
         Object.fromEntries(patients.items.map((item) => [item.id, item.displayName])),
       );
       setAdvisorNames(Object.fromEntries(advisors.map((item) => [item.id, item.name])));
+      setGroupNames(
+        Object.fromEntries(groups.items.map((item: { id: string; name: string }) => [item.id, item.name])),
+      );
     } catch (error) {
       message.error(error instanceof Error ? error.message : '告警加载失败');
     } finally {
@@ -109,12 +195,16 @@ export default function AlertsPage() {
 
   const submitResolve = async () => {
     if (!resolveTarget) return;
+    const targetId = resolveTarget.id;
     try {
-      await resolveAlert(resolveTarget.id, note);
+      await resolveAlert(targetId, note);
       message.success('告警已标记为已处理');
       setResolveTarget(null);
       setNote('');
       await load();
+      if (detailOpen && detail?.alert.id === targetId) {
+        setDetail(await getAlertDetail(targetId));
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '处理失败');
     }
@@ -129,6 +219,9 @@ export default function AlertsPage() {
         }`,
       );
       await load();
+      if (detailOpen && detail?.alert.id === alert.id) {
+        setDetail(await getAlertDetail(alert.id));
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '释放失败');
     }
@@ -139,6 +232,9 @@ export default function AlertsPage() {
       await restoreAdvisor(alert.id);
       message.success('顾问已恢复接单');
       await load();
+      if (detailOpen && detail?.alert.id === alert.id) {
+        setDetail(await getAlertDetail(alert.id));
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '恢复失败');
     }
@@ -214,56 +310,18 @@ export default function AlertsPage() {
       key: 'actions',
       width: 250,
       render: (_, alert) => (
-        <Space wrap size={4}>
-          <Button type="link" size="small" onClick={() => void openDetail(alert.id)}>
-            查看
-          </Button>
-          {canWrite && alert.status !== 'resolved' && (
-            <>
-              <Button
-                type="link"
-                size="small"
-                onClick={() => {
-                  setResolveTarget(alert);
-                  setNote('');
-                }}
-              >
-                标记已处理
-              </Button>
-              {alert.draftId && (
-                <Popconfirm
-                  title="释放阻塞队列？"
-                  description="会把当前草稿置为已释放，并推送下一条。"
-                  okText="释放"
-                  cancelText="取消"
-                  onConfirm={() => void doRelease(alert)}
-                >
-                  <Button type="link" size="small">
-                    释放队列
-                  </Button>
-                </Popconfirm>
-              )}
-              {alert.kind === 'advisor_paused' && (
-                <Popconfirm
-                  title="恢复顾问接单？"
-                  description="恢复后连续错群计数会清零。"
-                  okText="恢复"
-                  cancelText="取消"
-                  onConfirm={() => void doRestore(alert)}
-                >
-                  <Button type="link" size="small">
-                    恢复顾问
-                  </Button>
-                </Popconfirm>
-              )}
-            </>
-          )}
-          {!canWrite && alert.status !== 'resolved' && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              只读
-            </Text>
-          )}
-        </Space>
+        <AlertActions
+          alert={alert}
+          canWrite={canWrite}
+          includeView
+          onView={(id) => void openDetail(id)}
+          onResolve={(item) => {
+            setResolveTarget(item);
+            setNote('');
+          }}
+          onRelease={(item) => void doRelease(item)}
+          onRestore={(item) => void doRestore(item)}
+        />
       ),
     },
   ];
@@ -344,45 +402,128 @@ export default function AlertsPage() {
         destroyOnHidden
       >
         {detail ? (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="类型">
-                {ALERT_KIND_LABELS[detail.alert.kind] ?? detail.alert.kind}
-              </Descriptions.Item>
-              <Descriptions.Item label="严重度">
-                <Tag color={ALERT_SEVERITY_LABELS[detail.alert.severity].color}>
-                  {ALERT_SEVERITY_LABELS[detail.alert.severity].label}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="状态">
-                {ALERT_STATUS_LABELS[detail.alert.status]}
-              </Descriptions.Item>
-              <Descriptions.Item label="时间">
-                {formatDateTime(detail.alert.createdAt)}
-              </Descriptions.Item>
-              <Descriptions.Item label="患者">
-                {detail.patient?.displayName ?? '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="顾问">{detail.advisor?.name ?? '-'}</Descriptions.Item>
-              <Descriptions.Item label="草稿" span={2}>
-                {detail.draft ? (
-                  <Space direction="vertical" size={2}>
-                    <Text strong>{detail.draft.summary}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {detail.draft.id} · {detail.draft.status} · 风险 {detail.draft.riskLevel}
-                    </Text>
-                  </Space>
-                ) : (
-                  '无关联草稿'
+          (() => {
+            const alert = detail.alert;
+            const severity = ALERT_SEVERITY_LABELS[alert.severity];
+            const statusColor =
+              alert.status === 'open' ? 'red' : alert.status === 'acknowledged' ? 'gold' : 'green';
+            const target = relatedFlowTarget(alert);
+            return (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Space wrap size={8}>
+                  <Tag bordered={false} color={severity.color}>
+                    {severity.label}
+                  </Tag>
+                  <Tag bordered={false} color={statusColor}>
+                    {ALERT_STATUS_LABELS[alert.status]}
+                  </Tag>
+                  <Text type="secondary">{formatDateTime(alert.createdAt)}</Text>
+                </Space>
+
+                <Alert
+                  type={
+                    alert.severity === 'critical'
+                      ? 'error'
+                      : alert.severity === 'warning'
+                        ? 'warning'
+                        : 'info'
+                  }
+                  showIcon
+                  message="为什么告警"
+                  description={
+                    <Space direction="vertical" size={4}>
+                      <Text>{alert.message || alert.title}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {alertReason(alert.kind)}
+                      </Text>
+                    </Space>
+                  }
+                />
+
+                <Descriptions bordered size="small" column={2}>
+                  <Descriptions.Item label="类型">
+                    {ALERT_KIND_LABELS[alert.kind] ?? alert.kind}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="触发时间">
+                    {formatDateTime(alert.createdAt)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="患者">
+                    {detail.patient?.displayName ?? '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="顾问">{detail.advisor?.name ?? '-'}</Descriptions.Item>
+                  <Descriptions.Item label="群">
+                    {alert.groupId ? (groupNames[alert.groupId] ?? alert.groupId) : '—'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="升级对象">
+                    {alert.escalatedTo ?? '—'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="草稿" span={2}>
+                    {detail.draft ? (
+                      <Space direction="vertical" size={2}>
+                        <Text strong>{detail.draft.summary}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {detail.draft.id} · {detail.draft.status} · 风险 {detail.draft.riskLevel}
+                        </Text>
+                      </Space>
+                    ) : (
+                      <Text type="secondary">无关联草稿</Text>
+                    )}
+                  </Descriptions.Item>
+                </Descriptions>
+
+                <Card size="small" title="处理情况">
+                  <Descriptions size="small" column={2} bordered>
+                    <Descriptions.Item label="处理状态">
+                      <Tag bordered={false} color={statusColor}>
+                        {ALERT_STATUS_LABELS[alert.status]}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="处理人（账号）">
+                      {alert.resolvedBy ?? '—'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="处理时间">
+                      {alert.resolvedAt ? formatDateTime(alert.resolvedAt) : '—'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="处理备注">
+                      {alert.note ?? (alert.status === 'resolved' ? '未填写' : '尚未处理')}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Card>
+
+                {alert.status !== 'resolved' && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="怎么处理"
+                    description={alertGuidance(alert.kind)}
+                  />
                 )}
-              </Descriptions.Item>
-              <Descriptions.Item label="处理备注" span={2}>
-                {detail.alert.note ?? '未填写'}
-              </Descriptions.Item>
-            </Descriptions>
-            <Text type="secondary">{detail.alert.message}</Text>
-            <Button onClick={() => navigate('/service-flow')}>去服务流查看</Button>
-          </Space>
+
+                <Space wrap size={8}>
+                  <AlertActions
+                    alert={alert}
+                    canWrite={canWrite}
+                    primary
+                    onResolve={(item) => {
+                      setResolveTarget(item);
+                      setNote('');
+                    }}
+                    onRelease={(item) => void doRelease(item)}
+                    onRestore={(item) => void doRestore(item)}
+                  />
+                  {target ? (
+                    <Button icon={<ExportOutlined />} onClick={() => navigate(target.path)}>
+                      {target.label}
+                    </Button>
+                  ) : (
+                    <Text type="secondary">
+                      该告警没有关联草稿或患者，无法定位到具体服务记录。
+                    </Text>
+                  )}
+                </Space>
+              </Space>
+            );
+          })()
         ) : (
           <Empty description="正在加载详情…" />
         )}
