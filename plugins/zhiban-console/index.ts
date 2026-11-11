@@ -95,6 +95,7 @@ import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
 import type { KnowledgeApi } from './routes/h-knowledge.ts';
 import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
 import type { GuardRulesApi } from './routes/h-risk-rules.ts';
+import { registerScriptRoutes } from './routes/h-scripts.ts';
 import { applyTenantPatch, publicTenant, validateTenantPatch } from './tenant.ts';
 
 export const name = 'zhiban-console';
@@ -1093,6 +1094,23 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             kind: detail.kind,
             name: detail.name,
             changes: detail.changes,
+          }),
+        );
+      },
+    });
+
+    // #120 话术库：条目落在控制台域，不参与 Agent 草稿生成。
+    registerScriptRoutes({
+      router,
+      store,
+      tenantId: config.tenantId,
+      tenantActor,
+      audit: (actor, action, detail) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'script', detail.scriptId, {
+            category: detail.category,
+            title: detail.title,
+            ...(detail.fields ? { fields: detail.fields } : {}),
           }),
         );
       },

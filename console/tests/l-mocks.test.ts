@@ -9,7 +9,13 @@ import {
   updateKnowledge,
 } from '../src/mock/knowledge.ts';
 import { createRiskRule, deleteRiskRule, listRiskRules, resetRulesState, updateRiskRule } from '../src/mock/rules.ts';
-import { listScripts, resetScriptsState } from '../src/mock/scripts.ts';
+import {
+  createScript,
+  deleteScript,
+  listScripts,
+  resetScriptsState,
+  updateScript,
+} from '../src/mock/scripts.ts';
 import {
   getDashboardKpis,
   getDashboardRecent,
@@ -134,6 +140,34 @@ describe('话术库 mock', () => {
 
     const search = await listScripts({ q: '外食' });
     expect(search.items[0].title).toContain('外食');
+  });
+
+  it('新增、编辑、停用与删除', async () => {
+    const created = await createScript({
+      category: '饮食',
+      title: '外食怎么点',
+      content: '外食优先低油勾芡，少酱汁。',
+      tags: ['外食', ' 外食 ', '点餐'],
+    });
+    expect(created.id).toMatch(/^scr_/);
+    expect(created.enabled).toBe(true);
+    expect(created.tags).toEqual(['外食', '点餐']);
+    expect((await listScripts({ q: '低油勾芡' })).total).toBe(1);
+
+    const updated = await updateScript(created.id, { enabled: false, title: '外食选择' });
+    expect(updated.title).toBe('外食选择');
+    expect(updated.enabled).toBe(false);
+    expect((await listScripts({ enabled: false })).total).toBe(1);
+    expect((await listScripts({ enabled: true, q: '低油勾芡' })).total).toBe(0);
+
+    await deleteScript(created.id);
+    expect((await listScripts({ q: '低油勾芡' })).total).toBe(0);
+    await expect(updateScript(created.id, { title: '已删除' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    await expect(
+      createScript({ category: '饮食', title: '', content: '正文' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 });
 

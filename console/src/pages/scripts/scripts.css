@@ -13,6 +13,11 @@
   min-height: 46px;
 }
 
+.script-card-disabled {
+  background: #fafafa;
+  opacity: 0.78;
+}
+
 .script-content {
   margin: 0 0 12px !important;
   color: #334155;
