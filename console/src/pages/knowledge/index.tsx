@@ -50,7 +50,7 @@ function errorMessage(error: unknown): string {
 export default function KnowledgePage() {
   const { can } = useAuth();
   const { message } = App.useApp();
-  const canWrite = can('knowledge.write');
+  const canWrite = can('tenant.write');
 
   const [items, setItems] = useState<KnowledgeEntry[]>([]);
   const [categories, setCategories] = useState<KnowledgeCategory[]>([]);

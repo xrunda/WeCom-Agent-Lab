@@ -40,6 +40,7 @@ import type {
 } from '../../src/p1/sandbox.ts';
 import { buildSecurityOverview } from '../../src/p1/security.ts';
 import type { CarePlanRecord } from '../../src/p1/care.ts';
+import type { KnowledgeRecord } from '../../src/p1/knowledge.ts';
 import type { MemoryRecord } from '../../src/p1/memory.ts';
 import type { Draft } from '../../src/c2/types.ts';
 import {
@@ -90,6 +91,8 @@ import {
   resolvePdfFont,
 } from './pdf.ts';
 import { parseEventTypes, SseHub } from './sse.ts';
+import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
+import type { KnowledgeApi } from './routes/h-knowledge.ts';
 import { applyTenantPatch, publicTenant, validateTenantPatch } from './tenant.ts';
 
 export const name = 'zhiban-console';
@@ -269,10 +272,6 @@ interface CareApiLike {
   list(patientId?: string, status?: string): unknown[];
   create?(input: Record<string, unknown>): unknown;
   cancel?(id: string, actor?: string): unknown;
-}
-
-interface KnowledgeApiLike {
-  get?(id: string): { id: string; title: string; deletedAt?: number } | undefined;
 }
 
 const API_PREFIX = '/zhiban/api';
@@ -1063,8 +1062,23 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     const wecomReadApi = (): WecomAdminLike | undefined => ctx.get<WecomAdminLike>('zhibanWecomAdmin');
     const memoryReadApi = (): MemoryApiLike | undefined => ctx.get<MemoryApiLike>('zhibanMemory');
     const careReadApi = (): CareApiLike | undefined => ctx.get<CareApiLike>('zhibanCare');
-    const knowledgeReadApi = (): KnowledgeApiLike | undefined =>
-      ctx.get<KnowledgeApiLike>('zhibanKnowledge');
+    const knowledgeReadApi = (): KnowledgeApi | undefined =>
+      ctx.get<KnowledgeApi>('zhibanKnowledge');
+
+    // #118 知识库：CRUD 由 zhiban-knowledge 执行，控制台只做权限与审计。
+    registerKnowledgeRoutes({
+      router,
+      getKnowledge: knowledgeReadApi,
+      tenantActor,
+      audit: (actor, action, record) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'knowledge', record.id, {
+            title: record.title,
+            category: record.category,
+          }),
+        );
+      },
+    });
 
     const consoleBindings = (api: PatientApiLike, patients: Patient[]): GroupBinding[] => {
       const result: GroupBinding[] = [];
@@ -2088,7 +2102,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             .filter((item): item is Record<string, unknown> => Boolean(item)) as unknown as MemoryRecord[],
           knowledge: (draft.citedKnowledgeIds ?? [])
             .map((id) => knowledgeApi?.get?.(id))
-            .filter((item): item is { id: string; title: string; deletedAt?: number } => Boolean(item)),
+            .filter((item): item is KnowledgeRecord => Boolean(item)),
           audits: wecom?.listAudits?.() ?? [],
         });
         detail.media = detail.media.map((item) => ({
