@@ -33,6 +33,8 @@ import { GroupInfoClient } from './group-info.ts';
 import { RoomAgreeClient } from './room-agree.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
+import { ScriptQueryService, splitForWecom } from './script-query.ts';
+import type { QueryableScript } from './script-query.ts';
 import { ServiceGroupRegistry } from './service-groups.ts';
 
 export const name = 'zhiban-wecom';
@@ -73,6 +75,7 @@ interface StaffQualityGuard {
   reviewStaffMessage?(input: {
     text: string;
     advisorId?: string;
+    advisorName?: string;
     groupId?: string;
     groupName?: string;
     messageId?: string;
@@ -82,6 +85,11 @@ interface StaffQualityGuard {
     riskLevel: string;
     alertId?: string;
   };
+}
+
+/** 只依赖 zhiban-console 的话术只读入口；未安装控制台时查询会提示未接入 */
+interface ScriptsApi {
+  listEnabled(): QueryableScript[];
 }
 
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
@@ -592,6 +600,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       let runtime: WecomRuntime | undefined;
       let confirmHandler: ((key: string) => void) | undefined;
 
+      // 顾问在企微 1:1 查话术；只回复本人，不向客户群发送（F1）
+      const scriptQuery = new ScriptQueryService(
+        () => ctx.get<ScriptsApi>('zhibanScripts'),
+        () => clock.now(),
+      );
+
       bot = new WeComBotAdapter(
         { botId: config.botId, secret: config.botSecret, logger: log },
         {
@@ -600,8 +614,26 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
               `机器人收到消息 chattype=${message.chattype} msgtype=${message.msgtype} ` +
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
-            // #56：顾问与机器人的 1:1 文本 = 改稿指令
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
+              // 「话术 …」是查询指令，其余文本仍按改稿指令处理（#56）
+              const reply = scriptQuery.reply(message.userid, message.text);
+              if (reply !== undefined) {
+                const target = botRef;
+                if (target) {
+                  void (async () => {
+                    // 长话术按字节拆成多条，避免超过企微 markdown 单条上限
+                    for (const chunk of splitForWecom(reply)) {
+                      await target.sendText(message.userid, chunk);
+                    }
+                  })().catch((error: unknown) =>
+                    log(
+                      `话术回复失败 user=${tailId(message.userid)}：` +
+                        `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+                    ),
+                  );
+                }
+                return;
+              }
               void runtime?.handleAdvisorMessage(message.userid, message.text);
             }
           },

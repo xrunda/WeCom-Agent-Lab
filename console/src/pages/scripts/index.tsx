@@ -193,8 +193,8 @@ export default function ScriptsPage() {
       header={{
         title: '话术库',
         subTitle: sample
-          ? '团队常用表达示例，可按分类查找并复制到企微。'
-          : '团队常用话术，按分类查找并复制到企微；停用后不再出现在启用列表。',
+          ? '团队常用表达示例；顾问在企微私聊机器人发「话术 关键词」即可查询。'
+          : '团队常用话术，在后台维护；顾问在企微私聊机器人查询，停用后查不到。',
         extra: sample ? (
           <SampleDataTag key="sample" />
         ) : canWrite ? (
@@ -205,6 +205,9 @@ export default function ScriptsPage() {
       }}
     >
       <Card className="zb-card" variant="borderless">
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          顾问不用登录后台：在企微私聊机器人发「话术 关键词」查询，回复「话术 1」取全文，再自行粘贴到客户群。机器人不会自动发送。
+        </Paragraph>
         <div className="zb-toolbar">
           <Input.Search
             allowClear
@@ -296,7 +299,7 @@ export default function ScriptsPage() {
                         </Button>
                         <Popconfirm
                           title="删除这条话术？"
-                          description="删除后列表不再显示，顾问无法再复制。"
+                          description="删除后列表不再显示，顾问在企微也查不到。"
                           okText="删除"
                           cancelText="取消"
                           okButtonProps={{ danger: true }}
@@ -386,7 +389,7 @@ export default function ScriptsPage() {
             label="内容"
             name="content"
             rules={[{ required: true, message: '请填写内容' }]}
-            extra="顾问复制后会粘贴到企微；内容不会进入 Agent 草稿。"
+            extra="顾问在企微私聊机器人发「话术 关键词」即可查到；内容不会进入 Agent 草稿，也不会自动发到客户群。"
           >
             <Input.TextArea
               rows={5}

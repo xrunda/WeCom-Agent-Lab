@@ -867,7 +867,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：admin。请求：`{ "category": "饮食", "title": "晚餐建议", "content": "……", "tags": ["复诊"], "enabled": true }`。响应 `201`：script_template。
 
-- 话术供顾问查询与复制，**不参与 Agent 草稿生成**。
+- 话术供顾问在企微私聊机器人查询，**不参与 Agent 草稿生成**，也不会自动发送到客户群。
 - `category`、`title`、`content` trim 后不能为空；`category` ≤ 30 字、`title` ≤ 60 字、`content` ≤ 2000 字，否则 `422`。
 - `tags` 0–5 个，逐项 trim、去重，每个 1–10 字；`enabled` 缺省 `true`，非布尔值 `422`。
 
@@ -880,6 +880,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 角色：admin。软删除；响应 `204`。不存在或已删除返回 `404`。
 
 写操作写控制台审计 `script.created` / `script.updated` / `script.deleted`，`detail` 含话术 id、分类、标题与本次改动字段名，**不含正文**。
+
+### 话术在企微内的查询（1:1）
+
+顾问不登录控制台，直接在企微私聊机器人使用（`zhiban-wecom` 的 `ScriptQueryService`）：
+
+- `话术`：返回总条数与分类统计、用法说明。
+- `话术 <关键词>`：按标题（优先）→ 分类 / 标签 → 正文匹配，返回最多 8 条编号列表。
+- `话术 <编号>`：返回该员工上一次搜索结果的第 N 条全文；会话状态只存在进程内存，30 分钟过期，重启后需重新搜索。
+
+机器人只回复发问员工本人，**不向客户群发送任何消息（F1）**；顾问复制后自行粘贴。只有启用且未删除的话术会出现在结果中。查询关键词与话术正文不写日志、不写审计。
 
 ---
 

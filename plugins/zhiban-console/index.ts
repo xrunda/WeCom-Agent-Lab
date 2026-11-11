@@ -28,6 +28,7 @@ import {
   type Permission,
   type PublicAccount,
   type Role,
+  type ScriptRecord,
 } from '../../src/p1/console-types.ts';
 import { EvidenceService } from '../../src/p1/evidence.ts';
 import type { EvidencePatientPort, EvidenceWecomPort } from '../../src/p1/evidence.ts';
@@ -1129,6 +1130,19 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           }),
         );
       },
+    });
+
+    // 顾问在企微 1:1 查话术（「话术 复诊」）：只读、只含启用且未删除的条目
+    ctx.provide('zhibanScripts', {
+      listEnabled: (): ScriptRecord[] =>
+        store
+          .listScripts()
+          .filter(
+            (script) =>
+              script.tenantId === config.tenantId &&
+              script.enabled &&
+              script.deletedAt === undefined,
+          ),
     });
 
     const consoleBindings = (api: PatientApiLike, patients: Patient[]): GroupBinding[] => {
