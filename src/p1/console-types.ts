@@ -381,6 +381,28 @@ export const SANDBOX_GUIDE_STEPS = [
   { step: 4, title: '试试四种发送方式', hint: '照发 / 改写后发 / 发到别的群 / 只点已发送' },
 ] as const;
 
+// ---------- 话术库（#120） ----------
+
+/** 顾问可查询、复制到企微的机构内容；不参与 Agent 草稿生成。 */
+export interface ScriptRecord {
+  id: string;
+  tenantId: string;
+  category: string;
+  title: string;
+  content: string;
+  tags: string[];
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export const SCRIPT_TITLE_MAX = 60;
+export const SCRIPT_CONTENT_MAX = 2000;
+export const SCRIPT_CATEGORY_MAX = 30;
+export const SCRIPT_TAGS_MAX = 5;
+export const SCRIPT_TAG_MAX = 10;
+
 // ---------- 通用 ----------
 
 export interface Page<T> {

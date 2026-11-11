@@ -90,7 +90,11 @@ export interface ScriptTemplate {
   content: string;
   tags: string[];
   enabled: boolean;
-  sample: boolean;
+  /** 仅 mock 示例数据为 true；真接口不返回该字段 */
+  sample?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  deletedAt?: number | null;
 }
 
 /* ---------- WP-L：技能与方案包 ---------- */

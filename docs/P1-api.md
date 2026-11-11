@@ -101,8 +101,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 | 顾问 新增 / 修改 / 删除 | ✅ | ❌ | ❌ |
 | 顾问 暂停 / 恢复 / 释放队列 | ✅ | ✅ | ❌ |
 | 告警 读与处理 | ✅ | ✅ | 只读 |
-| 知识库 / 风险规则 写 | ✅ | ❌ | ❌ |
-| 话术库（B 档）读 | ✅ | ✅ | ✅ |
+| 知识库 / 风险规则 / 话术库 写 | ✅ | ❌ | ❌ |
+| 知识库 / 风险规则 / 话术库 读 | ✅ | ✅ | ✅ |
 | 技能市场 / 方案包 读 | ✅ | ✅ | ✅ |
 | 账号与角色 | ✅ | ❌ | ❌ |
 | 审计 读 | ✅ | ✅ | ✅ |
@@ -848,9 +848,31 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 写操作写控制台审计 `rule.created` / `rule.updated` / `rule.deleted`，`detail` 含规则 id、`kind`、名称与启停/改名前后的变化，不含关键词正文。
 
-### `GET /scripts?category=`
+### `GET /scripts?category=&q=&enabled=`
 
-角色：全部。B 档。响应 `200`：`{ "items": [script_template], "total": 8, "sample": true }`。前端显示示例数据标签。
+角色：全部。响应 `200`：`{ "items": [script_template], "total": 3, "sample": false }`，按 `category`、`title` 排序。
+
+- `enabled` 只接受 `true` / `false`，其它值返回 `422 VALIDATION_FAILED`。
+- `q` 匹配标题、正文或标签（不区分大小写）；`category` 精确匹配。
+- 只返回未删除条目。`sample` 恒为 `false`（示例数据仅存在于 mock 模式）。
+
+### `POST /scripts`
+
+角色：admin。请求：`{ "category": "饮食", "title": "晚餐建议", "content": "……", "tags": ["复诊"], "enabled": true }`。响应 `201`：script_template。
+
+- 话术供顾问查询与复制，**不参与 Agent 草稿生成**。
+- `category`、`title`、`content` trim 后不能为空；`category` ≤ 30 字、`title` ≤ 60 字、`content` ≤ 2000 字，否则 `422`。
+- `tags` 0–5 个，逐项 trim、去重，每个 1–10 字；`enabled` 缺省 `true`，非布尔值 `422`。
+
+### `PATCH /scripts/{id}`
+
+角色：admin。请求：`category`、`title`、`content`、`tags`、`enabled`；至少一个字段，否则 `422`。响应 `200`：script_template。只校验传入字段，未传字段保持原值；不存在或已删除返回 `404`。
+
+### `DELETE /scripts/{id}`
+
+角色：admin。软删除；响应 `204`。不存在或已删除返回 `404`。
+
+写操作写控制台审计 `script.created` / `script.updated` / `script.deleted`，`detail` 含话术 id、分类、标题与本次改动字段名，**不含正文**。
 
 ---
 
@@ -1249,7 +1271,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 排班与交接 | 整页 | C 档介绍页，无接口 | C |
 | 知识库 | 分类、条目、命中 | §10 | A |
 | 风险规则 | 红线只读 + 关键词 CRUD | `GET/POST/PATCH/DELETE /risk-rules` | A |
-| 话术库 | 整页 | `GET /scripts`（`sample:true`） | B |
+| 话术库 | 整页 | `GET/POST/PATCH/DELETE /scripts` | A |
 | 技能市场 | 已启用 / 即将上线 | `GET /skills` | A+C |
 | 行业方案包 | 整页 | `GET /solution-packs` | B+C |
 | 数据报表 | 整页 | `console/src/sample/` | B |
@@ -1298,7 +1320,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | `onboarding-requests.json` | onboarding_request | 1 | |
 | `skills.json` | skill | 11 | 7 已启用 + 4 即将上线 |
 | `solution-packs.json` | solution_pack | 6 | 1 启用 + 5 即将上线 |
-| `scripts.json` | script_template | 8 | B 档，`sample:true` |
+| `scripts.json` | script_template | 8 | 仅 mock 示例，`sample:true` |
 | `sse-events.json` | SSE | 10 | 服务流演示序列 |
 
 ---

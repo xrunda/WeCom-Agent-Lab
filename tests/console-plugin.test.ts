@@ -2236,3 +2236,170 @@ test('风险规则：插件未就绪时返回 502 而不是 500', async () => {
   assert.equal(res.status, 502);
   assert.equal((res.json() as { error: { code: string } }).error.code, 'UPSTREAM_UNAVAILABLE');
 });
+
+test('话术库：真实 CRUD、校验、软删除与控制台审计', async () => {
+  const { call } = await start();
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const empty = await call('GET', '/zhiban/api/scripts', { cookie });
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.json(), { items: [], total: 0, sample: false });
+
+  const created = await call('POST', '/zhiban/api/scripts', {
+    cookie,
+    body: {
+      category: ' 饮食 ',
+      title: '晚餐建议',
+      content: '建议晚餐在 19 点前完成。',
+      tags: ['复诊', ' 饮食 ', '复诊'],
+      enabled: false,
+    },
+  });
+  assert.equal(created.status, 201);
+  const script = created.json() as {
+    id: string;
+    category: string;
+    title: string;
+    tags: string[];
+    enabled: boolean;
+    createdAt: number;
+    updatedAt: number;
+    deletedAt?: number;
+  };
+  assert.match(script.id, /^scr_/);
+  assert.equal(script.category, '饮食');
+  assert.equal(script.title, '晚餐建议');
+  assert.deepEqual(script.tags, ['复诊', '饮食']);
+  assert.equal(script.enabled, false);
+
+  const second = await call('POST', '/zhiban/api/scripts', {
+    cookie,
+    body: { category: '作息', title: '晚睡回应', content: '先确认最近入睡时间。' },
+  });
+  assert.equal(second.status, 201);
+  assert.equal((second.json() as { enabled: boolean }).enabled, true);
+
+  const all = await call('GET', '/zhiban/api/scripts', { cookie });
+  assert.deepEqual(
+    (all.json() as { items: Array<{ title: string }> }).items.map((item) => item.title),
+    ['晚餐建议', '晚睡回应'],
+  );
+  const disabled = await call('GET', '/zhiban/api/scripts?enabled=false', { cookie });
+  assert.equal((disabled.json() as { total: number }).total, 1);
+  const byCategory = await call('GET', '/zhiban/api/scripts?category=饮食', { cookie });
+  assert.equal((byCategory.json() as { total: number }).total, 1);
+  const bySearch = await call('GET', `/zhiban/api/scripts?q=${encodeURIComponent('复诊')}`, {
+    cookie,
+  });
+  assert.equal((bySearch.json() as { total: number }).total, 1);
+  const badEnabled = await call('GET', '/zhiban/api/scripts?enabled=maybe', { cookie });
+  assert.equal(badEnabled.status, 422);
+
+  const updated = await call('PATCH', `/zhiban/api/scripts/${script.id}`, {
+    cookie,
+    body: { title: '晚餐与复诊', tags: ['复诊'], enabled: true },
+  });
+  assert.equal(updated.status, 200);
+  const updatedScript = updated.json() as { title: string; tags: string[]; enabled: boolean };
+  assert.equal(updatedScript.title, '晚餐与复诊');
+  assert.deepEqual(updatedScript.tags, ['复诊']);
+  assert.equal(updatedScript.enabled, true);
+
+  const invalid: Array<[Record<string, unknown>, string]> = [
+    [{ category: '' }, '空分类'],
+    [{ category: '超'.repeat(31) }, '分类超长'],
+    [{ title: '   ' }, '空标题'],
+    [{ title: '超'.repeat(61) }, '标题超长'],
+    [{ content: '' }, '空内容'],
+    [{ content: '超'.repeat(2001) }, '内容超长'],
+    [
+      { tags: Array.from({ length: 6 }, (_, i) => `标签${i}`) },
+      '标签过多',
+    ],
+    [{ tags: ['超'.repeat(11)] }, '标签超长'],
+    [{ tags: [1] }, '标签非字符串'],
+    [{ enabled: 'yes' }, '启用非布尔'],
+    [{}, '无更新字段'],
+  ];
+  for (const [body, label] of invalid) {
+    const res = await call('PATCH', `/zhiban/api/scripts/${script.id}`, { cookie, body });
+    assert.equal(res.status, 422, label);
+  }
+  const invalidCreate = await call('POST', '/zhiban/api/scripts', {
+    cookie,
+    body: { category: '饮食', title: '晚餐', content: '超'.repeat(2001) },
+  });
+  assert.equal(invalidCreate.status, 422);
+
+  const patchMissing = await call('PATCH', '/zhiban/api/scripts/scr_404', {
+    cookie,
+    body: { title: '不存在' },
+  });
+  assert.equal(patchMissing.status, 404);
+
+  const removed = await call('DELETE', `/zhiban/api/scripts/${script.id}`, { cookie });
+  assert.equal(removed.status, 204);
+  const afterDelete = await call('GET', '/zhiban/api/scripts?enabled=true', { cookie });
+  assert.equal((afterDelete.json() as { total: number }).total, 1);
+  const deleteAgain = await call('DELETE', `/zhiban/api/scripts/${script.id}`, { cookie });
+  assert.equal(deleteAgain.status, 404);
+
+  const audit = await call('GET', '/zhiban/api/audit?targetType=script', { cookie });
+  assert.equal(audit.status, 200);
+  const events = (audit.json() as {
+    items: Array<{
+      action: string;
+      targetId: string;
+      detail?: Record<string, unknown>;
+    }>;
+  }).items;
+  assert.deepEqual(
+    events.map((event) => event.action).sort(),
+    ['script.created', 'script.created', 'script.deleted', 'script.updated'],
+  );
+  const updatedEvent = events.find((event) => event.action === 'script.updated');
+  assert.equal(updatedEvent?.targetId, script.id);
+  assert.deepEqual(updatedEvent?.detail, {
+    category: '饮食',
+    title: '晚餐与复诊',
+    fields: ['title', 'tags', 'enabled'],
+  });
+  // 审计只记分类与标题，不落话术正文
+  assert.equal(JSON.stringify(events).includes('建议晚餐在 19 点前完成'), false);
+  assert.equal(JSON.stringify(events).includes('先确认最近入睡时间'), false);
+});
+
+test('话术库：读对全部角色开放，写仅 admin，platform 一律 404', async () => {
+  const { call } = await start();
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+
+  for (const [username, role] of [
+    ['supervisor.script', 'supervisor'],
+    ['viewer.script', 'viewer'],
+  ] as const) {
+    const created = await call('POST', '/zhiban/api/accounts', {
+      cookie: admin.cookie,
+      body: { username, displayName: username, role, password: 'StaffPass123' },
+    });
+    assert.equal(created.status, 201);
+  }
+
+  for (const [username, role] of [
+    ['supervisor.script', 'supervisor'],
+    ['viewer.script', 'viewer'],
+  ] as const) {
+    const { cookie } = await login(call, username, 'StaffPass123');
+    const readable = await call('GET', '/zhiban/api/scripts', { cookie });
+    assert.equal(readable.status, 200, `${role} 应可读`);
+    const write = await call('POST', '/zhiban/api/scripts', {
+      cookie,
+      body: { category: '饮食', title: `${role} 写入`, content: '正文' },
+    });
+    assert.equal(write.status, 403, `${role} 不应可写`);
+    assert.equal((write.json() as { error: { code: string } }).error.code, 'FORBIDDEN');
+  }
+
+  const platform = await login(call, 'platform', PLATFORM_PASSWORD);
+  const platformRead = await call('GET', '/zhiban/api/scripts', { cookie: platform.cookie });
+  assert.equal(platformRead.status, 404);
+});
