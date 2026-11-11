@@ -52,7 +52,9 @@ export default function GroupsPage() {
   const term = useTerm();
   const { can } = useAuth();
   const { message } = App.useApp();
-  const canWrite = can('group.write');
+  // 真实后端按 patient.write 授权群写操作（docs/P1-api.md §7）；
+  // group.write 只存在于 mock 权限表，保留以兼容演示模式。
+  const canWrite = can('group.write') || can('patient.write');
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
