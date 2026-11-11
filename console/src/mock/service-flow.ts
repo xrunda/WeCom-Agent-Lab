@@ -622,22 +622,35 @@ export function emitNextFlowEvent(): FlowStreamPayload {
   return emitLiveStep();
 }
 
+/** 与 console 插件转发的事件名保持一致；服务端以命名事件下发，onmessage 收不到 */
+const DRAFT_EVENT_TYPES = [
+  'draft.created',
+  'draft.pushed',
+  'draft.acked',
+  'draft.revised',
+  'draft.verified',
+  'draft.failed',
+  'draft.released',
+] as const;
+
 export function subscribeServiceFlow(
   handler: (payload: FlowStreamPayload) => void,
   intervalMs = 2600,
 ): () => void {
   if (!isMockMode) {
-    const source = new EventSource(`${API_BASE}/sse/events?types=draft.*`, {
+    const source = new EventSource(`${API_BASE}/stream?types=draft.*`, {
       withCredentials: true,
     });
-    source.onmessage = (message) => {
+    const onFrame = (message: Event | MessageEvent) => {
       try {
-        const event = JSON.parse(message.data) as FlowEvent;
+        const event = JSON.parse((message as MessageEvent<string>).data) as FlowEvent;
         handler({ event, row: null });
       } catch {
         // 忽略无法解析的事件，断线重连后页面会重新拉一次列表
       }
     };
+    for (const type of DRAFT_EVENT_TYPES) source.addEventListener(type, onFrame);
+    source.onmessage = onFrame;
     return () => source.close();
   }
 

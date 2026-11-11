@@ -38,6 +38,7 @@ import { CarePlansTab } from './tabs/CarePlansTab.tsx';
 import { DietTab } from './tabs/DietTab.tsx';
 import { HealthProfileTab } from './tabs/HealthProfileTab.tsx';
 import { MemoriesTab } from './tabs/MemoriesTab.tsx';
+import { PatientIdentityModal } from './PatientIdentityModal.tsx';
 import { ProfileTab } from './tabs/ProfileTab.tsx';
 import { ServicePlanTab } from './tabs/ServicePlanTab.tsx';
 import { TimelineTab } from './tabs/TimelineTab.tsx';
@@ -60,6 +61,7 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
   const [exportOpen, setExportOpen] = useState(false);
   const [exportRange, setExportRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [identityOpen, setIdentityOpen] = useState(false);
 
   useEffect(() => {
     if (!patientId) {
@@ -128,7 +130,7 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
       width={920}
       destroyOnHidden
       extra={
-        patient && can('draft.export') ? (
+        patient && can('export') ? (
           <Button icon={<FilePdfOutlined />} onClick={openExport}>
             导出服务记录
           </Button>
@@ -143,20 +145,13 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
             <Tag bordered={false} color={patient.status === 'serving' ? 'processing' : 'default'}>
               {PATIENT_STATUS_LABELS[patient.status]}
             </Tag>
-            <Tooltip title={CONSENT_HINTS[patient.consent]}>
-              <Tag
-                bordered={false}
-                color={
-                  patient.consent === 'agreed'
-                    ? 'green'
-                    : patient.consent === 'disagreed'
-                      ? 'red'
-                      : 'gold'
-                }
-              >
-                {CONSENT_LABELS[patient.consent]}
-              </Tag>
-            </Tooltip>
+            {patient.consent === 'disagreed' ? (
+              <Tooltip title={CONSENT_HINTS.disagreed}>
+                <Tag bordered={false} color="red">
+                  {CONSENT_LABELS.disagreed}
+                </Tag>
+              </Tooltip>
+            ) : null}
             <Text type="secondary" style={{ fontSize: 12 }}>
               陪伴 {daysSince(patient.accompaniedSince)} 天 · 记忆 {patient.memoryCount} 条 ·
               待执行 {patient.pendingPlanCount} 个
@@ -173,6 +168,34 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
         </div>
       ) : (
         <>
+          {detail.patient.identityStatus === 'pending' ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={`该 Agent 的${term}身份待确认`}
+              description={`系统按群内发言推测${term}为「${detail.patient.displayName}」，可能不是本人。请核对后确认${term}身份。`}
+              action={
+                can('patient.write') ? (
+                  <Button size="small" type="primary" onClick={() => setIdentityOpen(true)}>
+                    确认{term}身份
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="agent-identity-line">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                该 Agent 对应{term}：<Text strong>{detail.patient.displayName}</Text>（顾问已确认）
+              </Text>
+              {can('patient.write') ? (
+                <Button type="link" size="small" onClick={() => setIdentityOpen(true)}>
+                  修改{term}
+                </Button>
+              ) : null}
+            </div>
+          )}
+
           <Descriptions
             size="small"
             column={3}
@@ -283,6 +306,16 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
         ) : null}
       </Space>
     </Modal>
+
+    {detail ? (
+      <PatientIdentityModal
+        open={identityOpen}
+        detail={detail}
+        term={term}
+        onClose={() => setIdentityOpen(false)}
+        onSaved={reload}
+      />
+    ) : null}
     </>
   );
 }

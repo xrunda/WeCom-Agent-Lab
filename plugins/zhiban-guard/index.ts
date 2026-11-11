@@ -21,6 +21,8 @@ import type {
   RiskRuleRecord,
   RiskRuleUpdateInput,
   RuleKind,
+  StaffMessageReviewInput,
+  StaffMessageReviewResult,
 } from '../../src/p1/guard.ts';
 import type { AuditEvent } from '../../src/c2/types.ts';
 
@@ -55,6 +57,8 @@ export interface DshGuardContext {
 /** 提供给 zhiban-patient / 控制台的接口 */
 export interface GuardRuntimeApi {
   review(input: DraftReviewInput): DraftReviewResult;
+  /** 员工（顾问 / 客服）在服务群里的发言质检；命中时返回 alertId */
+  reviewStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult;
   linkDraft(alertId: string, draftId: string): void;
   listRules(query?: { kind?: RuleKind; enabled?: boolean }): RiskRuleRecord[];
   getRule(id: string): RiskRuleRecord | undefined;
@@ -117,6 +121,7 @@ export function apply(ctx: DshGuardContext, rawConfig: unknown): void {
 
       const api: GuardRuntimeApi = {
         review: (input) => service.review(input),
+        reviewStaffMessage: (input) => service.reviewStaffMessage(input),
         linkDraft: (alertId, draftId) => service.linkDraft(alertId, draftId),
         listRules: (query) => service.list(query),
         getRule: (id) => service.get(id),

@@ -6,6 +6,7 @@
   "description": "知伴健康 Agent 控制台（P1）",
   "scripts": {
     "dev": "vite",
+    "dev:real": "VITE_API_MODE=real vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",

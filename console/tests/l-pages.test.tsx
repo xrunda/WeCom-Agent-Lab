@@ -50,7 +50,9 @@ describe('WP-L 配置页', () => {
 
     expect(await screen.findByText('首次服务问候')).toBeInTheDocument();
     expect(screen.getAllByText('示例数据').length).toBeGreaterThan(0);
-    expect(screen.getByText('团队常用表达示例，可按分类查找并复制到企微。')).toBeInTheDocument();
+    expect(
+      screen.getByText('团队常用表达示例；顾问在企微私聊机器人发「话术 关键词」即可查询。'),
+    ).toBeInTheDocument();
   });
 });
 
@@ -76,21 +78,6 @@ describe('WP-L 工作台与报表', () => {
 });
 
 describe('WP-L 技能与方案包', () => {
-  it('技能市场显示已启用与即将上线', async () => {
-    await renderAt('/skills');
-
-    expect(await screen.findByText('餐食图片识别')).toBeInTheDocument();
-    expect(screen.getByText('体检报告解读')).toBeInTheDocument();
-    expect(screen.getByText('消息通道、记忆、红线与知识问答，都以插件形式工作')).toBeInTheDocument();
-  });
-
-  it('C 档技能卡片可进入介绍页', async () => {
-    await renderAt('/skills/skl_device');
-
-    expect(await screen.findByText('智能设备数据接入 · 即将上线')).toBeInTheDocument();
-    expect(screen.getByText(/接入血糖、血压等设备数据/)).toBeInTheDocument();
-  });
-
   it('行业方案包显示已启用方案与 C 档介绍页', async () => {
     await renderAt('/solutions');
 
@@ -110,6 +97,7 @@ describe('WP-L 系统设置', () => {
     await renderAt('/settings/agent');
 
     const input = await screen.findByDisplayValue('小安');
+    expect(screen.queryByText('当前角色不能修改 Agent 设定')).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '小康' } });
     fireEvent.click(screen.getByRole('button', { name: /保存\s*设定/ }));
 
@@ -117,6 +105,16 @@ describe('WP-L 系统设置', () => {
       expect((await getTenant()).agentName).toBe('小康');
     });
     expect(screen.getByText(/已保存，下一条草稿与沙盒中的名字立即同步/)).toBeInTheDocument();
+    expect(screen.getByText('已启用能力')).toBeInTheDocument();
+    expect(screen.getByText('餐食图片识别')).toBeInTheDocument();
+  });
+
+  it('只读账号能查看 Agent 设定但不能修改', async () => {
+    await renderAt('/settings/agent', 'viewer');
+
+    expect(await screen.findByDisplayValue('小安')).toBeDisabled();
+    expect(screen.getByText('当前角色不能修改 Agent 设定')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /保存\s*设定/ })).not.toBeInTheDocument();
   });
 
   it('企微接入状态四路正常，演示断开后转红', async () => {

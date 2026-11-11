@@ -15,6 +15,12 @@ export interface Advisor {
   queueDepth: number;
   consecutiveMisroutes: number;
   pausedAt: number | null;
+  /** 员工发言 / 草稿命中红线的累计条数（真实接口返回；mock 不含） */
+  redlineHits?: number;
+  /** 其中尚未处理的条数 */
+  redlineOpen?: number;
+  /** 最近一次命中时间 */
+  redlineLastAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }

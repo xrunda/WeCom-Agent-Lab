@@ -40,6 +40,61 @@ test('合法配置补齐默认轮询与批大小', () => {
   assert.equal(config.archive.batchSize, 100);
   assert.equal(config.archive.maxBatchesPerPoll, 5);
   assert.equal(config.archive.cacheLimit, 2_000);
+  // #106：默认开启客户群发现，每 5 分钟扫描一轮
+  assert.deepEqual(config.serviceGroupDiscovery, {
+    enabled: true,
+    intervalMs: 300_000,
+    maxPerScan: 50,
+    ownerUserIds: [],
+  });
+});
+
+test('服务群发现可关闭并配置间隔；非法值拒绝启动', () => {
+  const off = parsePluginConfig(
+    raw({ serviceGroupDiscovery: { enabled: false, intervalMs: 600_000, maxPerScan: 10 } }),
+    {},
+  );
+  assert.deepEqual(off.serviceGroupDiscovery, {
+    enabled: false,
+    intervalMs: 600_000,
+    maxPerScan: 10,
+    ownerUserIds: [],
+  });
+
+  // 群主过滤：去空、去重，避免 demo / dev 互相发现对方的群
+  const filtered = parsePluginConfig(
+    raw({ serviceGroupDiscovery: { ownerUserIds: ['LiGuang', ' LiGuang ', '', 'Wang'] } }),
+    {},
+  );
+  assert.deepEqual(filtered.serviceGroupDiscovery.ownerUserIds, ['LiGuang', 'Wang']);
+
+  assert.throws(
+    () => parsePluginConfig(raw({ serviceGroupDiscovery: { ownerUserIds: 'LiGuang' } }), {}),
+    (error: unknown) =>
+      error instanceof WecomConfigError &&
+      error.code === 'CONFIG_INVALID' &&
+      error.message.includes('ownerUserIds'),
+  );
+
+  assert.throws(
+    () => parsePluginConfig(raw({ serviceGroupDiscovery: { enabled: 'yes' } }), {}),
+    (error: unknown) =>
+      error instanceof WecomConfigError &&
+      error.code === 'CONFIG_INVALID' &&
+      error.message.includes('serviceGroupDiscovery.enabled'),
+  );
+  assert.throws(
+    () => parsePluginConfig(raw({ serviceGroupDiscovery: { intervalMs: 1 } }), {}),
+    (error: unknown) =>
+      error instanceof WecomConfigError &&
+      error.code === 'CONFIG_INVALID' &&
+      error.message.includes('intervalMs'),
+  );
+  assert.throws(
+    () => parsePluginConfig(raw({ serviceGroupDiscovery: 'on' }), {}),
+    (error: unknown) =>
+      error instanceof WecomConfigError && error.code === 'CONFIG_INVALID',
+  );
 });
 
 test('缺少必填项时报 CONFIG_REQUIRED 且不回显 Secret', () => {
@@ -136,4 +191,26 @@ test('升级主管列表可空；配置时去空、去重', () => {
     () => parsePluginConfig(raw({ supervisorChatIds: 'wang.guwen' }), {}),
     (error: unknown) => error instanceof WecomConfigError && error.code === 'CONFIG_INVALID',
   );
+});
+
+test('群昵称凭据：插件配置优先，缺省读环境变量', () => {
+  const fromEnv = parsePluginConfig(raw(), {
+    WECOM_CORPID: 'corp_env',
+    WECOM_CONTACT_SECRET: 'contact_env_secret',
+  });
+  assert.equal(fromEnv.corpId, 'corp_env');
+  assert.equal(fromEnv.contactSecret, 'contact_env_secret');
+
+  const explicit = parsePluginConfig(
+    raw({ corpId: 'corp_cfg', contactSecret: 'contact_cfg_secret' }),
+    { WECOM_CORPID: 'corp_env', WECOM_CONTACT_SECRET: 'contact_env_secret' },
+  );
+  assert.equal(explicit.corpId, 'corp_cfg');
+  assert.equal(explicit.contactSecret, 'contact_cfg_secret');
+});
+
+test('未配置群昵称凭据时字段为空，不影响启动', () => {
+  const config = parsePluginConfig(raw(), {});
+  assert.equal(config.corpId, undefined);
+  assert.equal(config.contactSecret, undefined);
 });

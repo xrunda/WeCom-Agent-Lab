@@ -17,6 +17,7 @@ import type {
   SandboxQuota,
   SandboxSessionRecord,
   SandboxVerification,
+  ScriptRecord,
   SessionRecord,
   TenantRecord,
 } from './console-types.ts';
@@ -34,7 +35,8 @@ export type ConsoleTable =
   | 'sandbox_events'
   | 'sandbox_memories'
   | 'sandbox_quota'
-  | 'media';
+  | 'media'
+  | 'scripts';
 
 export const CONSOLE_TABLES: readonly ConsoleTable[] = [
   'tenants',
@@ -50,6 +52,7 @@ export const CONSOLE_TABLES: readonly ConsoleTable[] = [
   'sandbox_memories',
   'sandbox_quota',
   'media',
+  'scripts',
 ];
 
 export interface ConsoleMediaRecord {
@@ -131,6 +134,7 @@ export class ConsoleStore {
   private readonly sandboxMemories = new Map<string, SandboxMemory>();
   private readonly sandboxQuota = new Map<string, SandboxQuota>();
   private readonly media = new Map<string, ConsoleMediaRecord>();
+  private readonly scripts = new Map<string, ScriptRecord>();
   private readonly auditKeys = new Set<string>();
 
   constructor(options: ConsoleStoreOptions) {
@@ -191,6 +195,10 @@ export class ConsoleStore {
     for (const value of options.backend.load('media')) {
       const record = value as ConsoleMediaRecord;
       this.media.set(record.id, record);
+    }
+    for (const value of options.backend.load('scripts')) {
+      const record = value as ScriptRecord;
+      this.scripts.set(record.id, record);
     }
   }
 
@@ -383,6 +391,21 @@ export class ConsoleStore {
   saveMedia(record: ConsoleMediaRecord): void {
     this.media.set(record.id, record);
     this.persist('media', record.id, record);
+  }
+
+  // ---------- 话术库 ----------
+
+  getScript(id: string): ScriptRecord | undefined {
+    return this.scripts.get(id);
+  }
+
+  listScripts(): ScriptRecord[] {
+    return [...this.scripts.values()];
+  }
+
+  saveScript(record: ScriptRecord): void {
+    this.scripts.set(record.id, record);
+    this.persist('scripts', record.id, record);
   }
 
   // ---------- 落盘 ----------

@@ -54,7 +54,7 @@ test('C2 大写告警转成 P1 实体，标题/严重级别取默认值', () => 
   assert.equal(events.some((event) => event.type === 'alert.created'), true);
 });
 
-test('P1 告警实体保留 id，重复事件幂等；未知类型与沙盒事件忽略', () => {
+test('P1 告警实体保留 id 与来源，重复事件幂等；未知类型与沙盒事件忽略', () => {
   const { service } = setup();
   const first = service.ingest({
     id: 'alt_known',
@@ -63,10 +63,12 @@ test('P1 告警实体保留 id，重复事件幂等；未知类型与沙盒事�
     status: 'acknowledged',
     title: '红线',
     patientId: 'pat_1',
+    source: 'staff',
   });
   assert.equal(first?.id, 'alt_known');
   assert.equal(first?.severity, 'critical');
   assert.equal(first?.status, 'acknowledged');
+  assert.equal(first?.source, 'staff');
 
   const again = service.ingest({ id: 'alt_known', kind: 'redline' });
   assert.equal(again?.id, 'alt_known');
@@ -78,14 +80,15 @@ test('P1 告警实体保留 id，重复事件幂等；未知类型与沙盒事�
   assert.equal(service.ingest('alert'), undefined);
 });
 
-test('正文只在实体里截断到 200 字，事件与审计不带正文', () => {
+test('告警详情截断到 500 字（含员工发言摘录），审计不带正文', () => {
   const { service, events, store } = setup();
-  const alert = service.ingest({ kind: 'remind', message: 'x'.repeat(500) });
-  assert.equal(alert!.message.length, 200);
-  for (const event of events) {
-    assert.equal(JSON.stringify(event).includes('x'.repeat(201)), false);
-  }
+  const alert = service.ingest({ kind: 'remind', message: 'x'.repeat(800) });
+  assert.equal(alert!.message.length, 500);
   assert.equal(store.listAudits().length, 0);
+  // alert.created 需要把详情同步给控制台（SSE 实时刷新）
+  const created = events.find((event) => event.type === 'alert.created');
+  assert.equal(created !== undefined, true);
+  assert.equal(String((created!.data as { message?: string }).message).length, 500);
 });
 
 test('列表按时间倒序、支持筛选与分页；未解决计数不含已解决', () => {

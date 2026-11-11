@@ -35,7 +35,7 @@ export function ValueBar({ value, rangeLabel, onRefresh, onOpenOnboarding }: Val
   const term = useTerm();
   const [minutes, setMinutes] = useState(value.minutesPerDraft);
   const [saving, setSaving] = useState(false);
-  const canConfigure = can('setting.write');
+  const canConfigure = can('tenant.write');
 
   useEffect(() => {
     setMinutes(value.minutesPerDraft);

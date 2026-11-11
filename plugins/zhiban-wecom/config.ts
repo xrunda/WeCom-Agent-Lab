@@ -23,6 +23,18 @@ export interface WecomPluginConfigInput {
     cacheLimit?: unknown;
   };
   serviceGroupRoomIds?: unknown;
+  /** #106：客户群自动发现（只发现企业创建的客户群，登记为候选） */
+  serviceGroupDiscovery?: {
+    enabled?: unknown;
+    intervalMs?: unknown;
+    maxPerScan?: unknown;
+    /**
+     * 只发现这些企微成员（群主 userid）名下的客户群。
+     * demo / dev 共用同一个 corpid，必须各自配置，避免一个环境把另一个环境的群
+     * 登记进自己的控制台。为空表示不按群主过滤。
+     */
+    ownerUserIds?: unknown;
+  };
   advisorId?: unknown;
   advisorName?: unknown;
   advisorChatId?: unknown;
@@ -30,6 +42,13 @@ export interface WecomPluginConfigInput {
   groupChatId?: unknown;
   /** #39：升级时 1:1 推送的主管（企微 userid），可空 */
   supervisorChatIds?: unknown;
+  /**
+   * 客户联系 API 凭据，用于查外部群的真实群昵称。
+   * 缺省从 WECOM_CONTACT_SECRET / WECOM_CORPID 读取；都不配时昵称功能关闭，
+   * 界面继续显示 id 尾号。
+   */
+  contactSecret?: unknown;
+  corpId?: unknown;
   mediaRootDir?: unknown;
   pollIntervalMs?: unknown;
   tickIntervalMs?: unknown;
@@ -52,12 +71,23 @@ export interface WecomPluginConfig {
   };
   /** 本环境允许处理的存档群；两个环境共用存档席位，靠白名单隔离 */
   serviceGroupRoomIds: string[];
+  /** 客户群自动发现：轮询客户群列表，把新群登记为候选 */
+  serviceGroupDiscovery: {
+    enabled: boolean;
+    intervalMs: number;
+    maxPerScan: number;
+    /** 只发现这些群主的客户群；空数组表示不过滤 */
+    ownerUserIds: string[];
+  };
   advisorId: string;
   advisorName: string;
   advisorChatId: string;
   groupName: string;
   groupChatId?: string;
   supervisorChatIds: string[];
+  /** 客户联系 Secret；与 corpId 同时存在时才启用群昵称查询 */
+  contactSecret?: string;
+  corpId?: string;
   mediaRootDir: string;
   pollIntervalMs: number;
   tickIntervalMs: number;
@@ -82,6 +112,8 @@ const DEFAULTS = {
   batchSize: 100,
   maxBatchesPerPoll: 5,
   cacheLimit: 2000,
+  discoveryIntervalMs: 5 * 60_000,
+  discoveryMaxPerScan: 50,
 };
 
 function requiredString(value: unknown, field: string): string {
@@ -137,6 +169,53 @@ function parseEnvironment(value: unknown): ZhibanEnv {
     throw new WecomConfigError('CONFIG_INVALID', 'environment 必须是 demo 或 dev');
   }
   return value;
+}
+
+function parseDiscovery(value: unknown): WecomPluginConfig['serviceGroupDiscovery'] {
+  const defaults = {
+    enabled: true,
+    intervalMs: DEFAULTS.discoveryIntervalMs,
+    maxPerScan: DEFAULTS.discoveryMaxPerScan,
+    ownerUserIds: [] as string[],
+  };
+  if (value === undefined || value === null) return defaults;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new WecomConfigError('CONFIG_INVALID', 'serviceGroupDiscovery 必须是对象');
+  }
+  const input = value as {
+    enabled?: unknown;
+    intervalMs?: unknown;
+    maxPerScan?: unknown;
+    ownerUserIds?: unknown;
+  };
+  let enabled = defaults.enabled;
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== 'boolean') {
+      throw new WecomConfigError('CONFIG_INVALID', 'serviceGroupDiscovery.enabled 必须是布尔值');
+    }
+    enabled = input.enabled;
+  }
+  return {
+    enabled,
+    intervalMs: boundedInt(
+      input.intervalMs,
+      'serviceGroupDiscovery.intervalMs',
+      60_000,
+      24 * 60 * 60_000,
+      defaults.intervalMs,
+    ),
+    maxPerScan: boundedInt(
+      input.maxPerScan,
+      'serviceGroupDiscovery.maxPerScan',
+      1,
+      500,
+      defaults.maxPerScan,
+    ),
+    ownerUserIds: optionalStringList(
+      input.ownerUserIds,
+      'serviceGroupDiscovery.ownerUserIds',
+    ),
+  };
 }
 
 /**
@@ -199,12 +278,18 @@ export function parsePluginConfig(
       cacheLimit: boundedInt(archive.cacheLimit, 'archive.cacheLimit', 100, 20_000, DEFAULTS.cacheLimit),
     },
     serviceGroupRoomIds: stringList(input.serviceGroupRoomIds, 'serviceGroupRoomIds'),
+    serviceGroupDiscovery: parseDiscovery(input.serviceGroupDiscovery),
     advisorId: requiredString(input.advisorId, 'advisorId'),
     advisorName: requiredString(input.advisorName, 'advisorName'),
     advisorChatId: requiredString(input.advisorChatId, 'advisorChatId'),
     groupName: requiredString(input.groupName, 'groupName'),
     groupChatId: optionalString(input.groupChatId, 'groupChatId'),
     supervisorChatIds: optionalStringList(input.supervisorChatIds, 'supervisorChatIds'),
+    // 群昵称凭据：插件配置优先，否则读环境变量；两者都缺时功能静默关闭
+    contactSecret:
+      optionalString(input.contactSecret, 'contactSecret') ??
+      optionalString(env.WECOM_CONTACT_SECRET, 'WECOM_CONTACT_SECRET'),
+    corpId: optionalString(input.corpId, 'corpId') ?? optionalString(env.WECOM_CORPID, 'WECOM_CORPID'),
     mediaRootDir: requiredString(input.mediaRootDir, 'mediaRootDir'),
     pollIntervalMs: boundedInt(input.pollIntervalMs, 'pollIntervalMs', 1_000, 300_000, DEFAULTS.pollIntervalMs),
     tickIntervalMs: boundedInt(input.tickIntervalMs, 'tickIntervalMs', 1_000, 60_000, DEFAULTS.tickIntervalMs),

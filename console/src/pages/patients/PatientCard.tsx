@@ -21,8 +21,6 @@ export interface PatientCardProps {
 
 export function PatientCard({ patient, term, online, advisorName, onOpen }: PatientCardProps) {
   const initial = patient.displayName.slice(0, 1);
-  const consentTone =
-    patient.consent === 'agreed' ? 'green' : patient.consent === 'disagreed' ? 'red' : 'gold';
 
   return (
     <Card hoverable className="patient-card" onClick={onOpen}>
@@ -39,7 +37,7 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             </Text>
             {patient.demo ? (
               <Tag bordered={false} color="purple" className="tag-tight">
-                演示
+                演示环境
               </Tag>
             ) : null}
           </Space>
@@ -47,14 +45,23 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             {online ? '专属 Agent 在线' : '专属 Agent 离线'} · 顾问 {advisorName}
           </Text>
         </div>
-        <Tooltip title={CONSENT_HINTS[patient.consent]}>
-          <Tag bordered={false} color={consentTone} className="tag-tight">
-            {CONSENT_LABELS[patient.consent]}
-          </Tag>
-        </Tooltip>
+        {patient.consent === 'disagreed' ? (
+          <Tooltip title={CONSENT_HINTS.disagreed}>
+            <Tag bordered={false} color="red" className="tag-tight">
+              {CONSENT_LABELS.disagreed}
+            </Tag>
+          </Tooltip>
+        ) : null}
       </div>
 
       <Space size={[6, 6]} wrap style={{ marginTop: 14 }}>
+        {patient.identityStatus === 'pending' ? (
+          <Tooltip title="系统按群内发言推测患者，可能不是本人；打开详情确认身份">
+            <Tag bordered={false} color="gold" className="tag-tight">
+              身份待确认
+            </Tag>
+          </Tooltip>
+        ) : null}
         {patient.tags.map((tag) => (
           <Tag key={tag} bordered={false}>
             {tag}

@@ -1,9 +1,10 @@
-import { RobotOutlined, SaveOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, RobotOutlined, SaveOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, App, Avatar, Button, Card, Form, Input, Select, Space, Typography } from 'antd';
+import { Alert, App, Avatar, Button, Card, Form, Input, Select, Space, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
+import { ENABLED_CAPABILITIES } from '../../../capabilities.ts';
 import { PATIENT_TERMS, type PatientTerm } from '../../../types.ts';
 import { formatDateTime } from '../../../utils/format.ts';
 import '../settings.css';
@@ -21,7 +22,7 @@ interface AgentFormValues {
 export default function AgentSettingsPage() {
   const { tenant, updateTenant, can } = useAuth();
   const { message } = App.useApp();
-  const canWrite = can('setting.write');
+  const canWrite = can('tenant.write');
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<AgentFormValues>();
 
@@ -71,8 +72,8 @@ export default function AgentSettingsPage() {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="只读账号"
-              description="当前角色可以查看设定，但不能修改。"
+              message="当前角色不能修改 Agent 设定"
+              description="名字、称谓与语气会写进所有草稿和沙盒回复，只有机构管理员可以修改；其他角色可以查看。"
             />
           ) : null}
           <Form<AgentFormValues>
@@ -155,6 +156,25 @@ export default function AgentSettingsPage() {
           </Space>
         </Card>
       </div>
+
+      <Card
+        className="zb-card"
+        variant="borderless"
+        title="已启用能力"
+        extra={<Text type="secondary">由平台统一安装</Text>}
+        style={{ marginTop: 16 }}
+      >
+        <Space size={[8, 8]} wrap>
+          {ENABLED_CAPABILITIES.map((name) => (
+            <Tag key={name} bordered={false} color="green" icon={<CheckCircleOutlined />}>
+              {name}
+            </Tag>
+          ))}
+        </Space>
+        <Paragraph type="secondary" style={{ margin: '12px 0 0' }}>
+          能力随服务包以插件形式启用，机构无需安装或升级；需要新增能力时走开通申请。
+        </Paragraph>
+      </Card>
     </PageContainer>
   );
 }

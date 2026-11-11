@@ -19,12 +19,12 @@ import PatientsPage from '../src/pages/patients/index.tsx';
 import SandboxPage from '../src/pages/sandbox/index.tsx';
 import ServiceFlowPage from '../src/pages/service-flow/index.tsx';
 
-async function renderPage(node: ReactNode) {
+async function renderPage(node: ReactNode, initialEntries: string[] = ['/']) {
   await login('admin', MOCK_PASSWORD);
   render(
     <ConfigProvider locale={zhCN}>
       <AntApp>
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={initialEntries}>
           <AuthProvider>{node}</AuthProvider>
         </MemoryRouter>
       </AntApp>
@@ -82,7 +82,7 @@ describe('WP-J 页面', () => {
     });
   });
 
-  it('告警详情抽屉展示关联对象与入口', async () => {
+  it('告警详情抽屉说明原因、处理情况与关联入口', async () => {
     const user = userEvent.setup();
     await renderPage(<AlertsPage />);
 
@@ -91,7 +91,30 @@ describe('WP-J 页面', () => {
     await user.click(within(row).getByText('查看'));
 
     expect(await screen.findByText('告警详情')).toBeInTheDocument();
-    expect(await screen.findByText('去服务流查看')).toBeInTheDocument();
+    expect(await screen.findByText('为什么告警')).toBeInTheDocument();
+    expect(screen.getByText('处理情况')).toBeInTheDocument();
+    expect(screen.getByText('怎么处理')).toBeInTheDocument();
+    // 有关联草稿时按钮直接指向该草稿，而不是服务流列表首页
+    expect(await screen.findByText('打开关联草稿')).toBeInTheDocument();
+  });
+
+  it('深链 ?draftId= 直接打开服务流详情抽屉', async () => {
+    await renderPage(<ServiceFlowPage />, ['/service-flow?draftId=draft_1007']);
+
+    expect(await screen.findByRole('tab', { name: '时间线' })).toBeInTheDocument();
+    expect(screen.getByText('draft_1007')).toBeInTheDocument();
+  });
+
+  it('深链 ?patientId= 按患者筛选服务流并允许清除', async () => {
+    const user = userEvent.setup();
+    await renderPage(<ServiceFlowPage />, ['/service-flow?patientId=pat_03']);
+
+    expect(await screen.findByText(/已按患者筛选/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '清除筛选' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/已按患者筛选/)).not.toBeInTheDocument();
+    });
   });
 
   it('沙盒三栏联动：记忆、草稿与核验结果', async () => {

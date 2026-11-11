@@ -14,9 +14,15 @@ import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
 import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
-import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
+import type {
+  ConsentStatus,
+  InboundMessage as PatientInboundMessage,
+  RouteDecision,
+} from '../../src/p1/types.ts';
 import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
+import type { GroupInfoClient, RoomInfo } from './group-info.ts';
+import type { RoomAgreeClient } from './room-agree.ts';
 
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
@@ -26,12 +32,43 @@ export interface PatientSink {
   observeRooms(
     rooms: Array<{
       roomId: string;
-      members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        /** 客户联系 API 拿到的群昵称；拿不到时缺省，由患者域回退 id 尾号 */
+        displayName?: string;
+      }>;
+      /**
+       * 企微里当前的群名；拿不到时缺省。患者域按「非手工命名才覆盖」的规则同步。
+       */
+      groupName?: string;
+      /**
+       * 整群 userid → 昵称映射。本轮没发言、但已经在患者域里的成员
+       * 也能据此更新名称与回填患者；拿不到昵称时缺省。
+       */
+      memberNames?: Record<string, string>;
+      /**
+       * externalUserid → 会话存档同意状态。来自企微 check_room_agree；
+       * 查询失败或未配置凭据时缺省，患者域保持原状态。
+       */
+      memberConsent?: Record<string, ConsentStatus>;
     }>,
   ): void;
   routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
   handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
   handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+}
+
+/** 员工在服务群里的发言：交给 zhiban-guard 做红线质检（不落正文） */
+export interface StaffQualityMessage {
+  msgid: string;
+  /** 发言人企微 userid；P1 里即顾问 id */
+  from: string;
+  roomId: string;
+  groupName?: string;
+  text: string;
+  msgtime: number;
 }
 
 export interface WecomRuntimeDeps {
@@ -46,8 +83,22 @@ export interface WecomRuntimeDeps {
   /** 发到 DSH 事件总线：ctx.emit(type, data) */
   emit: (type: string, data: unknown) => void;
   logger?: (line: string) => void;
+  /**
+   * 员工（顾问 / 客服）在服务群里的发言质检。
+   * 只把原文交给质检方做关键词匹配；本运行时日志不会打正文。
+   */
+  staffQuality?: (message: StaffQualityMessage) => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
+  /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
+  groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
+  /** 会话存档同意状态（可选）：查询失败时静默保留原状态 */
+  roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
+  /** #106：客户群自动发现；未配置客户联系凭据时缺省 */
+  discovery?: {
+    scanOnce(): Promise<unknown>;
+    intervalMs: number;
+  };
 }
 
 export interface StartOptions {
@@ -107,10 +158,15 @@ export class WecomRuntime {
   private readonly clock: Clock;
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
+  private readonly staffQuality?: (message: StaffQualityMessage) => void;
   private readonly patient?: PatientSink;
+  private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
+  private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
+  private readonly discovery?: WecomRuntimeDeps['discovery'];
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
+  private discoveryTimer?: ReturnType<typeof setInterval>;
   private running = false;
   private polling = false;
   private ticking = false;
@@ -126,7 +182,11 @@ export class WecomRuntime {
     this.clock = deps.clock;
     this.emit = deps.emit;
     this.logger = deps.logger;
+    this.staffQuality = deps.staffQuality;
     this.patient = deps.patient;
+    this.groupInfo = deps.groupInfo;
+    this.roomAgree = deps.roomAgree;
+    this.discovery = deps.discovery;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -164,6 +224,15 @@ export class WecomRuntime {
     }, this.config.tickIntervalMs);
     this.pollTimer.unref?.();
     this.tickTimer.unref?.();
+    if (this.discovery) {
+      // 启动时先扫一轮，让存量客户群马上出现在待确认里；之后按间隔轮询
+      void this.discovery.scanOnce();
+      this.discoveryTimer = setInterval(() => {
+        void this.discovery?.scanOnce();
+      }, this.discovery.intervalMs);
+      this.discoveryTimer.unref?.();
+      this.log(`服务群自动发现已启动：每 ${this.discovery.intervalMs}ms 扫描一次客户群列表`);
+    }
     this.log(
       `已启动：环境=${this.config.environment}，轮询 ${this.config.pollIntervalMs}ms，` +
         `队列 ${this.config.tickIntervalMs}ms`,
@@ -175,8 +244,10 @@ export class WecomRuntime {
     this.running = false;
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.tickTimer) clearInterval(this.tickTimer);
+    if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     this.pollTimer = undefined;
     this.tickTimer = undefined;
+    this.discoveryTimer = undefined;
     this.persistProgress(true);
     await this.store.flush();
   }
@@ -187,7 +258,7 @@ export class WecomRuntime {
     this.polling = true;
     try {
       const result = await this.trigger.pollWithContext();
-      this.patient?.observeRooms(result.rooms);
+      this.patient?.observeRooms(await this.enrichRooms(result.rooms));
 
       // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
       const ordered: Array<{ message: ArchivedInbound; event?: (typeof result.events)[number] }> = [
@@ -196,6 +267,29 @@ export class WecomRuntime {
       ].sort((a, b) => a.message.msgtime - b.message.msgtime);
 
       for (const { message, event } of ordered) {
+        // 员工发言先进质检再走上下文：命中红线时仍保留会话上下文，
+        // 不因质检拦截而丢失患者域看到的对话顺序。
+        if (!event && this.staffQuality && (message.msgtype === 'text' || message.msgtype === undefined)) {
+          const text = message.text ?? '';
+          if (text.trim() !== '') {
+            try {
+              this.staffQuality({
+                msgid: message.msgid,
+                from: message.from,
+                roomId: message.roomid,
+                groupName: this.store.getGroup(message.roomid)?.name,
+                text,
+                msgtime: message.msgtime,
+              });
+            } catch (error) {
+              // 质检失败不影响正常会话链路；日志只带 msgid，不带正文
+              this.log(
+                `员工发言质检失败 msgid=${tailId(message.msgid)}：` +
+                  `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+              );
+            }
+          }
+        }
         if (this.patient) {
           const routed = this.patient.routeInbound({
             msgid: message.msgid,
@@ -250,6 +344,87 @@ export class WecomRuntime {
       );
     } finally {
       this.polling = false;
+    }
+  }
+
+  /**
+   * 用客户联系 API 补群名与群昵称，用会话存档 API 补同意状态。
+   * 未配置凭据、内部群（90501）或查询失败时原样返回对应字段，
+   * 患者域继续用「外部成员 …尾号」/ 原群名与同意状态，不影响草稿链路。
+   */
+  private async enrichRooms(
+    rooms: Array<{
+      roomId: string;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        displayName?: string;
+      }>;
+    }>,
+  ): Promise<
+    Array<{
+      roomId: string;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        displayName?: string;
+      }>;
+      /** 企微里当前的群名；空群名不返回，避免覆盖已有名称 */
+      groupName?: string;
+      memberNames?: Record<string, string>;
+      memberConsent?: Record<string, ConsentStatus>;
+    }>
+  > {
+    const groupInfo = this.groupInfo;
+    const roomAgree = this.roomAgree;
+    if (!groupInfo && !roomAgree) return rooms;
+
+    return Promise.all(
+      rooms.map(async (room) => {
+        const [info, consent] = await Promise.all([
+          groupInfo ? this.safeRoomInfo(groupInfo, room.roomId) : undefined,
+          roomAgree ? this.safeRoomConsent(roomAgree, room.roomId) : undefined,
+        ]);
+        const hasNames = info !== undefined && info.names.size > 0;
+        if (!hasNames && !info?.name && !consent) return room;
+
+        const enriched = { ...room };
+        if (hasNames && info) {
+          enriched.members = room.members.map((member) => {
+            const displayName = info.names.get(member.id);
+            return displayName ? { ...member, displayName } : member;
+          });
+          // 整群映射交给患者域：本轮没发言的成员也能更新名称、回填患者
+          Object.assign(enriched, { memberNames: Object.fromEntries(info.names) });
+        }
+        if (info?.name) Object.assign(enriched, { groupName: info.name });
+        if (consent) Object.assign(enriched, { memberConsent: consent });
+        return enriched;
+      }),
+    );
+  }
+
+  private async safeRoomInfo(
+    client: Pick<GroupInfoClient, 'roomInfo'>,
+    roomId: string,
+  ): Promise<RoomInfo | undefined> {
+    try {
+      return await client.roomInfo(roomId);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async safeRoomConsent(
+    client: Pick<RoomAgreeClient, 'roomConsent'>,
+    roomId: string,
+  ): Promise<Record<string, ConsentStatus> | undefined> {
+    try {
+      return await client.roomConsent(roomId);
+    } catch {
+      return undefined;
     }
   }
 

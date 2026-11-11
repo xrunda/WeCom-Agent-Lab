@@ -88,6 +88,8 @@ export interface FakeEnqueue {
   customerName: string;
   body: string;
   riskLevel: RiskLevel;
+  ruleIds?: string[];
+  ruleNames?: string[];
   source: 'inbound' | 'proactive';
   fallback: boolean;
   inboundSummary: string;
@@ -185,6 +187,8 @@ export function setupRuntime(
     memory?: PatientMemoryPort;
     capabilities?: () => AgentCapabilities;
     maxProactivePerHour?: number;
+    schedule?: (fn: () => void, delayMs: number) => unknown;
+    cancelSchedule?: (handle: unknown) => void;
   } = {},
 ) {
   const base = setupPatient(options);
@@ -203,8 +207,8 @@ export function setupRuntime(
     mergeWindowMs: 30_000,
     mergeMaxWaitMs: 120_000,
     now: () => base.clock.now(),
-    schedule: () => 1,
-    cancelSchedule: () => undefined,
+    schedule: options.schedule ?? (() => 1),
+    cancelSchedule: options.cancelSchedule ?? (() => undefined),
     memory: options.memory,
     capabilities: options.capabilities,
     maxProactivePerHour: options.maxProactivePerHour,
@@ -264,6 +268,8 @@ export function c2Bridge(service: import('../src/c2/service.ts').C2Service): Pat
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,
+        ruleIds: input.ruleIds,
+        ruleNames: input.ruleNames,
         source: input.source,
         fallback: input.fallback,
         citedMemoryIds: input.citedMemoryIds,

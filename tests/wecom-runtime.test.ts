@@ -8,7 +8,10 @@ import { ArchiveTrigger } from '../src/c2/trigger.ts';
 import type { Draft } from '../src/c2/types.ts';
 import { parsePluginConfig, type WecomPluginConfig } from '../plugins/zhiban-wecom/config.ts';
 import { DomainStore, MemoryStoreBackend } from '../plugins/zhiban-wecom/domain.ts';
+import type { GroupInfoClient } from '../plugins/zhiban-wecom/group-info.ts';
+import type { RoomAgreeClient } from '../plugins/zhiban-wecom/room-agree.ts';
 import { WecomRuntime, makeTemplateCompose } from '../plugins/zhiban-wecom/runtime.ts';
+import type { PatientSink, StaffQualityMessage } from '../plugins/zhiban-wecom/runtime.ts';
 
 const CUSTOMER_TEXT = '客户说血糖有点高，晚上睡不好';
 const ADV = 'adv_1';
@@ -46,7 +49,15 @@ interface Harness {
   logs: string[];
 }
 
-function harness(options: { environment?: 'demo' | 'dev' } = {}): Harness {
+function harness(
+  options: {
+    environment?: 'demo' | 'dev';
+    groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
+    roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
+    patient?: PatientSink;
+    staffQuality?: (message: StaffQualityMessage) => void;
+  } = {},
+): Harness {
   const clock = new FakeClock(1_000_000);
   const store = new DomainStore(new MemoryStoreBackend());
   const pluginConfig = { ...config(), environment: options.environment ?? 'demo' };
@@ -119,6 +130,10 @@ function harness(options: { environment?: 'demo' | 'dev' } = {}): Harness {
       events.push({ type, data });
     },
     logger: (line) => logs.push(line),
+    groupInfo: options.groupInfo,
+    roomAgree: options.roomAgree,
+    patient: options.patient,
+    staffQuality: options.staffQuality,
   });
 
   return { clock, store, bot, service, runtime, events, logs };
@@ -463,4 +478,172 @@ test('重启后回读补历史：重启前已确认的草稿仍能核验为 VERI
   await runtime2.stop();
 
   assert.equal(store2.getDraft(draft.id)?.status, 'VERIFIED');
+});
+
+function recordingPatient(observed: Parameters<PatientSink['observeRooms']>[0]): PatientSink {
+  return {
+    observeRooms: (rooms) => {
+      observed.push(...rooms);
+    },
+    routeInbound: () => ({
+      handled: false,
+      decision: { action: 'ignore', reason: 'PATIENT_UNAVAILABLE' },
+    }),
+    handleDraftVerified: async () => undefined,
+    handleAdvisorText: async () => false,
+  };
+}
+
+test('群发现时用客户联系 API 补真实群昵称', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      roomInfo: async (roomId) =>
+        roomId === 'wrGROUP1'
+          ? {
+              name: '客户-张女士',
+              names: new Map([
+                ['wmCUSTOMER', '张女士'],
+                ['wmFAMILY', '张女士的女儿'],
+              ]),
+            }
+          : undefined,
+      memberNames: async () =>
+        new Map([
+          ['wmCUSTOMER', '张女士'],
+          ['wmFAMILY', '张女士的女儿'],
+        ]),
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const member = observed.flatMap((room) => room.members).find((item) => item.id === 'wmCUSTOMER');
+  assert.equal(member?.displayName, '张女士');
+
+  // 整群映射一并交给患者域：本轮没发言的成员也能回填
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.equal(room?.groupName, '客户-张女士');
+  assert.equal(room?.memberNames?.wmCUSTOMER, '张女士');
+  assert.equal(room?.memberNames?.wmFAMILY, '张女士的女儿');
+  assert.ok(!observed.flatMap((item) => item.members).some((item) => item.id === 'wmFAMILY'));
+});
+
+test('群昵称查询失败或异常时保持 id 尾号回退，草稿链路不受影响', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      roomInfo: async () => {
+        throw new Error('WECOM_DOWN');
+      },
+      memberNames: async () => {
+        throw new Error('WECOM_DOWN');
+      },
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const member = observed.flatMap((room) => room.members).find((item) => item.id === 'wmCUSTOMER');
+  assert.equal(member?.displayName, undefined);
+  // 昵称失败不影响草稿生成
+  assert.equal(h.store.listDrafts().length, 1);
+  assert.ok(!h.logs.join('\n').includes('WECOM_DOWN'));
+});
+
+test('群发现时用会话存档接口补同意状态，和群昵称一起交给患者域', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    groupInfo: {
+      roomInfo: async () => ({ names: new Map([['wmCUSTOMER', '张女士']]) }),
+      memberNames: async () => new Map([['wmCUSTOMER', '张女士']]),
+    },
+    roomAgree: {
+      roomConsent: async (roomId) =>
+        roomId === 'wrGROUP1'
+          ? { wmCUSTOMER: 'agreed', wmFAMILY: 'disagreed' }
+          : undefined,
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.deepEqual(room?.memberConsent, { wmCUSTOMER: 'agreed', wmFAMILY: 'disagreed' });
+  // 两个来源互不影响
+  assert.equal(room?.memberNames?.wmCUSTOMER, '张女士');
+  assert.equal(room?.members.find((item) => item.id === 'wmCUSTOMER')?.displayName, '张女士');
+});
+
+test('同意状态查询失败时缺省该字段，草稿链路不受影响', async () => {
+  const observed: Parameters<PatientSink['observeRooms']>[0] = [];
+  const h = harness({
+    patient: recordingPatient(observed),
+    roomAgree: {
+      roomConsent: async () => {
+        throw new Error('MSGAUDIT_DOWN');
+      },
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  const room = observed.find((item) => item.roomId === 'wrGROUP1');
+  assert.equal(room?.memberConsent, undefined);
+  assert.equal(h.store.listDrafts().length, 1);
+  assert.ok(!h.logs.join('\n').includes('MSGAUDIT_DOWN'));
+});
+
+test('内部员工发言送质检，外部客户发言不进质检；质检异常不影响会话链路', async () => {
+  const calls: StaffQualityMessage[] = [];
+  let throws = true;
+  const h = harness({
+    staffQuality: (message) => {
+      calls.push(message);
+      if (throws) {
+        throws = false;
+        throw new Error('GUARD_NOT_READY');
+      }
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    await h.runtime.pollOnce();
+
+    // 第一轮是客户消息（不质检），第二轮是顾问发言（质检，且异常被吞掉）
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.from, ADV);
+    assert.equal(calls[0]!.roomId, 'wrGROUP1');
+    assert.equal(calls[0]!.groupName, '减重-张女士');
+    assert.ok(calls[0]!.text.length > 0);
+    assert.equal(calls.some((call) => call.from === 'wmCUSTOMER'), false);
+
+    // 质检抛错后，正常草稿链路不受影响
+    assert.equal(h.store.listDrafts().length, 1);
+    assert.ok(h.logs.some((line) => line.includes('员工发言质检失败')));
+    const failedLog = h.logs.find((line) => line.includes('员工发言质检失败'))!;
+    assert.equal(failedLog.includes(calls[0]!.text), false);
+  } finally {
+    await h.runtime.stop();
+  }
 });

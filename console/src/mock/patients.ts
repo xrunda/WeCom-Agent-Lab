@@ -12,6 +12,9 @@ import { ApiError, apiRequest, isMockMode } from './http.ts';
 
 export type ConsentStatus = 'agreed' | 'unknown' | 'disagreed';
 export type PatientStatus = 'serving' | 'paused' | 'archived';
+export type IdentityStatus = 'pending' | 'confirmed';
+export type IdentitySource = 'auto' | 'manual';
+export type MemberRole = 'self' | 'family' | 'advisor' | 'colleague' | 'unknown';
 export type MemoryCategory =
   | 'dietary_taboo'
   | 'routine'
@@ -38,6 +41,11 @@ export interface Patient {
   displayName: string;
   avatar: string | null;
   externalUserId: string | null;
+  /** 患者身份确认状态：pending=系统按发言推测待确认；confirmed=顾问手动指定 */
+  identityStatus?: IdentityStatus;
+  /** 身份来源：auto=按发言自动推测；manual=顾问在控制台确认/改绑 */
+  identitySource?: IdentitySource;
+  identityConfirmedAt?: number | null;
   tags: string[];
   advisorId: string | null;
   groupIds: string[];
@@ -54,6 +62,28 @@ export interface Patient {
   deletedAt: number | null;
 }
 
+/** 服务群成员：用于「设为当前 Agent 的患者」选择 */
+export interface PatientGroupMember {
+  id: string;
+  groupId: string;
+  externalUserId: string | null;
+  externalUserIdTail: string | null;
+  displayName: string;
+  isExternal: boolean;
+  staffUserId?: string | null;
+  role: MemberRole;
+  consent: ConsentStatus;
+  lastActiveAt?: number | null;
+  annotatedBy?: string | null;
+  annotatedAt?: number | null;
+}
+
+export interface SetPatientIdentityInput {
+  groupId: string;
+  externalUserId: string;
+  displayName?: string;
+}
+
 export interface Memory {
   id: string;
   tenantId: string;
@@ -67,6 +97,9 @@ export interface Memory {
   createdById: string | null;
   createdAt: number;
   updatedAt: number;
+  /** 内容/分类/归属被真正修正的时间；只更新来源时不设置 */
+  revisedAt?: number | null;
+  updatedBy?: 'agent' | 'staff' | null;
   deletedAt: number | null;
   deletedBy: string | null;
   sandbox: boolean;
@@ -220,6 +253,7 @@ interface PatientsState {
   memories: Memory[];
   carePlans: CarePlan[];
   actions: AgentAction[];
+  members: PatientGroupMember[];
 }
 
 const STATE_KEY = 'zhiban.console.k.patients';
@@ -230,6 +264,9 @@ const groups = groupsFixture as unknown as {
   name: string;
   status: string;
   roomId: string;
+  advisorId?: string;
+  memberCount?: number;
+  externalMemberCount?: number;
 }[];
 
 let cachedState: PatientsState | null = null;
@@ -238,13 +275,97 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** 演示成员：每位患者一个「本人」+ 一位家属 + 群顾问。仅 mock 模式使用。 */
+function seedMembers(patients: Patient[]): PatientGroupMember[] {
+  const members: PatientGroupMember[] = [];
+  for (const patient of patients) {
+    for (const groupId of patient.groupIds) {
+      const group = groups.find((item) => item.id === groupId);
+      if (!group) continue;
+      const externalUserId = patient.externalUserId ?? `wm_demo_${patient.id}`;
+      members.push({
+        id: `gm_self_${groupId}`,
+        groupId,
+        externalUserId,
+        externalUserIdTail: externalUserId.slice(-6),
+        displayName: patient.displayName,
+        isExternal: true,
+        role: 'self',
+        consent: patient.consent,
+        lastActiveAt: patient.lastActiveAt,
+        annotatedBy: null,
+        annotatedAt: null,
+      });
+      members.push({
+        id: `gm_family_${groupId}`,
+        groupId,
+        externalUserId: `wm_demo_family_${groupId}`,
+        externalUserIdTail: `family_${groupId.slice(-3)}`.slice(-6),
+        displayName: `${patient.displayName}的家属`,
+        isExternal: true,
+        role: 'family',
+        consent: 'unknown',
+        lastActiveAt: null,
+        annotatedBy: null,
+        annotatedAt: null,
+      });
+      if (group.advisorId) {
+        const advisor = advisors.find((item) => item.id === group.advisorId);
+        members.push({
+          id: `gm_advisor_${groupId}`,
+          groupId,
+          externalUserId: null,
+          externalUserIdTail: null,
+          displayName: advisor?.name ?? '顾问',
+          isExternal: false,
+          staffUserId: group.advisorId,
+          role: 'advisor',
+          consent: 'agreed',
+          lastActiveAt: null,
+          annotatedBy: null,
+          annotatedAt: null,
+        });
+      }
+    }
+  }
+  // 待确认群的成员还没同步到患者域；给有外部成员的群补一个占位成员，
+  // 让「开始服务」可以选服务对象。真实模式由群成员同步提供。
+  for (const group of groups) {
+    if (!group.externalMemberCount) continue;
+    if (members.some((member) => member.groupId === group.id)) continue;
+    const externalUserId = `wm_demo_external_${group.id}`;
+    members.push({
+      id: `gm_external_${group.id}`,
+      groupId: group.id,
+      externalUserId,
+      externalUserIdTail: externalUserId.slice(-6),
+      displayName: `外部成员 ${externalUserId.slice(-4)}`,
+      isExternal: true,
+      role: 'self',
+      consent: 'unknown',
+      lastActiveAt: null,
+      annotatedBy: null,
+      annotatedAt: null,
+    });
+  }
+  return members;
+}
+
 function seedState(): PatientsState {
+  const patients = clone(patientsFixture) as unknown as Patient[];
   return {
-    patients: clone(patientsFixture) as unknown as Patient[],
+    patients,
     memories: clone(memoriesFixture) as unknown as Memory[],
     carePlans: clone(carePlansFixture) as unknown as CarePlan[],
     actions: clone(actionsFixture) as unknown as AgentAction[],
+    members: seedMembers(patients),
   };
+}
+
+/** 旧缓存可能没有 members 表；缺失时按现有患者补一次。 */
+function ensureMembers(state: PatientsState): PatientGroupMember[] {
+  if (!Array.isArray(state.members)) state.members = seedMembers(state.patients);
+  return state.members;
 }
 
 function readState(): PatientsState {
@@ -256,6 +377,7 @@ function readState(): PatientsState {
     // 隐私模式或存储被禁用时，本次会话使用内存状态
     cachedState = seedState();
   }
+  ensureMembers(cachedState);
   return cachedState;
 }
 
@@ -418,6 +540,77 @@ export async function updatePatient(
   return patient;
 }
 
+/** 服务群成员列表（含角色/同意），用于「设为患者」选择。 */
+export async function listGroupMembers(groupId: string): Promise<PatientGroupMember[]> {
+  if (!isMockMode) {
+    const data = await apiRequest<{ items: PatientGroupMember[]; total: number }>(
+      `/groups/${groupId}/members`,
+    );
+    return data.items;
+  }
+  const state = readState();
+  return ensureMembers(state)
+    .filter((member) => member.groupId === groupId)
+    .map((member) => ({ ...member }));
+}
+
+/** 确认 / 改绑患者身份：把患者指向服务群里的某位外部成员。 */
+export async function setPatientIdentity(
+  patientId: string,
+  input: SetPatientIdentityInput,
+): Promise<Patient> {
+  if (!isMockMode) {
+    return apiRequest<Patient>(`/patients/${patientId}/identity`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  const state = readState();
+  const patient = findPatient(patientId);
+  if (!patient.groupIds.includes(input.groupId)) {
+    throw new ApiError('VALIDATION_FAILED', '患者未绑定该服务群', 422);
+  }
+  const members = ensureMembers(state);
+  const member = members.find(
+    (item) => item.groupId === input.groupId && item.externalUserId === input.externalUserId,
+  );
+  if (!member || !member.isExternal) {
+    throw new ApiError('VALIDATION_FAILED', '该成员不是服务群的外部成员', 422);
+  }
+
+  const previous = patient.externalUserId;
+  patient.externalUserId = input.externalUserId;
+  const rename = input.displayName?.trim();
+  if (previous !== input.externalUserId || !patient.displayName) {
+    patient.displayName = rename || member.displayName;
+  } else if (rename) {
+    patient.displayName = rename;
+  }
+  patient.consent = member.consent;
+  patient.identityStatus = 'confirmed';
+  patient.identitySource = 'manual';
+  patient.identityConfirmedAt = now();
+  patient.updatedAt = now();
+
+  // 被选成员标为「本人」，原「本人」成员降为「家属」
+  for (const item of members) {
+    if (item.groupId !== input.groupId) continue;
+    if (item.externalUserId === input.externalUserId) {
+      item.role = 'self';
+      item.annotatedBy = 'console';
+      item.annotatedAt = now();
+    } else if (previous && item.externalUserId === previous && item.role === 'self') {
+      item.role = 'family';
+      item.annotatedBy = 'console';
+      item.annotatedAt = now();
+    }
+  }
+
+  writeState(state);
+  return patient;
+}
+
 /** 群绑定变更后同步患者的 groupIds（由 groups mock 调用）。 */
 export function attachPatientToGroup(patientId: string, groupId: string): void {
   const state = readState();
@@ -520,6 +713,11 @@ export async function updateMemory(
   const memory = state.memories.find((item) => item.id === memoryId && item.deletedAt === null);
   if (!memory) throw new ApiError('NOT_FOUND', '记忆不存在或已删除', 404);
 
+  const before = {
+    category: memory.category,
+    content: memory.content,
+    subject: memory.subject,
+  };
   if (patch.content !== undefined) {
     const content = patch.content.trim();
     if (!content) throw new ApiError('VALIDATION_FAILED', '记忆内容不能为空', 422);
@@ -528,7 +726,16 @@ export async function updateMemory(
   }
   if (patch.category) memory.category = patch.category;
   if (patch.subject) memory.subject = patch.subject;
-  memory.updatedAt = now();
+  const at = now();
+  memory.updatedAt = at;
+  const corrected =
+    memory.category !== before.category ||
+    memory.content !== before.content ||
+    memory.subject !== before.subject;
+  if (corrected) {
+    memory.revisedAt = at;
+    memory.updatedBy = 'staff';
+  }
   writeState(state);
   return memory;
 }
@@ -761,21 +968,43 @@ export function buildTimeline(patientId: string): TimelineEvent[] {
     }
   }
 
-  return events.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  // 与真实接口一致：最新事件在前，分页第一页永远是最新的一段。
+  return events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id));
 }
 
-export async function getTimeline(patientId: string): Promise<TimelineEvent[]> {
+export interface TimelinePage {
+  items: TimelineEvent[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export async function getTimeline(
+  patientId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<TimelinePage> {
   if (!isMockMode) {
-    return apiRequest<{ items: TimelineEvent[] }>(`/patients/${patientId}/timeline`).then(
-      (result) => result.items,
-    );
+    const query = `?page=${page}&pageSize=${pageSize}`;
+    return apiRequest<TimelinePage>(`/patients/${patientId}/timeline${query}`);
   }
-  return buildTimeline(patientId);
+  const events = buildTimeline(patientId);
+  const start = (Math.max(1, page) - 1) * pageSize;
+  return {
+    items: events.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total: events.length,
+  };
 }
 
 export async function getHealthProfile(patientId: string): Promise<HealthProfile> {
   if (!isMockMode) {
-    return apiRequest<HealthProfile>(`/patients/${patientId}/health-profile`);
+    const response = await apiRequest<{ profile: HealthProfile | null; sample: boolean }>(
+      `/patients/${patientId}/health-profile`,
+    );
+    if (!response.profile) throw new Error('暂无健康档案：真实体检数据尚未接入（P1）');
+    return response.profile;
   }
 
   const patient = findPatient(patientId);
@@ -799,7 +1028,11 @@ export async function getHealthProfile(patientId: string): Promise<HealthProfile
 
 export async function getServicePlan(patientId: string): Promise<ServicePlanSample> {
   if (!isMockMode) {
-    return apiRequest<ServicePlanSample>(`/patients/${patientId}/service-plan`);
+    const response = await apiRequest<{ plan: ServicePlanSample | null; sample: boolean }>(
+      `/patients/${patientId}/service-plan`,
+    );
+    if (!response.plan) throw new Error('暂无服务计划：真实计划数据尚未接入（P1）');
+    return response.plan;
   }
 
   const patient = findPatient(patientId);

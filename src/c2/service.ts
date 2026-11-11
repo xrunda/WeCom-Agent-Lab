@@ -57,6 +57,8 @@ export interface EnqueueDraftInput {
   inboundSummary: string;
   body: string;
   ruleIds?: string[];
+  /** #37：命中规则名称，卡片优先展示名称 */
+  ruleNames?: string[];
   riskLevel?: RiskLevel;
   /** #34：inbound（患者提问）/ proactive（Agent 主动） */
   source?: DraftSource;
@@ -198,6 +200,9 @@ export class C2Service {
       inboundSummary: input.inboundSummary,
       body,
       ruleIds: input.ruleIds ?? [],
+      ...(input.ruleNames && input.ruleNames.length > 0
+        ? { ruleNames: [...input.ruleNames] }
+        : {}),
       riskLevel: input.riskLevel ?? 'low',
       status: 'QUEUED',
       version,
@@ -372,6 +377,9 @@ export class C2Service {
       body: string;
       inboundSummary?: string;
       riskLevel?: RiskLevel;
+      /** #37：改稿后重新校验的命中规则；不传则保留上一版 */
+      ruleIds?: string[];
+      ruleNames?: string[];
       instruction?: string;
       citedMemoryIds?: string[];
       citedKnowledgeIds?: string[];
@@ -405,6 +413,11 @@ export class C2Service {
     draft.revisionInstruction = revision.instruction;
     draft.inboundSummary = input.inboundSummary?.trim() || draft.inboundSummary;
     draft.riskLevel = input.riskLevel ?? draft.riskLevel;
+    if (input.ruleIds) draft.ruleIds = [...input.ruleIds];
+    if (input.ruleNames) {
+      if (input.ruleNames.length > 0) draft.ruleNames = [...input.ruleNames];
+      else delete draft.ruleNames;
+    }
     draft.citedMemoryIds = input.citedMemoryIds ?? draft.citedMemoryIds;
     draft.citedKnowledgeIds = input.citedKnowledgeIds ?? draft.citedKnowledgeIds;
     // 重新排队：清掉本次推送状态与旧卡片，否则串行队列会把 active 当作仍在等待

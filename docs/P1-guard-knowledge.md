@@ -26,7 +26,7 @@
 
 - 门禁**不阻断**推送：命中的草稿仍会生成卡片，由顾问决定发不发。
 - 校验是同步的，保证在同一回合内改写草稿后再入队。
-- 日志、审计、告警、事件都不带患者消息正文与草稿正文，只带规则 id / 名称 / 等级。
+- 日志、审计、告警、事件都不带患者消息正文与草稿正文，只带规则 id / 名称 / 等级（员工发言告警例外：详情带原文摘录供人工复核，见 §2.7）。
 
 ## 2. #37 红线门禁
 
@@ -44,15 +44,16 @@
 
 ### 2.2 校验算法
 
-1. 遍历所有启用规则，用**字面包含**匹配草稿正文。
-2. `action=guide|escalate` 的规则**同时**匹配本轮患者输入；这样模型即使没在草稿里复述「胸痛」，急症仍会触发。改稿回合没有新消息时，沿用该患者最近一次入站文本（只在内存中保留，不落盘、不进日志）。
-3. 风险等级 = `max(模型自评, 所有命中规则等级)`。
-4. 动作合并：
+1. `action=flag` 的规则用**字面包含**匹配草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
+2. `action=guide|escalate` 的规则**只**匹配本轮患者输入：急症证据必须来自患者本人（或其家属）的话，模型即使没在草稿里复述「胸痛」也会触发。草稿里的条件式提醒（如「如果出现胸痛、呼吸困难请立即就医」）是合规提示，不参与匹配，否则正常关怀草稿会被整段替换掉。改稿回合没有新消息时，沿用该患者最近一次入站文本（只在内存中保留，不落盘、不进日志）。
+3. 命中规则写入草稿的 `ruleIds` / `ruleNames`，顾问卡片显示规则名称；未命中时卡片显示「无」。
+4. 风险等级 = `max(模型自评, 所有命中规则等级)`。
+5. 动作合并：
    - 任一 `escalate` → 改写正文为就医引导（`REFERRAL_BODY`），生成 `kind=escalate / severity=critical` 告警；
    - 否则任一 `guide` → 同样改写正文；
    - 仅 `flag` → 只抬高风险，正文不动。
-5. 命中规则 `hitCount += 1`，写审计 `risk_rule.hit`，发 `risk_rule.hit` 事件。
-6. 命中且 `escalate || riskLevel === 'high'` 时生成告警；普通 low/medium 命中不告警。告警创建时带 `patientId` / `groupId` / `sessionId` / `ruleIds`，草稿入队后由运行时代回调 `linkDraft` 回填 `draftId`。
+6. 命中规则 `hitCount += 1`，写审计 `risk_rule.hit`，发 `risk_rule.hit` 事件。
+7. 命中且 `escalate || riskLevel === 'high'` 时生成告警；普通 low/medium 命中不告警。告警创建时带 `patientId` / `groupId` / `sessionId` / `ruleIds`，草稿入队后由运行时代回调 `linkDraft` 回填 `draftId`。
 
 `REFERRAL_BODY`：`您描述的情况需要尽快由医生处理。请立即拨打 120 或前往最近医院急诊，不要等待线上回复。`
 
@@ -87,8 +88,23 @@ DSH 现有 hook 无法在 `reply_draft` 入队前改写参数（`tools/pre-execu
 ```
 
 - 领域：`zhiban_guard`（`rules` / `alerts` / `audit`）。
-- 提供 `zhibanGuard` 服务：`review`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
+- 提供 `zhibanGuard` 服务：`review`、`reviewStaffMessage`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
 - 事件：`risk_rule.created|updated|deleted|hit`、`alert.created`、`draft.guard.hit`、`audit`。
+
+### 2.7 员工发言质检（人工消息也过红线）
+
+服务群里顾问 / 客服自己发出的消息，与 AI 草稿走同一套关键词规则：
+
+- 入口：`zhiban-wecom` 轮询到「非 `wm` 开头」的内部员工发言时，调用 `zhibanGuard.reviewStaffMessage({ text, advisorId, advisorName, groupId, groupName, messageId })`，再照常把消息交给患者域做上下文。
+- 只匹配 `action=flag` 的规则（内置三条 + 自定义关键词规则）。急症规则是「患者说症状 → 引导就医」，员工复述症状属于正常沟通，不判违规。
+- 否定句不命中：关键词前 4 字出现「不要 / 不能 / 请勿 / 别 / 未 / 避免 …」时视为合规提醒（如「不要自行加量」「请勿停药」）；「特别加量」这类不含否定的仍会命中。
+- 命中后：
+  - 规则 `hitCount += 1`，写审计 `risk_rule.hit`（`errorCode=staff_message`），发 `risk_rule.hit`（`source=staff`）；
+  - 生成 `kind=redline / severity=warning` 告警，带 `advisorId` / `groupId` / `source=staff` / `messageId`，标题固定「员工发言命中红线」；`message` 含发言人、群名、规则名与原文摘录（压成一行后最多 300 字），供人工复核；
+  - 告警事件与控制台 `AlertService.ingest` 字段对齐（`id` / `advisorId` / `groupId` 等），管理后台「质检与告警」可见；
+  - `zhiban-wecom` 通过机器人 1:1 给发言人推送提醒（只含群名和规则名），并计入「顾问 → 红线命中」个人留痕。
+- 同一条 `msgid` 只质检一次（进程内去重），避免重启或重复轮询产生重复告警。
+- 审计与日志不带员工发言正文；只有告警详情（人工复核用）保存原文摘录。
 
 ## 3. #38 知识库
 

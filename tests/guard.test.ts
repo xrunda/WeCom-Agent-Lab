@@ -156,7 +156,13 @@ test('#37 自定义规则：CRUD、guide 改写、停用后不再命中', async 
   assert.equal(created.builtin, false);
   assert.equal(created.enabled, false);
 
-  const off = h.service.review({ body: '您心慌的话先坐一下。', riskLevel: 'low', patientId: 'pt_3', source: 'inbound' });
+  const off = h.service.review({
+    body: '您心慌的话先坐一下。',
+    riskLevel: 'low',
+    patientId: 'pt_3',
+    source: 'inbound',
+    inboundText: '我今天有点心慌。',
+  });
   assert.equal(off.hits.includes(created.id), false);
 
   h.service.update(created.id, { enabled: true });
@@ -165,9 +171,19 @@ test('#37 自定义规则：CRUD、guide 改写、停用后不再命中', async 
     riskLevel: 'low',
     patientId: 'pt_3',
     source: 'inbound',
+    inboundText: '我今天有点心慌。',
   });
   assert.ok(on.hits.includes(created.id));
   assert.equal(on.guideOnly, true);
+
+  // guide 规则同样只看患者输入：草稿里出现关键词不触发改写
+  const bodyOnly = h.service.review({
+    body: '您心慌的话先坐一下。',
+    riskLevel: 'low',
+    patientId: 'pt_3',
+    source: 'inbound',
+  });
+  assert.equal(bodyOnly.hits.includes(created.id), false);
   assert.equal(on.referralBody, REFERRAL_BODY);
 
   h.service.remove(created.id);
@@ -272,6 +288,9 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   const enqueued = runtimeHarness.bridge.enqueued[0]!;
   assert.equal(enqueued.body, REFERRAL_BODY);
   assert.equal(enqueued.riskLevel, 'high');
+  // #37：命中规则要落进草稿，卡片才能显示规则名而不是「无」
+  assert.deepEqual(enqueued.ruleIds, ['rul_builtin_emergency']);
+  assert.deepEqual(enqueued.ruleNames, ['急症只引导就医']);
   const event = runtimeHarness.events.find((item) => item.type === 'draft.guard.hit');
   assert.ok(event);
   const data = event!.data as {
@@ -292,6 +311,37 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   assert.ok(alert);
   assert.equal(alert!.draftId, draftId);
   assert.equal(alert!.groupId, group.id);
+});
+
+test('#37 急症规则不因草稿里的条件式提醒自触发', () => {
+  const h = harness();
+  const result = h.service.review({
+    body: '另外要提醒一句：如果胸闷同时伴有胸痛、明显呼吸困难、出汗，请立即拨打 120。',
+    riskLevel: 'low',
+    patientId: 'pt_4',
+    sessionId: 's_4',
+    source: 'inbound',
+    inboundText: '我平时有高血压，偶尔会胸闷气短。',
+  });
+  assert.equal(result.escalate, false);
+  assert.equal(result.guideOnly, false);
+  assert.equal(result.riskLevel, 'low');
+  assert.deepEqual(result.hits, []);
+  assert.deepEqual(result.hitNames, []);
+  assert.equal(result.referralBody, undefined);
+  assert.equal(h.service.alerts().length, 0);
+  assert.equal(h.service.get('rul_builtin_emergency')?.hitCount, 0);
+
+  // flag 规则仍然只看草稿正文：Agent 自己说出「停药」必须抬风险
+  const flagged = h.service.review({
+    body: '您可以先停药观察。',
+    riskLevel: 'low',
+    patientId: 'pt_4',
+    source: 'inbound',
+    inboundText: '我血压有点高。',
+  });
+  assert.deepEqual(flagged.hits, ['rul_builtin_no_medication']);
+  assert.equal(flagged.riskLevel, 'high');
 });
 
 test('#37 运行链路：改稿分支同样过门禁', async () => {
@@ -344,6 +394,8 @@ test('#37 运行链路：改稿分支同样过门禁', async () => {
   assert.equal(revised.input.riskLevel, 'high');
   // 改稿回合没有新消息，但患者上一轮的急症描述仍会复核，正文保持就医引导
   assert.equal(revised.input.body, REFERRAL_BODY);
+  assert.deepEqual(revised.input.ruleIds, ['rul_builtin_no_medication', 'rul_builtin_emergency']);
+  assert.deepEqual(revised.input.ruleNames, ['不调药', '急症只引导就医']);
   assert.ok(runtimeHarness.events.some((event) => event.type === 'draft.guard.hit'));
 });
 
@@ -493,4 +545,84 @@ test('#37 配置：tenantId 必填，sandbox 默认 false', () => {
     tenantId: 'tn',
     sandbox: true,
   });
+});
+
+// ---------- 员工发言质检 ----------
+
+test('员工发言命中红线：告警带顾问 / 群 / msgid 与原文摘录供人工复核', () => {
+  const h = harness();
+  const text = '建议加量服用，效果会更好';
+  const result = h.service.reviewStaffMessage({
+    text,
+    advisorId: 'LiGuang',
+    advisorName: '李光',
+    groupId: 'wr_test_1',
+    groupName: '测试服务群',
+    messageId: 'msg_staff_1',
+  });
+
+  assert.ok(result.hits.includes('rul_builtin_no_medication'));
+  assert.equal(result.riskLevel, 'high');
+  assert.ok(result.alertId);
+
+  const alert = h.service.alerts()[0]!;
+  assert.equal(alert.id, result.alertId);
+  assert.equal(alert.kind, 'redline');
+  assert.equal(alert.severity, 'warning');
+  assert.equal(alert.advisorId, 'LiGuang');
+  assert.equal(alert.groupId, 'wr_test_1');
+  assert.equal(alert.messageId, 'msg_staff_1');
+  assert.equal(alert.source, 'staff');
+  assert.equal(alert.message.includes('测试服务群'), true);
+  // 详情给人工复核：带发言人与原文；日志、审计与规则命中事件仍不带正文
+  assert.equal(alert.message.includes('李光'), true);
+  assert.equal(alert.message.includes(text), true);
+  assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 1);
+
+  assert.equal(JSON.stringify(h.service.audits()).includes(text), false);
+  const hit = h.events.find((event) => event.type === 'risk_rule.hit')!.data as Record<string, unknown>;
+  assert.equal(hit.source, 'staff');
+  assert.equal(hit.advisorId, 'LiGuang');
+  assert.equal(JSON.stringify(hit).includes(text), false);
+  const created = h.events.find((event) => event.type === 'alert.created')!.data as Record<string, unknown>;
+  assert.equal(created.id, alert.id);
+  assert.equal(created.advisorId, 'LiGuang');
+  assert.equal(created.groupId, 'wr_test_1');
+  assert.equal(created.title, '员工发言命中红线');
+  assert.equal(created.source, 'staff');
+  // 控制台靠 alert.created 拿到详情，事件里必须带摘录
+  assert.equal(String(created.message).includes(text), true);
+});
+
+test('员工发言质检：否定句、症状复述不算违规；同一 msgid 只记一次', () => {
+  const h = harness();
+
+  const negated = h.service.reviewStaffMessage({
+    text: '不要自行加量，也别停药，有情况随时联系医生。',
+  });
+  assert.equal(negated.hits.length, 0);
+
+  // 「特别加量」「特别建议加量」里的「别」不是否定，仍应命中
+  const special = h.service.reviewStaffMessage({ text: '特别加量' });
+  assert.ok(special.hits.includes('rul_builtin_no_medication'));
+  const special2 = h.service.reviewStaffMessage({ text: '特别建议加量' });
+  assert.ok(special2.hits.includes('rul_builtin_no_medication'));
+
+  // 急症规则只针对患者输入；员工复述症状是正常沟通
+  const symptom = h.service.reviewStaffMessage({
+    text: '阿姨说胸口很痛，我建议她马上去医院。',
+  });
+  assert.equal(symptom.hits.length, 0);
+
+  const first = h.service.reviewStaffMessage({
+    text: '这个药可以换药试试',
+    messageId: 'msg_same',
+  });
+  assert.deepEqual(first.hits, ['rul_builtin_no_medication']);
+  const again = h.service.reviewStaffMessage({
+    text: '这个药可以换药试试',
+    messageId: 'msg_same',
+  });
+  assert.equal(again.hits.length, 0);
+  assert.equal(h.service.alerts().length, 3); // 两条「特别」+ 换药；否定句与症状复述不告警
 });

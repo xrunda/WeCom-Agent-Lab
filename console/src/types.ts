@@ -90,7 +90,11 @@ export interface ScriptTemplate {
   content: string;
   tags: string[];
   enabled: boolean;
-  sample: boolean;
+  /** 仅 mock 示例数据为 true；真接口不返回该字段 */
+  sample?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  deletedAt?: number | null;
 }
 
 /* ---------- WP-L：技能与方案包 ---------- */
@@ -136,10 +140,29 @@ export interface DashboardKpis {
   computedAt: number;
 }
 
+export interface DashboardTrendPoint {
+  date: string;
+  label: string;
+  volume: number;
+  verified: number;
+}
+
+export interface DashboardAdvisorRank {
+  advisorId: string;
+  name: string;
+  status: string;
+  volume: number;
+  verified: number;
+  avgResponseSeconds: number;
+}
+
 export interface DashboardValue {
   range: DashboardRange;
   from: number;
   to: number;
+  /** 真实接口返回的近 14 天草稿量；mock 模式不提供 */
+  trend?: DashboardTrendPoint[];
+  advisorRanking?: DashboardAdvisorRank[];
   adoption: {
     original: number;
     revised: number;

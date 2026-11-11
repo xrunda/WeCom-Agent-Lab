@@ -83,7 +83,7 @@ function errorMessage(error: unknown): string {
 export default function AuditSettingsPage() {
   const { can } = useAuth();
   const { message } = App.useApp();
-  const canExport = can('audit.export');
+  const canExport = can('export');
 
   const [items, setItems] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);

@@ -4,6 +4,7 @@ import tenantFixture from './fixtures/tenant.json';
 import { getSession } from './api.ts';
 import { API_BASE, ApiError, apiRequest, isMockMode } from './http.ts';
 import { mockId, readStore, toQuery, writeStore } from './storage.ts';
+import { ROLE_CANONICAL_PERMISSIONS } from '../utils/permissions.ts';
 import type {
   Account,
   AuditEvent,
@@ -32,20 +33,12 @@ const MATRIX: PermissionMatrix = {
     {
       role: 'supervisor',
       label: '主管',
-      permissions: [
-        'patient.read',
-        'patient.write',
-        'draft.read',
-        'alert.write',
-        'advisor.operate',
-        'audit.read',
-        'export',
-      ],
+      permissions: [...ROLE_CANONICAL_PERMISSIONS.supervisor],
     },
     {
       role: 'viewer',
       label: '只读',
-      permissions: ['patient.read', 'draft.read', 'alert.read', 'audit.read'],
+      permissions: [...ROLE_CANONICAL_PERMISSIONS.viewer],
     },
   ],
 };

@@ -161,6 +161,15 @@ export function ConsoleLayout() {
           {accountMenu}
         </div>
       </header>
+      {isMockMode ? (
+        <div className="demo-banner" role="status">
+          <span className="demo-banner-label">示例数据</span>
+          <span>
+            当前为演示模式：本控制台所有数据均为虚构示例，不代表真实客户、真实群或真实草稿。
+            切换 LIVE 模式查看真实数据。
+          </span>
+        </div>
+      ) : null}
       <Outlet />
     </ProLayout>
   );

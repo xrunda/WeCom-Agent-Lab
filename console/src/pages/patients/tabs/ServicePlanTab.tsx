@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { SampleDataTag } from '../../../components/SampleDataTag.tsx';
 import { formatDate } from '../../../utils/format.ts';
+import { isMockMode } from '../../../mock/http.ts';
 import { getServicePlan, type ServicePlanSample } from '../../../mock/patients.ts';
 
 const { Text } = Typography;
@@ -40,6 +41,16 @@ export function ServicePlanTab({ patientId, term }: { patientId: string; term: s
   }
 
   if (error || !plan) {
+    if (!isMockMode) {
+      return (
+        <Alert
+          type="info"
+          showIcon
+          message="服务计划尚未接入真实数据"
+          description="P1 只提供示例版服务计划；真实计划数据将在后续版本接入。真实模式下不展示示例内容，避免与真实客户混淆。"
+        />
+      );
+    }
     return <Alert type="error" showIcon message={error ?? '暂无服务计划'} />;
   }
 

@@ -3,11 +3,16 @@
  *
  * 设计约定：
  * - 内置四条红线（不诊断 / 不调药 / 不承诺疗效 / 急症只引导就医）只读，
- *   全部参与草稿后校验；急症规则同时检查患者输入，确保模型不重复症状也能升级。
+ *   全部参与草稿后校验。`flag` 规则校验草稿正文，防止 Agent 自己说出违规内容；
+ *   `guide` / `escalate` 规则只看患者输入——草稿里的条件式提醒
+ *   （如「如果出现胸痛、呼吸困难请立即就医」）是合规提示，不应触发整段改写。
  * - 命中的风险等级取「模型自评」与「规则等级」的较高者，不阻断推送。
  * - 急症（action=escalate）与只引导就医（action=guide）会改写草稿正文，
  *   只保留就医引导；action=flag 只抬高风险，正文交给顾问审核。
  * - 审计、告警与事件都不带消息正文与草稿正文，只带规则 id、名称和等级。
+ * - 员工（顾问 / 客服）在服务群里的发言也走关键词质检（#P1-QC）：
+ *   只匹配 action=flag 的规则（急症规则针对患者输入，员工复述症状不算违规），
+ *   关键词前 4 字出现否定词时视为合规提醒（如「不要加量」），不计命中。
  */
 import type { RiskLevel } from '../c2/types.ts';
 import type { AuditEvent } from '../c2/types.ts';
@@ -59,6 +64,12 @@ export interface GuardAlertRecord {
   patientId?: string;
   groupId?: string;
   sessionId?: string;
+  /** 员工发言质检命中时关联的顾问（id 即企微 userid）；草稿校验告警不填 */
+  advisorId?: string;
+  /** 命中来源：草稿后校验 or 员工发言质检 */
+  source?: 'draft' | 'staff';
+  /** 员工发言的存档 msgid，仅用于去重与追溯，不含正文 */
+  messageId?: string;
   ruleIds: string[];
   createdAt: number;
   updatedAt: number;
@@ -109,6 +120,81 @@ export interface DraftReviewResult {
 
 export const REFERRAL_BODY =
   '您描述的情况需要尽快由医生处理。请立即拨打 120 或前往最近医院急诊，不要等待线上回复。';
+
+// ---------- 员工发言质检 ----------
+
+export interface StaffMessageReviewInput {
+  /** 员工在服务群里的发言原文；截断后写入告警详情供人工复核，日志与审计仍不带正文 */
+  text: string;
+  /** 发言人的顾问 id（P1 里就是企微 userid）；其他同事可能为空 */
+  advisorId?: string;
+  /** 发言人显示名；未登记为顾问时为空 */
+  advisorName?: string;
+  groupId?: string;
+  groupName?: string;
+  /** 存档 msgid；同一条消息重复扫描时只记一次 */
+  messageId?: string;
+}
+
+export interface StaffMessageReviewResult {
+  hits: string[];
+  hitNames: string[];
+  riskLevel: RiskLevel;
+  /** 产生告警时的告警 id；未命中为空 */
+  alertId?: string;
+}
+
+/**
+ * 关键词前的否定词（「不要加量」「请勿停药」）。单个字的否定词只认紧邻位置，
+ * 避免「特别加量」被当成否定句。
+ */
+const NEGATION_WORDS = [
+  '不要',
+  '不能',
+  '不可',
+  '不会',
+  '不应',
+  '不宜',
+  '不必',
+  '无需',
+  '不用',
+  '没有',
+  '避免',
+  '禁止',
+  '切勿',
+  '别',
+  '勿',
+  '未',
+];
+
+const NEGATION_WINDOW = 4;
+
+function isNegated(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - NEGATION_WINDOW), index);
+  return NEGATION_WORDS.some((word) => {
+    if (!before.includes(word)) return false;
+    if (word.length > 1) return true;
+    if (!before.endsWith(word)) return false;
+    // 「特别加量」「分别减药」里的「别」不是否定词
+    if (word === '别') {
+      const prev = before.slice(-2, -1);
+      return !'特分个差类区性级派告离辨惜作'.includes(prev);
+    }
+    return true;
+  });
+}
+
+/** 员工发言里是否出现「未被否定的」关键词；导出便于单测与规则预览复用。 */
+export function staffKeywordHit(text: string, keyword: string): boolean {
+  let cursor = 0;
+  while (cursor <= text.length) {
+    const index = text.indexOf(keyword, cursor);
+    if (index < 0) return false;
+    if (!isNegated(text, index)) return true;
+    cursor = index + keyword.length;
+  }
+  return false;
+}
 
 export const RISK_RULE_NAME_MAX = 40;
 export const RISK_KEYWORD_MAX = 30;
@@ -276,6 +362,8 @@ export class GuardService {
   private readonly rules = new Map<string, RiskRuleRecord>();
   private readonly alertLog: GuardAlertRecord[] = [];
   private readonly auditLog: AuditEvent[] = [];
+  /** 已质检过的员工消息 msgid，防止重启/重复轮询产生重复告警 */
+  private readonly staffSeen = new Set<string>();
   private chain: Promise<void> = Promise.resolve();
 
   constructor(options: GuardServiceOptions) {
@@ -381,7 +469,12 @@ export class GuardService {
     const hits: RiskRuleRecord[] = [];
     for (const rule of this.rules.values()) {
       if (!rule.enabled) continue;
-      const matchesBody = rule.keywords.some((keyword) => input.body.includes(keyword));
+      // flag：校验草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
+      // guide / escalate：只看患者输入，确保模型没复述症状也能升级；
+      // 草稿正文里的条件式提醒不参与匹配，否则正常关怀草稿会被整段替换成就医引导。
+      const matchesBody =
+        rule.action === 'flag' &&
+        rule.keywords.some((keyword) => input.body.includes(keyword));
       const matchesInbound =
         (rule.action === 'guide' || rule.action === 'escalate') &&
         typeof input.inboundText === 'string' &&
@@ -425,6 +518,7 @@ export class GuardService {
         patientId: input.patientId,
         groupId: input.groupId,
         sessionId: input.sessionId,
+        source: 'draft',
         ruleIds: hitIds,
       });
     }
@@ -438,6 +532,93 @@ export class GuardService {
       guideOnly,
       referralBody: guideOnly ? REFERRAL_BODY : undefined,
       alertId: alert?.id,
+    };
+  }
+
+  // ---------- 员工发言质检 ----------
+
+  /**
+   * 员工（顾问 / 客服）在服务群里的发言质检。
+   *
+   * 与草稿校验的区别：
+   * - 只看 action=flag 的规则：急症规则是「患者说症状 → 引导就医」，
+   *   员工复述症状属于正常沟通，不该被判违规；
+   * - 「不要加量 / 请勿停药」这类否定句不算命中；
+   * - 命中一律产生 kind=redline、severity=warning 的告警，并带上 advisorId，
+   *   供管理后台在顾问个人维度留痕；告警与审计都不含发言正文。
+   */
+  reviewStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult {
+    const text = typeof input.text === 'string' ? input.text : '';
+    const empty: StaffMessageReviewResult = { hits: [], hitNames: [], riskLevel: 'low' };
+    if (text.trim() === '') return empty;
+    if (input.messageId) {
+      if (this.staffSeen.has(input.messageId)) return empty;
+      this.staffSeen.add(input.messageId);
+      // 只保留最近 2000 条，避免长时间运行内存无限增长
+      if (this.staffSeen.size > 2000) {
+        const oldest = this.staffSeen.values().next().value;
+        if (oldest !== undefined) this.staffSeen.delete(oldest);
+      }
+    }
+
+    const hits: RiskRuleRecord[] = [];
+    for (const rule of this.rules.values()) {
+      if (!rule.enabled || rule.action !== 'flag') continue;
+      if (rule.keywords.some((keyword) => staffKeywordHit(text, keyword))) hits.push(rule);
+    }
+    if (hits.length === 0) return empty;
+
+    let riskLevel: RiskLevel = 'low';
+    for (const rule of hits) {
+      riskLevel = maxRisk(riskLevel, rule.riskLevel);
+      const updated: RiskRuleRecord = {
+        ...rule,
+        hitCount: rule.hitCount + 1,
+        updatedAt: this.now(),
+      };
+      this.rules.set(rule.id, updated);
+      this.persistRule(updated);
+      this.audit('staff', 'risk_rule.hit', rule.id, 'ok', 'staff_message');
+      this.emit('risk_rule.hit', {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        advisorId: input.advisorId,
+        groupId: input.groupId,
+        source: 'staff',
+        riskLevel: updated.riskLevel,
+        action: updated.action,
+      });
+    }
+
+    const hitNames = hits.map((rule) => rule.name);
+    const senderName =
+      typeof input.advisorName === 'string' && input.advisorName.trim() !== ''
+        ? input.advisorName.trim()
+        : '员工';
+    // 告警详情给人工复核看：带上发言人和原文摘要（最长 300 字）。
+    // 日志、审计与 risk_rule.hit 事件仍然不带正文。
+    const normalized = text.trim().replace(/\s+/g, ' ');
+    const excerpt = normalized.length > 300 ? `${normalized.slice(0, 300)}…` : normalized;
+    const alert = this.createAlert({
+      kind: 'redline',
+      severity: 'warning',
+      title: '员工发言命中红线',
+      message:
+        `群「${input.groupName ?? input.groupId ?? '未知群'}」${senderName}的发言命中规则：` +
+        `${hitNames.join('、')}。发言内容：「${excerpt}」`,
+      advisorId: input.advisorId,
+      groupId: input.groupId,
+      messageId: input.messageId,
+      source: 'staff',
+      ruleIds: hits.map((rule) => rule.id),
+      actor: 'staff',
+    });
+
+    return {
+      hits: hits.map((rule) => rule.id),
+      hitNames,
+      riskLevel,
+      alertId: alert.id,
     };
   }
 
@@ -503,6 +684,9 @@ export class GuardService {
     patientId?: string;
     groupId?: string;
     sessionId?: string;
+    advisorId?: string;
+    source?: 'draft' | 'staff';
+    messageId?: string;
     ruleIds: string[];
     actor?: 'agent' | 'staff' | 'system';
   }): GuardAlertRecord {
@@ -518,6 +702,9 @@ export class GuardService {
       patientId: input.patientId,
       groupId: input.groupId,
       sessionId: input.sessionId,
+      ...(input.advisorId ? { advisorId: input.advisorId } : {}),
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.messageId ? { messageId: input.messageId } : {}),
       ruleIds: [...input.ruleIds],
       createdAt: at,
       updatedAt: at,
@@ -526,12 +713,22 @@ export class GuardService {
     this.alertLog.push(alert);
     this.persistAlert(alert);
     this.audit(input.actor ?? 'system', 'alert.create', alert.id, 'ok', alert.kind);
+    // 字段与控制台 AlertService.ingest 对齐：控制台用 id / advisorId / groupId
+    // 把告警落到「质检与告警」和顾问个人记录里。
     this.emit('alert.created', {
+      id: alert.id,
       alertId: alert.id,
       kind: alert.kind,
       severity: alert.severity,
+      status: alert.status,
+      title: alert.title,
+      message: alert.message,
       patientId: alert.patientId,
+      advisorId: alert.advisorId,
+      groupId: alert.groupId,
+      source: alert.source,
       ruleIds: alert.ruleIds,
+      createdAt: alert.createdAt,
     });
     return alert;
   }

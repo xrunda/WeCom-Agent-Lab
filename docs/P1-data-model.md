@@ -215,7 +215,7 @@ media：文件在磁盘，元数据随消息保存
 | `roomId` | string | 否 | 会话存档 roomid（`wr` 前缀），全局唯一 |
 | `chatId` | string | 是 | 客户群 API 的 chat_id，可能与 roomId 不同 |
 | `name` | string | 否 | 群名；来源见 `nameSource` |
-| `nameSource` | enum | 否 | `config` / `api` / `members` / `roomid` |
+| `nameSource` | enum | 否 | `config` / `api` / `members` / `roomid` / `manual`；`api` = 企微群名同步，`manual` = 控制台手工改名（优先，不被企微覆盖） |
 | `status` | enum | 否 | `pending` / `serving` / `collect_only` / `disabled` |
 | `advisorId` | string | 是 | 负责顾问；`pending` 时可能为空 |
 | `patientIds` | array<string> | 否 | 派生：绑定患者，来自 group_binding |
@@ -248,7 +248,7 @@ media：文件在磁盘，元数据随消息保存
 | `groupId` | string | 否 | |
 | `externalUserId` | string | 是 | 外部成员企微 id（`wm...`）；内部员工为空 |
 | `externalUserIdTail` | string | 是 | 后 6 位，用于界面展示 |
-| `displayName` | string | 否 | 备注名或姓名；存档无昵称时用 id 尾号 |
+| `displayName` | string | 否 | 群昵称或姓名；存档无昵称（F8）时用 id 尾号 |
 | `isExternal` | boolean | 否 | |
 | `staffUserId` | string | 是 | 内部员工的企微 userid |
 | `role` | enum | 否 | `self` / `family` / `advisor` / `colleague` / `unknown` |
@@ -259,6 +259,7 @@ media：文件在磁盘，元数据随消息保存
 
 - 未标注一律 `unknown`；`advisor` / `colleague` 内部员工由员工身份自动判定。
 - 一个外部成员在同一租户的多个群里可以有不同角色（P1 允许），以群内标注为准。
+- 群昵称来自「客户联系」接口 `externalcontact/groupchat/get?need_name=1`（需要可信 IP 与客户联系权限）；查询失败、内部群（90501）或未配置凭据时回退 id 尾号。昵称只用于界面展示，不写日志。
 
 ### 3.6 group_binding
 
@@ -284,9 +285,12 @@ media：文件在磁盘，元数据随消息保存
 |---|---|---|---|
 | `id` | string | 否 | `pat_...` |
 | `tenantId` | string | 否 | |
-| `displayName` | string | 否 | 备注名 |
+| `displayName` | string | 否 | 备注名；占位名（`外部成员 …尾号`）会在拿到真实群昵称后自动回填，手工名不覆盖 |
 | `avatar` | string | 是 | |
 | `externalUserId` | string | 是 | 主外部成员 id（`wm...`），用于路由与同意状态 |
+| `identityStatus` | enum | 是 | `pending`（系统按发言猜测）/ `confirmed`（顾问手动确认/改绑） |
+| `identitySource` | enum | 是 | `auto` / `manual` |
+| `identityConfirmedAt` | number | 是 | 最近一次确认/改绑时间 |
 | `tags` | array<string> | 否 | 如 `["控糖","高血压"]`，控制台自由编辑 |
 | `advisorId` | string | 是 | 主责顾问 |
 | `groupIds` | array<string> | 否 | 派生：绑定群 |
@@ -322,7 +326,10 @@ media：文件在磁盘，元数据随消息保存
 | `createdBy` | enum | 否 | `agent` / `staff` |
 | `createdById` | string | 是 | staff 时为账号 id |
 | `createdAt` | number | 否 | |
-| `updatedAt` | number | 否 | |
+| `updatedAt` | number | 否 | 任意修改（含只更新来源）的时间 |
+| `revisedAt` | number | 是 | 内容 / 分类 / 归属被真正修正的时间；时间线据此生成「修正记忆」事件 |
+| `updatedBy` | enum | 是 | `agent` / `staff`，最近一次修正人 |
+| `updatedById` | string | 是 | staff 时为账号 id |
 | `deletedAt` | number | 是 | 软删除 |
 | `deletedBy` | string | 是 | 账号 id |
 | `sandbox` | boolean | 否 | |
@@ -454,7 +461,8 @@ media：文件在磁盘，元数据随消息保存
 | `sentVersion` | number | 是 | 核验匹配到的实发版本；未核验为空 |
 | `riskLevel` | enum | 否 | `low` / `medium` / `high` |
 | `status` | enum | 否 | 见 §6，**大写 C2 常量** |
-| `ruleIds` | array<string> | 否 | 命中的风险规则 |
+| `ruleIds` | array<string> | 否 | 命中的风险规则 id |
+| `ruleNames` | array<string> | 是 | 命中的风险规则名称，与 `ruleIds` 一一对应；卡片优先显示名称，旧数据为空时回退到 id |
 | `citedMemoryIds` | array<string> | 否 | Agent 声明引用的记忆 |
 | `citedKnowledgeIds` | array<string> | 否 | Agent 声明引用的知识 |
 | `fallback` | boolean | 否 | 是否为模板草稿（模型超时/报错/未调工具） |
@@ -730,7 +738,27 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 
 ### 4.2 group.status
 
-`pending → serving ⇄ collect_only / disabled`；任何状态可回到 `pending`（重新确认）。状态变更下一轮存档轮询生效。
+`pending → serving ⇄ collect_only / disabled`；任何状态可回到 `pending`（重新确认）。
+
+`group.status` 同时决定该群是否进入存档拉取白名单（#106）：`serving` / `collect_only` 拉取，
+`pending` / `disabled` 不拉取。白名单由 `zhiban-wecom` 的 `ServiceGroupRegistry` 维护并持久化在
+`zhiban_wecom` 域元数据 `service_roster`（不是业务库表）：
+
+```json
+{
+  "version": 1,
+  "allowed": ["wr..."],
+  "denied": ["wr..."],
+  "known": { "wr...": { "state": "candidate|active|inactive", "updatedAt": 1762645800000 } },
+  "updatedAt": 1762645800000
+}
+```
+
+- 白名单 = profile `serviceGroupRoomIds`（种子）∪ `allowed` − `denied`；`denied` 优先于种子，
+  保证管理员移出的群重启后不会被重新加入。
+- `known` 记录已发现群的来源状态；`candidate` 只出现在控制台，不拉取消息。
+- 客户群发现每轮用 `externalcontact/groupchat/list` 得到企微侧群列表，与 `known` 比对后
+  只登记未知群。快照损坏或版本不符时按种子重建，不阻塞启动。
 
 ### 4.3 care_plan.status
 

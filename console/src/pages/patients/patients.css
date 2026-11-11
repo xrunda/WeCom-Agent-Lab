@@ -42,3 +42,11 @@
 .tag-tight {
   margin-inline-end: 0;
 }
+
+.agent-identity-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}

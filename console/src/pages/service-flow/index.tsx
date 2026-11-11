@@ -30,6 +30,7 @@ import {
 import type { TableProps } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
@@ -39,6 +40,7 @@ import {
   isMockOnly,
 } from '../../mock/exports.ts';
 import { listGroups } from '../../mock/groups.ts';
+import { isMockMode } from '../../mock/http.ts';
 import { mediaKindLabel, type MediaKind } from '../../mock/media.ts';
 import {
   FLOW_STATUS_META,
@@ -70,6 +72,8 @@ const EVIDENCE_STATUSES = new Set([
 ]);
 
 interface Filters {
+  /** 从告警深链带入的患者筛选；界面上以提示条展示，可清除 */
+  patientId?: string;
   groupId?: string;
   advisorId?: string;
   status?: string;
@@ -79,6 +83,7 @@ interface Filters {
 }
 
 const EMPTY_FILTERS: Filters = {
+  patientId: undefined,
   groupId: undefined,
   advisorId: undefined,
   status: undefined,
@@ -105,23 +110,74 @@ function totalDuration(row: ServiceFlowRow): number | undefined {
 export default function ServiceFlowPage() {
   const { message } = App.useApp();
   const { can } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlDraftId = searchParams.get('draftId');
+  const urlPatientId = searchParams.get('patientId') ?? undefined;
   const [exporting, setExporting] = useState(false);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() => ({
+    ...EMPTY_FILTERS,
+    patientId: urlPatientId,
+  }));
   const [rows, setRows] = useState<ServiceFlowRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(true);
   const [ticker, setTicker] = useState<FlowEvent[]>([]);
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [advisors, setAdvisors] = useState<{ id: string; name: string }[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(urlDraftId);
   const [detail, setDetail] = useState<FlowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [version, setVersion] = useState<number | null>(null);
+
+  // 从告警/其它页面带参跳转过来时，同步 URL 里的患者筛选
+  useEffect(() => {
+    setFilters((current) =>
+      current.patientId === urlPatientId ? current : { ...current, patientId: urlPatientId },
+    );
+  }, [urlPatientId]);
+
+  // 深链 ?draftId= 直接打开对应草稿详情，而不是落在列表首页
+  useEffect(() => {
+    if (urlDraftId) setSelectedId(urlDraftId);
+  }, [urlDraftId]);
+
+  const updateParams = useCallback(
+    (mutate: (params: URLSearchParams) => void) => {
+      const next = new URLSearchParams(searchParams);
+      mutate(next);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const openDraft = useCallback(
+    (draftId: string) => {
+      setSelectedId(draftId);
+      updateParams((params) => params.set('draftId', draftId));
+    },
+    [updateParams],
+  );
+
+  const closeDetail = useCallback(() => {
+    setSelectedId(null);
+    updateParams((params) => params.delete('draftId'));
+  }, [updateParams]);
+
+  const resetFilters = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    updateParams((params) => params.delete('patientId'));
+  }, [updateParams]);
+
+  const clearPatientFilter = useCallback(() => {
+    setFilters((current) => ({ ...current, patientId: undefined }));
+    updateParams((params) => params.delete('patientId'));
+  }, [updateParams]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const result = await listServiceFlow({
+        patientId: filters.patientId,
         groupId: filters.groupId,
         advisorId: filters.advisorId,
         status: filters.status,
@@ -295,7 +351,7 @@ export default function ServiceFlowPage() {
       key: 'action',
       width: 84,
       render: (_, row) => (
-        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setSelectedId(row.id)}>
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDraft(row.id)}>
           查看
         </Button>
       ),
@@ -342,7 +398,11 @@ export default function ServiceFlowPage() {
           </div>
           <div className="flow-ticker" aria-label="最近事件">
             {tickerItems.length === 0 ? (
-              <Text type="secondary">等待事件…（mock 模式每 2.6 秒模拟一条草稿流转）</Text>
+              <Text type="secondary">
+                {isMockMode
+                  ? '等待事件…（mock 模式每 2.6 秒模拟一条草稿流转）'
+                  : '等待事件…（新草稿生成或核验后会实时推送）'}
+              </Text>
             ) : (
               tickerItems.map(({ key, event }) => (
                 <div className="flow-ticker-item" key={key}>
@@ -356,6 +416,20 @@ export default function ServiceFlowPage() {
 
         <Card variant="borderless">
           <Space wrap size={12} style={{ width: '100%' }}>
+            {filters.patientId && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ width: '100%' }}
+                message={`已按患者筛选：${rows[0]?.patientName ?? filters.patientId}`}
+                description="只显示该患者的服务记录。从告警跳转过来时用于快速定位。"
+                action={
+                  <Button size="small" onClick={clearPatientFilter}>
+                    清除筛选
+                  </Button>
+                }
+              />
+            )}
             <Select
               allowClear
               placeholder="全部群"
@@ -411,7 +485,7 @@ export default function ServiceFlowPage() {
                 }))
               }
             />
-            <Button onClick={() => setFilters(EMPTY_FILTERS)}>重置筛选</Button>
+            <Button onClick={resetFilters}>重置筛选</Button>
             <Text type="secondary">共 {rows.length} 条</Text>
           </Space>
         </Card>
@@ -430,7 +504,7 @@ export default function ServiceFlowPage() {
               : ''
           }
           onRow={(row) => ({
-            onClick: () => setSelectedId(row.id),
+            onClick: () => openDraft(row.id),
             style: { cursor: 'pointer' },
           })}
         />
@@ -439,11 +513,11 @@ export default function ServiceFlowPage() {
       <Drawer
         width={980}
         open={Boolean(selectedId)}
-        onClose={() => setSelectedId(null)}
+        onClose={closeDetail}
         destroyOnHidden
         loading={detailLoading}
         extra={
-          detail && can('draft.export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
+          detail && can('export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
             <Button
               icon={<FilePdfOutlined />}
               loading={exporting}

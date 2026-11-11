@@ -30,7 +30,11 @@ import type { DraftReviewInput, DraftReviewResult } from '../../src/p1/guard.ts'
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runtime.ts';
 import type {
+  AdvisorRecord,
   AgentCapabilities,
+  ConsentStatus,
+  GroupBinding,
+  GroupMember,
   GroupServiceStatus,
   InboundMessage,
   ManagedGroup,
@@ -102,7 +106,19 @@ export interface PatientRuntimeApi {
   observeRooms(
     rooms: Array<{
       roomId: string;
-      members: Array<{ id: string; isExternal: boolean; lastActiveAt: number }>;
+      members: Array<{
+        id: string;
+        isExternal: boolean;
+        lastActiveAt: number;
+        /** 客户联系 API 拿到的群昵称；缺省时患者域回退 id 尾号 */
+        displayName?: string;
+      }>;
+      /** 企微里当前的群名；缺省时保持原名称，控制台手工改名优先 */
+      groupName?: string;
+      /** 整群昵称映射；用于更新本轮未发言的成员并回填患者 */
+      memberNames?: Record<string, string>;
+      /** 会话存档同意状态；由企微 check_room_agree 返回，缺省时保持原状态 */
+      memberConsent?: Record<string, ConsentStatus>;
     }>,
   ): void;
   routeInbound(message: InboundMessage): { handled: boolean; decision: RouteDecision };
@@ -131,9 +147,55 @@ export interface PatientRuntimeApi {
   getPatientGroups(id: string):
     | {
         patient: { id: string; displayName: string };
-        groups: Array<{ id: string; name: string; roomId: string }>;
+        groups: Array<{
+          id: string;
+          name: string;
+          roomId: string;
+          status?: GroupServiceStatus;
+          isPrimary?: boolean;
+        }>;
       }
     | undefined;
+  /** 控制台患者列表 / 详情（真实存量数据，不含沙盒） */
+  listPatients(): Patient[];
+  getPatientAdmin(id: string): Patient | undefined;
+  /** 控制台顾问列表 / 状态操作 */
+  listAdvisors(): AdvisorRecord[];
+  getAdvisor(id: string): AdvisorRecord | undefined;
+  updatePatient(
+    id: string,
+    patch: Partial<
+      Pick<
+        Patient,
+        'displayName' | 'avatar' | 'tags' | 'advisorId' | 'consent' | 'status' | 'externalUserId'
+      >
+    >,
+  ): Patient;
+  updateAdvisor(
+    id: string,
+    patch: Partial<Pick<AdvisorRecord, 'name' | 'status' | 'seatExpireAt' | 'chatBound'>>,
+  ): AdvisorRecord;
+  /** 控制台群管理：新建患者（绑定新患者时使用） */
+  createPatient(input: {
+    displayName: string;
+    externalUserId?: string;
+    tags?: string[];
+    advisorId?: string;
+    consent?: ConsentStatus;
+  }): Patient;
+  /** 控制台群管理：把患者绑定到服务群 */
+  bindPatient(groupId: string, patientId: string, isPrimary?: boolean): GroupBinding;
+  /** 患者 ↔ 群绑定（含是否主群） */
+  getPatientBindings(id: string): Array<{ groupId: string; isPrimary: boolean }>;
+  /** 确认 / 改绑患者身份：把患者指向服务群里的一位外部成员 */
+  setPatientIdentity(
+    groupId: string,
+    patientId: string,
+    externalUserId: string,
+    opts?: { displayName?: string },
+  ): Patient;
+  /** 服务群成员列表（含角色/同意），用于「设为患者」选择 */
+  listGroupMembers(groupId: string): GroupMember[];
   /** #59：数据与安全页的患者存档同意状态统计 */
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录，控制台 Agent 主页读取 */
@@ -429,13 +491,60 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         getPatientGroups: (id) => {
           const patient = store?.getPatient(id);
           if (!patient || patient.deletedAt !== undefined) return undefined;
+          const bindings = store?.listBindingsByPatient(id) ?? [];
           const groups = service
             .groupIdsFor(id)
             .map((groupId) => store?.getGroup(groupId))
-            .filter((group): group is NonNullable<typeof group> => group !== undefined)
-            .map((group) => ({ id: group.id, name: group.name, roomId: group.roomId }));
+            .filter(
+              (group): group is ManagedGroup =>
+                group !== undefined && group.deletedAt === undefined,
+            )
+            .map((group) => ({
+              id: group.id,
+              name: group.name,
+              roomId: group.roomId,
+              status: group.status,
+              isPrimary: bindings.find((item) => item.groupId === group.id)?.isPrimary ?? false,
+            }));
           return { patient: { id: patient.id, displayName: patient.displayName }, groups };
         },
+        listPatients: () =>
+          (store?.listPatients() ?? [])
+            .filter((patient) => patient.deletedAt === undefined)
+            .map((patient) => ({ ...patient, tags: [...patient.tags] })),
+        getPatientAdmin: (id) => {
+          const patient = store?.getPatient(id);
+          if (!patient || patient.deletedAt !== undefined) return undefined;
+          return { ...patient, tags: [...patient.tags] };
+        },
+        listAdvisors: () => (store?.listAdvisors() ?? []).map((advisor) => ({ ...advisor })),
+        getAdvisor: (id) => {
+          const advisor = store?.getAdvisor(id);
+          return advisor ? { ...advisor } : undefined;
+        },
+        updatePatient: (id, patch) => {
+          const updated = service.updatePatient(id, patch);
+          return { ...updated, tags: [...updated.tags] };
+        },
+        updateAdvisor: (id, patch) => ({ ...service.updateAdvisor(id, patch) }),
+        createPatient: (input) => {
+          const created = service.createPatient(input);
+          return { ...created, tags: [...created.tags] };
+        },
+        bindPatient: (groupId, patientId, isPrimary) => ({
+          ...service.bindPatient(groupId, patientId, isPrimary),
+        }),
+        getPatientBindings: (id) =>
+          (store?.listBindingsByPatient(id) ?? []).map((binding) => ({
+            groupId: binding.groupId,
+            isPrimary: binding.isPrimary,
+          })),
+        setPatientIdentity: (groupId, patientId, externalUserId, opts = {}) => {
+          const updated = service.setPatientIdentity(groupId, patientId, externalUserId, opts);
+          return { ...updated, tags: [...updated.tags] };
+        },
+        listGroupMembers: (groupId) =>
+          (store?.listMembers(groupId) ?? []).map((member) => ({ ...member })),
         consentStats: () => {
           const stats = { agreed: 0, unknown: 0, disagreed: 0, total: 0 };
           for (const patient of store?.listPatients() ?? []) {

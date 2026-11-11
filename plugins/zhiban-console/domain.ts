@@ -29,6 +29,8 @@ export const consoleDomain = defineDomain({
     sandbox_memories: table(),
     sandbox_quota: table(),
     media: table(),
+    // #120 话术库。新增表不改变已有表的落盘形状，因此无需提升 version。
+    scripts: table(),
   },
 });
 

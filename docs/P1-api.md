@@ -101,8 +101,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 | 顾问 新增 / 修改 / 删除 | ✅ | ❌ | ❌ |
 | 顾问 暂停 / 恢复 / 释放队列 | ✅ | ✅ | ❌ |
 | 告警 读与处理 | ✅ | ✅ | 只读 |
-| 知识库 / 风险规则 写 | ✅ | ❌ | ❌ |
-| 话术库（B 档）读 | ✅ | ✅ | ✅ |
+| 知识库 / 风险规则 / 话术库 写 | ✅ | ❌ | ❌ |
+| 知识库 / 风险规则 / 话术库 读 | ✅ | ✅ | ✅ |
 | 技能市场 / 方案包 读 | ✅ | ✅ | ✅ |
 | 账号与角色 | ✅ | ❌ | ❌ |
 | 审计 读 | ✅ | ✅ | ✅ |
@@ -184,12 +184,12 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 {
   "account": { "id": "acc_...", "displayName": "林主管", "role": "admin" },
   "tenant": { "id": "tn_...", "name": "安康健康管理中心", "agentName": "小安", "patientTerm": "患者", "agentAvatar": null, "tone": "亲切、专业、简洁", "timezone": "Asia/Shanghai" },
-  "permissions": ["patient.read", "patient.write", "draft.export", "account.write"],
+  "permissions": ["tenant.read", "tenant.write", "patient.read", "patient.write", "draft.read", "alert.read", "alert.write", "advisor.operate", "audit.read", "export", "account.write", "onboarding.submit", "onboarding.list", "sandbox.use"],
   "serverTime": 1762646400000
 }
 ```
 
-`permissions` 供前端隐藏按钮；**后端仍必须逐接口鉴权**。
+`permissions` 供前端隐藏按钮；**后端仍必须逐接口鉴权**。取值只能是 `src/p1/console-types.ts` 的 `Permission`，前端 `can()` 必须使用同一套名字（例如 `tenant.write` 而不是 `setting.write`、`export` 而不是 `draft.export`），否则管理员会被误判成只读账号。
 
 ### `POST /auth/password`
 
@@ -258,11 +258,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
   "proactiveCareCount": 1,
   "verificationPassRate": 0.63,
   "patientsPerAdvisor": 2.0,
+  "trend": [
+    { "date": "2026-11-09", "label": "11-09", "volume": 4, "verified": 3 },
+    { "date": "2026-11-10", "label": "11-10", "volume": 7, "verified": 5 }
+  ],
+  "advisorRanking": [
+    { "advisorId": "adv_...", "name": "李光", "status": "active", "volume": 7, "verified": 5, "avgResponseSeconds": 43 }
+  ],
   "computedAt": 1762646400000
 }
 ```
 
 口径严格按数据模型 §5；`range` 以租户时区切日。沙盒数据不计入。
+
+`trend` 固定返回近 14 天（含今天）的真实草稿量，按租户时区分日；`advisorRanking` 按当前 `range` 统计每位顾问的草稿量、核验数与平均响应，均为真实数据，不使用示例集。
 
 ### `GET /dashboard/kpis?range=today|week|month`
 
@@ -307,6 +316,10 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
       "id": "pat_01j9zb2c3d4e5f6g7h8j9k0m1n",
       "displayName": "张女士",
       "avatar": null,
+      "externalUserId": "wm...",
+      "identityStatus": "confirmed",
+      "identitySource": "manual",
+      "identityConfirmedAt": 1762645800000,
       "tags": ["控糖", "高血压"],
       "advisorId": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p",
       "groupIds": ["grp_01j9zd4e5f6g7h8j9k0m1n2p3q"],
@@ -344,11 +357,28 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "patient": { "id": "pat_...", "displayName": "张女士", "tags": ["控糖"], "consent": "agreed", "status": "serving", "demo": false, "memoryCount": 4, "pendingPlanCount": 2 },
+  "patient": { "id": "pat_...", "displayName": "张女士", "externalUserId": "wm...", "identityStatus": "confirmed", "identitySource": "manual", "identityConfirmedAt": 1762645800000, "tags": ["控糖"], "consent": "agreed", "status": "serving", "demo": false, "memoryCount": 4, "pendingPlanCount": 2 },
   "advisor": { "id": "adv_...", "name": "李顾问", "status": "active", "online": true },
   "groups": [{ "id": "grp_...", "name": "糖友-张女士", "status": "serving", "isPrimary": true }]
 }
 ```
+
+### `POST /patients/{id}/identity`
+
+角色：admin / supervisor。确认 / 改绑患者身份：把患者的企微身份指向其服务群里的一位外部成员。
+
+请求：
+
+```json
+{ "groupId": "grp_...", "externalUserId": "wm...", "displayName": "张女士" }
+```
+
+- `groupId`、`externalUserId` 必填；`displayName` 可选（缺省时跟随被选成员的昵称）。
+- 患者必须已绑定该服务群，否则 `422 VALIDATION_FAILED`（`NOT_BOUND`）。
+- 目标必须是该群的外部成员（个人微信），内部员工目标返回 `422`（`MEMBER_NOT_EXTERNAL`）。
+- 成功后：患者的 `externalUserId` 指向新成员，`consent` 跟随该成员，`identityStatus='confirmed'`、`identitySource='manual'`、`identityConfirmedAt` 置为当前时间；被选成员角色置为 `self`，原「本人」成员降为 `family`。
+
+响应 `200`：patient。审计 `patient.identity`（仅记录成员 id 尾号，不记录昵称）。
 
 ### `PATCH /patients/{id}`
 
@@ -410,20 +440,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 #### `GET /patients/{id}/timeline?page=&pageSize=`
 
-角色：全部。响应 `200`：
+角色：全部。**按 `at` 倒序返回，最新事件在第一页**；默认 `page=1`、`pageSize=20`。响应 `200`：
 
 ```json
 {
   "items": [
     {
-      "id": "evt_01j9ze5f6g7h8j9k0m1n2p3q4r",
-      "at": 1762645800000,
-      "type": "inbound",
-      "actor": { "type": "patient", "name": "张女士" },
-      "title": "客户发来消息",
-      "detail": "晚上吃点什么好",
-      "draftId": null,
-      "verificationOutcome": null
+      "id": "evt_...",
+      "at": 1762646100000,
+      "type": "verification",
+      "actor": { "type": "system", "name": "system" },
+      "title": "核验通过",
+      "detail": "与草稿一致",
+      "draftId": "draft_1001",
+      "verificationOutcome": "verified"
     },
     {
       "id": "evt_...",
@@ -436,14 +466,14 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
       "verificationOutcome": null
     },
     {
-      "id": "evt_...",
-      "at": 1762646100000,
-      "type": "verification",
-      "actor": { "type": "system", "name": "system" },
-      "title": "核验通过",
-      "detail": "与草稿一致",
-      "draftId": "draft_1001",
-      "verificationOutcome": "verified"
+      "id": "evt_01j9ze5f6g7h8j9k0m1n2p3q4r",
+      "at": 1762645800000,
+      "type": "inbound",
+      "actor": { "type": "patient", "name": "张女士" },
+      "title": "客户发来消息",
+      "detail": "晚上吃点什么好",
+      "draftId": null,
+      "verificationOutcome": null
     }
   ],
   "page": 1,
@@ -454,11 +484,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 `type`：`inbound` / `draft` / `revision` / `delivery` / `verification` / `memory` / `care_plan` / `alert` / `note`。
 
+记忆被修正（内容 / 分类 / 归属变化）时，除 `createdAt` 的「记录记忆」外，还会在 `revisedAt` 额外返回一条 `memory` 事件，`title` 为「修正记忆」，`detail` 为修正后的内容。
+
 ### 饮食记录
 
 #### `GET /patients/{id}/meal-logs?from=&to=&page=`
 
-角色：全部。响应 `200`：`{ "items": [meal_log], ... }`，按 `createdAt` 倒序。
+角色：全部（`patient.read`）。响应 `200`：`{ "items": [meal_log], ... }`，按 `createdAt` 倒序。
+有原图的记录返回 `photoUrl`（`/zhiban/api/patients/{id}/meal-logs/{logId}/photo`），没有原图为 `null`；
+不返回服务器磁盘路径。
+
+#### `GET /patients/{id}/meal-logs/{logId}/photo`
+
+角色：全部（`patient.read`）。按记录 id 回读存档原图，`content-type` 按文件魔数判断（扩展名不可信），
+`cache-control: private, max-age=300`。错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在）。
 
 ### B 档 Tab
 
@@ -518,7 +557,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "draft": { "id": "draft_1001", "body": "晚上建议清淡一点…", "version": 1, "revisions": [{ "version": 1, "body": "晚上建议清淡一点…", "instruction": null, "createdBy": "agent", "createdAt": 1762645860000 }], "sentVersion": 1, "riskLevel": "low", "status": "VERIFIED", "ruleIds": [], "citedMemoryIds": ["mem_..."], "citedKnowledgeIds": ["knw_..."], "fallback": false, "sandbox": false, "demo": false, "cardTaskId": "task_1001", "pushAttempts": 1, "verifyAttempts": 1, "createdAt": 1762645800000, "pushedAt": 1762645880000, "ackedAt": 1762646060000, "verifiedAt": 1762646245000, "verificationId": "vrf_..." },
+  "draft": { "id": "draft_1001", "body": "晚上建议清淡一点…", "version": 1, "revisions": [{ "version": 1, "body": "晚上建议清淡一点…", "instruction": null, "createdBy": "agent", "createdAt": 1762645860000 }], "sentVersion": 1, "riskLevel": "low", "status": "VERIFIED", "ruleIds": [], "ruleNames": [], "citedMemoryIds": ["mem_..."], "citedKnowledgeIds": ["knw_..."], "fallback": false, "sandbox": false, "demo": false, "cardTaskId": "task_1001", "pushAttempts": 1, "verifyAttempts": 1, "createdAt": 1762645800000, "pushedAt": 1762645880000, "ackedAt": 1762646060000, "verifiedAt": 1762646245000, "verificationId": "vrf_..." },
   "patient": { "id": "pat_...", "displayName": "张女士" },
   "group": { "id": "grp_...", "name": "糖友-张女士", "roomId": "wr..." },
   "advisor": { "id": "adv_...", "name": "李顾问" },
@@ -557,9 +596,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 7. 服务群
 
-> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}` 已实现并有单测覆盖；
-> `GET /groups/{id}`、绑定与成员接口仍为契约待实现。控制台前端群页面暂未接入真实数据。
+> **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}`、`GET /groups/{id}/members`、
+> 绑定（`POST /groups/{id}/bindings`）已实现并有单测覆盖；
+> `GET /groups/{id}` 与成员角色标注（`PATCH .../members/{id}`）仍为契约待实现。
+> 控制台前端群页面已接入真实数据。
 > 运维脚本 `npm run group:status` 基于本节接口，用于把演示群从 `pending` 改为 `serving`。
+>
+> **自动发现（#106）**：`zhiban-wecom` 每 5 分钟（`serviceGroupDiscovery.intervalMs`，可配置关闭或改间隔）
+> 调客户联系 API `externalcontact/groupchat/list`，只发现企业创建的客户群；配置
+> `serviceGroupDiscovery.ownerUserIds` 时只登记本环境群主名下的群。新群自动登记为
+> `pending` 候选并出现在 `GET /groups?status=pending`。候选不拉存档消息、不生成草稿。
 
 ### `GET /groups`
 
@@ -581,13 +627,26 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ### `PATCH /groups/{id}`
 
-角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `config`）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
+角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `manual`，此后不再被企微群名同步覆盖）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。
 
-错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
+状态与存档白名单（#106）：
+
+- `serving` / `collect_only` → 该群加入存档拉取白名单（`zhibanWecomAdmin.activateServiceGroup`）；
+- `pending` / `disabled` → 移出白名单（`deactivateServiceGroup`）；
+- 状态变更立即写入内存白名单，**下一轮存档轮询（默认 5 秒）即生效，无需重启**；
+- 企微域未加载时（如仅患者域的测试装配）跳过同步，只改患者域状态。
+- 控制台「开始服务」= 指定负责顾问 + 服务对象（`POST .../bindings { memberId }`）后
+  再 `PATCH status=serving`；接口层仍允许直接改状态（运维脚本需要），UI 保证不会出现没有服务对象的服务中群。
+
+错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）、`502 UPSTREAM_UNAVAILABLE`（白名单同步失败，状态已回滚为变更前值，提示「企微服务群同步失败，服务状态未变更」）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
 
 ### `POST /groups/{id}/bindings`
 
-角色：admin / supervisor。请求二选一：
+角色：admin / supervisor（`patient.write`）。请求三选一：
+
+```json
+{ "memberId": "gm_..." }
+```
 
 ```json
 { "patientId": "pat_..." }
@@ -597,9 +656,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "newPatient": { "displayName": "周先生", "tags": ["作息"], "consent": "unknown" } }
 ```
 
+`memberId` 是「开始服务」的指定服务对象：
+
+- 只能是该群的**外部成员**；员工成员或未知成员返回 `422 VALIDATION_FAILED`；
+- 该 `externalUserId` 已有患者时**直接复用**（一个客户多个群共用一位患者 / 一个 Agent），不会重复建档；
+- 没有患者时按成员昵称建档，`advisorId` 取群当前负责顾问，并把患者身份指向该成员（`identityStatus=confirmed`、`identitySource=manual`、同意状态跟随成员）；
+- 身份回填失败不回滚绑定（可在患者详情重新确认）。
+
 响应 `201`：`{ "binding": { "id": "gbd_...", "groupId": "grp_...", "patientId": "pat_...", "isPrimary": true, "createdAt": 1762646400000, "deletedAt": null }, "patient": { "id": "pat_...", "displayName": "周先生" } }`。
 
-错误：`CONFLICT`（该群已绑定该患者）。
+错误：`CONFLICT`（该群已绑定该患者）、`404 NOT_FOUND`（群或患者不存在）、`422 VALIDATION_FAILED`（成员不存在 / 非外部成员 / 无绑定参数）。
 
 ### `DELETE /groups/{id}/bindings/{patientId}`
 
@@ -635,13 +701,18 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ```json
 {
   "items": [
-    { "id": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p", "tenantId": "tn_...", "wecomUserId": "li.guwen", "name": "李顾问", "status": "active", "seatExpireAt": 1794067200000, "chatBound": true, "online": true, "queueDepth": 1, "consecutiveMisroutes": 0, "pausedAt": null, "createdAt": 1759500000000, "updatedAt": 1762645800000 }
+    { "id": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p", "tenantId": "tn_...", "wecomUserId": "li.guwen", "name": "李顾问", "status": "active", "seatExpireAt": 1794067200000, "chatBound": true, "online": true, "queueDepth": 1, "consecutiveMisroutes": 0, "pausedAt": null, "redlineHits": 2, "redlineOpen": 1, "redlineLastAt": 1762645800000, "createdAt": 1759500000000, "updatedAt": 1762645800000 }
   ],
   "page": 1,
   "pageSize": 20,
   "total": 3
 }
 ```
+
+- `redlineHits`：该顾问累计的员工发言红线命中条数（`kind=redline` 且 `advisorId` 指向该顾问），作为个人考核留痕。
+- `redlineOpen`：其中状态为 `open` / `acknowledged` 的条数。
+- `redlineLastAt`：最近一次命中时间；没有命中为 `null`。
+- 明细用 `GET /alerts?kind=redline&advisorId=...` 查询。
 
 ### `POST /advisors`
 
@@ -679,6 +750,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。响应 `200`：`{ "items": [alert], ... }`。
 
+员工在服务群里的发言也会过红线质检：命中时生成 `kind=redline`、`title="员工发言命中红线"`、`source="staff"` 的告警，`advisorId` 指向发言人，`groupId` 指向群。`message` 带发言人、群名、命中规则与**发言原文摘录**（压成一行后最多 300 字），供人工复核；日志与审计仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
+
 ### `GET /alerts/unresolved-count`
 
 角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。菜单角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。
@@ -689,7 +762,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "alert": { "id": "alt_...", "kind": "misroute", "severity": "critical", "status": "open", "title": "发错群", "message": "草稿发到了「减重-刘先生」", "draftId": "draft_1003", "patientId": "pat_...", "advisorId": "adv_...", "groupId": "grp_...", "note": null, "resolvedBy": null, "resolvedAt": null, "escalatedTo": null, "createdAt": 1762640000000, "updatedAt": 1762640000000, "sandbox": false },
+  "alert": { "id": "alt_...", "kind": "misroute", "severity": "critical", "status": "open", "title": "发错群", "message": "草稿发到了「减重-刘先生」", "draftId": "draft_1003", "patientId": "pat_...", "advisorId": "adv_...", "groupId": "grp_...", "source": "draft", "note": null, "resolvedBy": null, "resolvedAt": null, "escalatedTo": null, "createdAt": 1762640000000, "updatedAt": 1762640000000, "sandbox": false },
   "draft": { "id": "draft_1003", "summary": "晚上吃点什么好", "status": "MISROUTE_ALERT", "riskLevel": "low" },
   "patient": { "id": "pat_...", "displayName": "孙女士" },
   "advisor": { "id": "adv_...", "name": "李顾问" }
@@ -712,9 +785,13 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 10. 知识库 / 风险规则 / 话术库
 
-### `GET /knowledge?category=&enabled=&q=&page=`
+### `GET /knowledge?category=&enabled=&q=&page=&pageSize=`
 
-角色：全部。响应 `200`：`{ "items": [knowledge], ... }`，按 `category`、`title` 排序。
+角色：全部。响应 `200`：`{ "items": [knowledge], page, pageSize, total }`，按 `category`、`title` 排序。
+
+- `enabled` 只接受 `true` / `false`，其它值返回 `422 VALIDATION_FAILED`。
+- `page` 默认 1；`pageSize` 默认 50，上限 200。
+- 只返回未删除条目；`deletedAt` 在响应中统一为 `null`（后端记录用 `undefined`）。
 
 ### `GET /knowledge/categories`
 
@@ -724,17 +801,28 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "items": [{ "category": "饮食建议", "count": 8 }, { "category": "作息管理", "count": 5 }] }
 ```
 
+只统计未删除条目，按分类名排序。
+
 ### `POST /knowledge`
 
 角色：admin。请求：`{ "category": "饮食建议", "title": "晚餐建议在 19 点前完成", "content": "……", "enabled": true }`。响应 `201`：knowledge。保存后重新生成 skill 资源，下一轮生效。
+
+- `category`、`title`、`content` trim 后不能为空；`title` ≤ 60 字、`content` ≤ 2000 字、`category` ≤ 30 字，否则 `422`。
+- `enabled` 缺省为 `true`；不是布尔值返回 `422`。
+- 同一分类下已存在同名条目返回 `409 CONFLICT`；不同分类允许同名。
 
 ### `PATCH /knowledge/{id}`
 
 角色：admin。请求：`category`、`title`、`content`、`enabled`。响应 `200`：knowledge。
 
+- 条目不存在或已删除返回 `404`。
+- 修改后与同分类其它条目重名返回 `409 CONFLICT`。
+
 ### `DELETE /knowledge/{id}`
 
-角色：admin。软删除；响应 `204`。
+角色：admin。软删除；响应 `204`。重复删除保持 `204`，不重复写审计。
+
+写操作写控制台审计 `knowledge.created` / `knowledge.updated` / `knowledge.deleted`，`detail` 只含标题与分类，不含正文。
 
 ### `GET /risk-rules?kind=&enabled=`
 
@@ -748,19 +836,62 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "kind": "keyword", "name": "急症-胸痛", "keywords": ["胸口痛", "胸痛"], "riskLevel": "high", "action": "escalate", "enabled": true }
 ```
 
-响应 `201`：risk_rule。`kind="redline"` 返回 `422`。
+响应 `201`：risk_rule。`kind="redline"` 返回 `422 VALIDATION_FAILED`。
+
+- `name` trim 后非空且 ≤ 40 字；`keywords` 1–20 个，逐项 trim、去重，每个 ≤ 30 字。
+- `riskLevel` ∈ `low | medium | high`；`action` ∈ `flag | guide | escalate`，缺省 `flag`；`enabled` 缺省 `true`。
+- 类型或枚举非法返回 `422`。
 
 ### `PATCH /risk-rules/{id}`
 
 角色：admin。请求：`name`、`keywords`、`riskLevel`、`action`、`enabled`。内置规则返回 `409 BUILTIN_RULE`。响应 `200`：risk_rule。
 
+- 规则不存在返回 `404`；字段校验与创建一致。
+- 只校验传入字段，未传字段保持原值。
+
 ### `DELETE /risk-rules/{id}`
 
-角色：admin。内置规则 `409 BUILTIN_RULE`；关键词规则响应 `204`。
+角色：admin。内置规则 `409 BUILTIN_RULE`；规则不存在 `404`；关键词规则响应 `204`。
 
-### `GET /scripts?category=`
+写操作写控制台审计 `rule.created` / `rule.updated` / `rule.deleted`，`detail` 含规则 id、`kind`、名称与启停/改名前后的变化，不含关键词正文。
 
-角色：全部。B 档。响应 `200`：`{ "items": [script_template], "total": 8, "sample": true }`。前端显示示例数据标签。
+### `GET /scripts?category=&q=&enabled=`
+
+角色：全部。响应 `200`：`{ "items": [script_template], "total": 3, "sample": false }`，按 `category`、`title` 排序。
+
+- `enabled` 只接受 `true` / `false`，其它值返回 `422 VALIDATION_FAILED`。
+- `q` 匹配标题、正文或标签（不区分大小写）；`category` 精确匹配。
+- 只返回未删除条目。`sample` 恒为 `false`（示例数据仅存在于 mock 模式）。
+
+### `POST /scripts`
+
+角色：admin。请求：`{ "category": "饮食", "title": "晚餐建议", "content": "……", "tags": ["复诊"], "enabled": true }`。响应 `201`：script_template。
+
+- 话术供顾问在企微私聊机器人查询，**不参与 Agent 草稿生成**，也不会自动发送到客户群。
+- `category`、`title`、`content` trim 后不能为空；`category` ≤ 30 字、`title` ≤ 60 字、`content` ≤ 2000 字，否则 `422`。
+- `tags` 0–5 个，逐项 trim、去重，每个 1–10 字；`enabled` 缺省 `true`，非布尔值 `422`。
+
+### `PATCH /scripts/{id}`
+
+角色：admin。请求：`category`、`title`、`content`、`tags`、`enabled`；至少一个字段，否则 `422`。响应 `200`：script_template。只校验传入字段，未传字段保持原值；不存在或已删除返回 `404`。
+
+### `DELETE /scripts/{id}`
+
+角色：admin。软删除；响应 `204`。不存在或已删除返回 `404`。
+
+写操作写控制台审计 `script.created` / `script.updated` / `script.deleted`，`detail` 含话术 id、分类、标题与本次改动字段名，**不含正文**。
+
+### 话术在企微内的查询（1:1）
+
+顾问不登录控制台，直接在企微私聊机器人使用（`zhiban-wecom` 的 `ScriptQueryService`）：
+
+- `话术`：返回总条数与分类统计、用法说明。
+- `话术 <关键词>`：按标题（优先）→ 分类 / 标签 → 正文匹配，返回最多 8 条编号列表；关键词正好是分类名时只返回该分类。
+- `话术 <关键词> <编号>`（也支持 `：` / `，` 分隔）：直接返回该关键词结果里的第 N 条全文，例如 `话术 饮食 1`。
+- `话术 <编号>`：返回该员工上一次搜索结果的第 N 条全文；会话状态只存在进程内存，30 分钟过期，重启后需重新搜索。
+- 看过列表后直接发 `<编号>`（如 `1`）：同上取全文；没有进行中的搜索结果时按普通改稿指令处理，不劫持对话。
+
+机器人只回复发问员工本人，**不向客户群发送任何消息（F1）**；顾问复制后自行粘贴。只有启用且未删除的话术会出现在结果中。查询关键词与话术正文不写日志、不写审计。
 
 ---
 
@@ -970,8 +1101,8 @@ Agent 回合异步进行，结果通过 SSE `sandbox.*` 推送；无 SSE 时用 
 {
   "roles": [
     { "role": "admin", "label": "机构管理员", "permissions": ["*"] },
-    { "role": "supervisor", "label": "主管", "permissions": ["patient.read", "patient.write", "draft.read", "alert.write", "advisor.operate", "audit.read", "export"] },
-    { "role": "viewer", "label": "只读", "permissions": ["patient.read", "draft.read", "alert.read", "audit.read"] }
+    { "role": "supervisor", "label": "主管", "permissions": ["tenant.read", "patient.read", "patient.write", "draft.read", "alert.read", "alert.write", "advisor.operate", "audit.read", "export", "onboarding.submit", "sandbox.use"] },
+    { "role": "viewer", "label": "只读", "permissions": ["tenant.read", "patient.read", "draft.read", "alert.read", "audit.read", "sandbox.use"] }
   ]
 }
 ```
@@ -1092,6 +1223,8 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 
 `types` 支持前缀通配：`draft.*`、`sandbox.*`、`alert.*`。
 
+每帧都带 `event: <type>`，属于**命名事件**：浏览器端必须按类型 `addEventListener('<type>', ...)` 监听，`onmessage` 只会收到未命名事件（本服务不发送）。断线重连成功后应先走一次 REST 校准，补齐断线期间的事件。
+
 | 事件 | 触发 | `data` |
 |---|---|---|
 | `draft.created` | Agent 产出草稿并入队 | `{ draftId, patientId, groupId, advisorId, source, riskLevel, status }` |
@@ -1132,7 +1265,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 工作台 | 价值条 | `GET /dashboard/value` | A |
 | 工作台 | KPI | `GET /dashboard/kpis` | A |
 | 工作台 | 最近动态 | `GET /dashboard/recent` | A |
-| 工作台 | 趋势图、排行 | `console/src/sample/` | B |
+| 工作台 | 趋势图、排行 | `GET /dashboard/value` 的 `trend` / `advisorRanking` | A |
 | 工作台 | 开通引导卡片 | `GET /settings/onboarding` | A |
 | 患者 Agent | 卡片墙列表 | `GET /patients` | A |
 | 患者 Agent 主页 | 基本信息、标签 | `GET /patients/{id}` | A |
@@ -1140,7 +1273,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 患者 Agent 主页 | 主动计划 | `GET /patients/{id}/care-plans` + `POST` | A |
 | 患者 Agent 主页 | 办事记录 | `GET /patients/{id}/actions` | A |
 | 患者 Agent 主页 | 对话时间线 | `GET /patients/{id}/timeline` | A |
-| 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /media/{id}` | A |
+| 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /patients/{id}/meal-logs/{logId}/photo` | A |
 | 患者 Agent 主页 | 健康档案 | `GET /patients/{id}/health-profile`（`sample:true`） | B |
 | 患者 Agent 主页 | 服务计划 | `GET /patients/{id}/service-plan`（`sample:true`） | B |
 | 实时服务流 | 列表 + SSE | `GET /service-flow`、`GET /stream` | A |
@@ -1159,7 +1292,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 排班与交接 | 整页 | C 档介绍页，无接口 | C |
 | 知识库 | 分类、条目、命中 | §10 | A |
 | 风险规则 | 红线只读 + 关键词 CRUD | `GET/POST/PATCH/DELETE /risk-rules` | A |
-| 话术库 | 整页 | `GET /scripts`（`sample:true`） | B |
+| 话术库 | 整页 | `GET/POST/PATCH/DELETE /scripts` | A |
 | 技能市场 | 已启用 / 即将上线 | `GET /skills` | A+C |
 | 行业方案包 | 整页 | `GET /solution-packs` | B+C |
 | 数据报表 | 整页 | `console/src/sample/` | B |
@@ -1208,7 +1341,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | `onboarding-requests.json` | onboarding_request | 1 | |
 | `skills.json` | skill | 11 | 7 已启用 + 4 即将上线 |
 | `solution-packs.json` | solution_pack | 6 | 1 启用 + 5 即将上线 |
-| `scripts.json` | script_template | 8 | B 档，`sample:true` |
+| `scripts.json` | script_template | 8 | 仅 mock 示例，`sample:true` |
 | `sse-events.json` | SSE | 10 | 服务流演示序列 |
 
 ---

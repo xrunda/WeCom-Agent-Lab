@@ -66,7 +66,7 @@ test('#60 上线：控制台可列出服务群并一次更新名称/状态/顾�
     advisorId: 'adv_1',
   });
   assert.equal(updated.name, '陈嘉禾');
-  assert.equal(updated.nameSource, 'config');
+  assert.equal(updated.nameSource, 'manual');
   assert.equal(updated.status, 'serving');
   assert.equal(updated.advisorId, 'adv_1');
   assert.equal(h.service.isServiceable('wr_g1', 'wm_patient'), 'serve');
@@ -259,4 +259,303 @@ test('#33 重启后群状态、绑定与患者会话不丢', async () => {
   assert.equal(reloaded?.advisorId, 'adv_1');
   assert.equal(service2.patientForGroup(reloaded!.id)?.id, patient.id);
   assert.equal(store2.getSession(patient.id)?.sessionId, 'session_persisted');
+});
+
+test('真实群昵称回填存量患者；手工名与其他成员昵称不覆盖', () => {
+  const h = setupPatient();
+  const group = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_zhang', isExternal: true, lastActiveAt: h.clock.now() }],
+    { groupName: '减重-张女士' },
+  );
+  h.service.setGroupStatus(group.id, 'serving');
+
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_zhang',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  assert.equal(decision.action, 'turn');
+  const patientId = decision.patientId;
+  assert.ok(patientId);
+  // 存档没有昵称时是占位名
+  assert.equal(h.store.getPatient(patientId)?.displayName, '外部成员 …_zhang');
+
+  // 客户联系 API 返回真实昵称 → 回填
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_zhang', isExternal: true, displayName: '张女士', lastActiveAt: h.clock.now() + 1 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+
+  // 群里其他成员（家属）的昵称不覆盖患者
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_family', isExternal: true, displayName: '张女士的女儿', lastActiveAt: h.clock.now() + 2 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+
+  // 员工手工改过名字后，群昵称不再覆盖
+  h.service.updatePatient(patientId, { displayName: '张女士（本人）' });
+  h.service.observeGroup('wr_g1', [
+    { id: 'wm_zhang', isExternal: true, displayName: '张女士（群昵称）', lastActiveAt: h.clock.now() + 3 },
+  ]);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
+});
+
+test('整群昵称映射回填未发言的存量患者，手工名不覆盖', () => {
+  const h = setupPatient();
+  const group = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_zhang', isExternal: true, lastActiveAt: h.clock.now() }],
+    { groupName: '减重-张女士' },
+  );
+  h.service.setGroupStatus(group.id, 'serving');
+
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_zhang',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId;
+  assert.ok(patientId);
+  assert.equal(h.store.getPatient(patientId)?.displayName, '外部成员 …_zhang');
+
+  // 本轮只有家属发言；整群映射里带了患者昵称 → 没发言的患者也回填
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { memberNames: { wm_zhang: '张女士', wm_family: '张女士的女儿' } },
+  );
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士');
+  assert.equal(h.store.findMember(group.id, 'wm_zhang')?.displayName, '张女士');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.displayName, '张女士的女儿');
+
+  // 手工改名优先于整群映射
+  h.service.updatePatient(patientId, { displayName: '张女士（本人）' });
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { memberNames: { wm_zhang: '张女士（群昵称）' } },
+  );
+  assert.equal(h.store.getPatient(patientId)?.displayName, '张女士（本人）');
+});
+
+// ---------- 患者身份确认 / 改绑 ----------
+
+test('setPatientIdentity：员工先发言建出的待确认患者，可改绑为正确的外部成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_doctor', 'wm_patient'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+
+  // 员工先发言：自动建档绑到第一个外部成员，身份待确认
+  const staffTurn = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wang.guwen',
+    text: '大家下午好',
+    msgtime: h.clock.now(),
+  });
+  assert.equal(staffTurn.action, 'context');
+  const patientId = staffTurn.patientId;
+  assert.ok(patientId);
+  const auto = h.store.getPatient(patientId)!;
+  assert.equal(auto.externalUserId, 'wm_doctor');
+  assert.equal(auto.identityStatus, 'pending');
+  assert.equal(auto.identitySource, 'auto');
+
+  // 确认患者身份指向 wm_patient
+  const updated = h.service.setPatientIdentity(group.id, patientId, 'wm_patient', {
+    displayName: '张女士',
+  });
+  assert.equal(updated.externalUserId, 'wm_patient');
+  assert.equal(updated.identityStatus, 'confirmed');
+  assert.equal(updated.identitySource, 'manual');
+  assert.ok(updated.identityConfirmedAt);
+  assert.equal(updated.displayName, '张女士');
+
+  // wm_patient 成员标为「本人」，原成员保持原角色
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.role, 'self');
+  assert.equal(h.store.findMember(group.id, 'wm_doctor')?.role, 'unknown');
+});
+
+test('setPatientIdentity：把「本人」改绑到另一位成员时，原本人降为家属', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient', 'wm_family'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+  assert.equal(h.store.getPatient(patientId)?.externalUserId, 'wm_patient');
+
+  // 手工标注「本人」后再改绑到家属成员
+  const member = h.store.findMember(group.id, 'wm_patient')!;
+  h.service.annotateMember(group.id, member.id, 'self');
+  h.service.setPatientIdentity(group.id, patientId, 'wm_family');
+
+  const updated = h.store.getPatient(patientId)!;
+  assert.equal(updated.externalUserId, 'wm_family');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.role, 'self');
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.role, 'family');
+});
+
+test('setPatientIdentity：患者同意状态跟随被选成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient', 'wm_family'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+
+  h.service.setMemberConsent(group.id, 'wm_family', 'agreed');
+  h.service.setPatientIdentity(group.id, patientId, 'wm_family');
+  assert.equal(h.store.getPatient(patientId)?.consent, 'agreed');
+});
+
+test('setPatientIdentity：未绑定到该群、内部员工目标被拒绝', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    roomId: 'wr_g1',
+    externalIds: ['wm_patient'],
+    staffIds: ['wang.guwen'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+
+  // 另一个服务群（该患者未绑定）
+  const other = observeServiceGroup(h, {
+    roomId: 'wr_g2',
+    externalIds: ['wm_other'],
+    staffIds: ['wang.guwen'],
+  });
+  assert.throws(() => h.service.setPatientIdentity(other.id, patientId, 'wm_other'), /NOT_BOUND/);
+
+  // 内部员工不是可选目标
+  assert.throws(
+    () => h.service.setPatientIdentity(group.id, patientId, 'wang.guwen'),
+    /MEMBER_NOT_EXTERNAL/,
+  );
+});
+
+test('群发现时同步会话存档同意状态，患者同意状态跟随本人成员', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, {
+    externalIds: ['wm_patient', 'wm_family'],
+    status: 'serving',
+  });
+  const decision = h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = decision.patientId!;
+  assert.equal(h.store.getPatient(patientId)?.consent, 'unknown');
+
+  h.service.observeGroup(
+    'wr_g1',
+    [
+      { id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 1 },
+      { id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 },
+    ],
+    {
+      memberConsent: {
+        wm_patient: 'agreed',
+        wm_family: 'unknown',
+        // 群里没有的 id、内部员工都不影响
+        wm_absent: 'disagreed',
+        'wang.guwen': 'agreed',
+      },
+    },
+  );
+
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'agreed');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.consent, 'unknown');
+  assert.equal(h.store.getPatient(patientId)?.consent, 'agreed');
+  assert.equal(
+    h.store.listMembers(group.id).find((member) => !member.isExternal)?.consent,
+    'agreed',
+  );
+});
+
+test('接口未返回某成员时不清空已有同意状态', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, { externalIds: ['wm_patient', 'wm_family'] });
+
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { memberConsent: { wm_patient: 'disagreed' } },
+  );
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'disagreed');
+
+  // 后续查询只返回了家属，患者成员保持原状态
+  h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_family', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { memberConsent: { wm_family: 'agreed' } },
+  );
+  assert.equal(h.store.findMember(group.id, 'wm_patient')?.consent, 'disagreed');
+  assert.equal(h.store.findMember(group.id, 'wm_family')?.consent, 'agreed');
+});
+
+test('企微群名变更同步到系统；控制台手工改名优先', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h);
+  assert.equal(group.name, '减重-张女士');
+
+  // 企微里改了群名：下一轮群发现带 groupName 回来就同步
+  const synced = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 1 }],
+    { groupName: '客户－汪女士－20261111 (6)', groupNameSource: 'api' },
+  );
+  assert.equal(synced.name, '客户－汪女士－20261111 (6)');
+  assert.equal(synced.nameSource, 'api');
+
+  // 控制台手工改名后，企微群名不再覆盖
+  h.service.renameGroup(group.id, '汪女士（手工）');
+  const afterRename = h.service.observeGroup(
+    'wr_g1',
+    [{ id: 'wm_patient', isExternal: true, lastActiveAt: h.clock.now() + 2 }],
+    { groupName: '企微又改了', groupNameSource: 'api' },
+  );
+  assert.equal(afterRename.name, '汪女士（手工）');
+  assert.equal(afterRename.nameSource, 'manual');
+
+  // 空群名不覆盖已有名称
+  const empty = h.service.syncGroupName(group.id, '   ');
+  assert.equal(empty.name, '汪女士（手工）');
 });

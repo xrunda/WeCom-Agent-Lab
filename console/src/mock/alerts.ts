@@ -36,6 +36,8 @@ export interface Alert {
   patientId: string | null;
   advisorId: string | null;
   groupId: string | null;
+  /** 告警来源：员工群发言 / AI 草稿；历史告警可能没有该字段 */
+  source?: 'draft' | 'staff' | null;
   note: string | null;
   resolvedBy: string | null;
   resolvedAt: number | null;
@@ -130,15 +132,25 @@ export function resetAlertsMock(): void {
   notify();
 }
 
+/**
+ * 服务端 SSE 每帧带 `event: <type>` 名，命名事件不会触发 EventSource.onmessage。
+ * 订阅时按已知类型逐个 addEventListener，并保留 onmessage 兜底。
+ */
+const ALERT_EVENT_TYPES = ['alert.created', 'alert.updated', 'alert.resolved'] as const;
+
 /** 订阅告警变化；真实模式走 SSE alert.*，mock 模式走本地事件总线 */
 export function subscribeAlerts(listener: () => void): () => void {
   if (!isMockMode) {
     listeners.add(listener);
     if (!realSource) {
-      realSource = new EventSource(`${API_BASE}/sse/events?types=alert.*`, {
+      realSource = new EventSource(`${API_BASE}/stream?types=alert.*`, {
         withCredentials: true,
       });
-      realSource.onmessage = () => notify();
+      const refresh = () => notify();
+      for (const type of ALERT_EVENT_TYPES) realSource.addEventListener(type, refresh);
+      realSource.onmessage = refresh;
+      // 断线重连后补一次 REST 校准，避免漏掉断线期间的事件
+      realSource.onopen = refresh;
     }
     return () => {
       listeners.delete(listener);
@@ -235,10 +247,13 @@ export async function resolveAlert(id: string, note: string): Promise<Alert> {
   }
 
   if (!isMockMode) {
-    return apiRequest<Alert>(`/alerts/${id}/resolve`, {
+    const alert = await apiRequest<Alert>(`/alerts/${id}/resolve`, {
       method: 'POST',
       body: JSON.stringify({ note: trimmed }),
     });
+    // 本地先刷新一次，SSE 慢或断线时菜单角标也不会停在旧值
+    notify();
+    return alert;
   }
 
   const items = readState();
@@ -263,7 +278,13 @@ export async function releaseQueue(id: string): Promise<{
   nextDraftId: string | null;
 }> {
   if (!isMockMode) {
-    return apiRequest(`/alerts/${id}/release-queue`, { method: 'POST' });
+    const result = await apiRequest<{
+      alert: Alert;
+      releasedDraftId: string;
+      nextDraftId: string | null;
+    }>(`/alerts/${id}/release-queue`, { method: 'POST' });
+    notify();
+    return result;
   }
 
   const items = readState();
@@ -296,7 +317,12 @@ export async function releaseQueue(id: string): Promise<{
 
 export async function restoreAdvisor(id: string): Promise<{ alert: Alert; advisorId: string }> {
   if (!isMockMode) {
-    return apiRequest(`/alerts/${id}/restore-advisor`, { method: 'POST' });
+    const result = await apiRequest<{ alert: Alert; advisorId: string }>(
+      `/alerts/${id}/restore-advisor`,
+      { method: 'POST' },
+    );
+    notify();
+    return result;
   }
 
   const items = readState();

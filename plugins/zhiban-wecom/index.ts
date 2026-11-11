@@ -27,10 +27,16 @@ import type {
 import type { PatientBridge } from '../../src/p1/session-port.ts';
 import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 
-import { parsePluginConfig, serviceGroupFilter } from './config.ts';
+import { parsePluginConfig } from './config.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
+import { GroupDiscovery } from './group-discovery.ts';
+import { GroupInfoClient } from './group-info.ts';
+import { RoomAgreeClient } from './room-agree.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
+import { ScriptQueryService, splitForWecom } from './script-query.ts';
+import type { QueryableScript } from './script-query.ts';
+import { ServiceGroupRegistry } from './service-groups.ts';
 
 export const name = 'zhiban-wecom';
 
@@ -65,6 +71,28 @@ export function maxDraftSeq(drafts: Draft[]): number {
   return max;
 }
 
+/** 只依赖 zhiban-guard 的质检入口；未安装 guard 时静默跳过 */
+interface StaffQualityGuard {
+  reviewStaffMessage?(input: {
+    text: string;
+    advisorId?: string;
+    advisorName?: string;
+    groupId?: string;
+    groupName?: string;
+    messageId?: string;
+  }): {
+    hits: string[];
+    hitNames: string[];
+    riskLevel: string;
+    alertId?: string;
+  };
+}
+
+/** 只依赖 zhiban-console 的话术只读入口；未安装控制台时查询会提示未接入 */
+interface ScriptsApi {
+  listEnabled(): QueryableScript[];
+}
+
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   const config = parsePluginConfig(rawConfig);
   const log = (line: string): void => ctx.logger?.info?.(`[zhiban-wecom] ${line}`);
@@ -77,9 +105,81 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   let botRef: WeComBotAdapter | undefined;
   /** #59：证据导出需要回读存档原文；运行时才创建，未就绪时证据降级为空 */
   let archiveRef: ArchivePort | undefined;
+  /** #106：运行时服务群名单；控制台「开始服务 / 移出服务」改它 */
+  let registryRef: ServiceGroupRegistry | undefined;
   const requireService = (): C2Service => {
     if (!serviceRef) throw new Error('WECOM_SERVICE_NOT_READY');
     return serviceRef;
+  };
+  const requireRegistry = (): ServiceGroupRegistry => {
+    if (!registryRef) throw new Error('WECOM_SERVICE_NOT_READY');
+    return registryRef;
+  };
+
+  /** 员工发言 → 顾问：P1 里顾问 id 与企微 userid 相同，同时兼容按 chatId 绑定 */
+  const resolveStaffAdvisor = (userId: string) => {
+    const found = (serviceRef?.store.listAdvisors() ?? []).find(
+      (advisor) => advisor.id === userId || advisor.chatId === userId,
+    );
+    if (found) return found;
+    if (userId === config.advisorId || userId === config.advisorChatId) {
+      return {
+        id: config.advisorId,
+        name: config.advisorName,
+        chatId: config.advisorChatId,
+        status: 'active' as const,
+        consecutiveMisroutes: 0,
+      };
+    }
+    return undefined;
+  };
+
+  /** 命中后 1:1 提醒本人；提醒里只有群名与规则名，不含发言正文 */
+  const notifyStaffQuality = async (input: {
+    chatId: string;
+    groupName: string;
+    hitNames: string[];
+  }): Promise<void> => {
+    if (!botRef) return;
+    try {
+      await botRef.sendText(
+        input.chatId,
+        `【质检提醒】你在群「${input.groupName}」的发言命中了红线规则「${input.hitNames.join('、')}」。\n` +
+          '这条已记录到「质检与告警」，并计入个人质检记录。请及时撤回或更正，必要时向主管说明。',
+      );
+    } catch (error) {
+      log(`质检提醒推送失败：${error instanceof Error ? error.message : 'UNKNOWN'}`);
+    }
+  };
+
+  /** 员工发言质检：交给 zhiban-guard 关键词匹配，命中后由本插件推送 1:1 提醒 */
+  const checkStaffMessage = (message: {
+    msgid: string;
+    from: string;
+    roomId: string;
+    groupName?: string;
+    text: string;
+  }): void => {
+    const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
+    if (!guard?.reviewStaffMessage) return;
+    const advisor = resolveStaffAdvisor(message.from);
+    const result = guard.reviewStaffMessage({
+      text: message.text,
+      ...(advisor ? { advisorId: advisor.id, advisorName: advisor.name } : {}),
+      groupId: message.roomId,
+      ...(message.groupName ? { groupName: message.groupName } : {}),
+      messageId: message.msgid,
+    });
+    if (!result?.alertId) return;
+    log(
+      `员工发言命中红线：advisor=${tailId(advisor?.id ?? message.from)} ` +
+        `group=${tailId(message.roomId)} rules=${result.hits.join(',')}（正文不落日志）`,
+    );
+    void notifyStaffQuality({
+      chatId: advisor?.chatId ?? message.from,
+      groupName: message.groupName ?? '服务群',
+      hitNames: result.hitNames,
+    });
   };
   const wecomBridge: PatientBridge = {
     async enqueueDraft(input) {
@@ -96,6 +196,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,
+        ruleIds: input.ruleIds,
+        ruleNames: input.ruleNames,
         source: input.source,
         fallback: input.fallback,
         citedMemoryIds: input.citedMemoryIds,
@@ -283,6 +385,92 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       if (!advisor) return undefined;
       return { id: advisor.id, name: advisor.name, status: advisor.status };
     },
+    // 控制台：真实服务流 / 顾问队列读取入口（只读副本，避免调用方改到领域对象）
+    listDrafts() {
+      return (serviceRef?.store.listDrafts() ?? []).map((draft) => structuredClone(draft));
+    },
+    getDraftDetail(draftId: string) {
+      const draft = serviceRef?.store.getDraft(draftId);
+      return draft ? structuredClone(draft) : undefined;
+    },
+    listGroups() {
+      return (serviceRef?.store.listGroups() ?? []).map((group) => structuredClone(group));
+    },
+    listAudits() {
+      return (serviceRef?.store.listAudit() ?? []).map((event) => structuredClone(event));
+    },
+    /**
+     * #106：控制台「开始服务」。
+     * 把 roomid 加入存档白名单，并在 C2 域绑定为 mapped；无需重启。
+     * 草稿仍然只推给 profile 配置的顾问（P1 单顾问），控制台选择的群顾问
+     * 只影响患者域的服务归属。
+     */
+    activateServiceGroup(input: {
+      roomId: string;
+      name?: string;
+      actor?: string;
+    }) {
+      const service = requireService();
+      const registry = requireRegistry();
+      const roomId = input.roomId.trim();
+      if (roomId === '') throw new Error('INVALID_ROOM_ID');
+
+      registry.activate(roomId);
+      const existing = service.store.getGroup(roomId);
+      const name = input.name?.trim() || existing?.name || `群 ${tailId(roomId)}`;
+      service.bindGroup({ roomId, name, advisorId: config.advisorId });
+      service.store.appendAudit({
+        at: Date.now(),
+        actor: input.actor ?? 'admin',
+        action: 'service_group.activate',
+        target: roomId,
+        result: 'ok',
+      });
+      return { roomId, name, allowed: true };
+    },
+    /** #106：控制台「移出服务 / 忽略」。停止拉取并把 C2 群置为 disabled。 */
+    deactivateServiceGroup(roomId: string, actor = 'admin') {
+      const registry = requireRegistry();
+      const trimmed = roomId.trim();
+      if (trimmed === '') throw new Error('INVALID_ROOM_ID');
+
+      registry.deactivate(trimmed);
+      const group = serviceRef?.store.getGroup(trimmed);
+      if (group && group.status !== 'disabled') {
+        serviceRef!.store.saveGroup({ ...group, status: 'disabled' });
+      }
+      serviceRef?.store.appendAudit({
+        at: Date.now(),
+        actor,
+        action: 'service_group.deactivate',
+        target: trimmed,
+        result: 'ok',
+      });
+      return { roomId: trimmed, allowed: false };
+    },
+    /** 控制台/排障：当前运行时允许的 roomid（不含昵称） */
+    listServiceGroupRooms() {
+      return registryRef?.roomIds() ?? [];
+    },
+    /** 手动暂停：只改顾问状态，不再推送草稿；恢复走 restoreAdvisor。 */
+    pauseAdvisor(advisorId: string) {
+      const advisor = serviceRef?.store.getAdvisor(advisorId);
+      if (!advisor) return undefined;
+      const updated = { ...advisor, status: 'paused' as const };
+      serviceRef!.store.saveAdvisor(updated);
+      ctx.emit('advisor.updated', {
+        id: updated.id,
+        name: updated.name,
+        status: updated.status,
+        consecutiveMisroutes: updated.consecutiveMisroutes,
+      });
+      return {
+        id: updated.id,
+        name: updated.name,
+        status: updated.status,
+        consecutiveMisroutes: updated.consecutiveMisroutes,
+      };
+    },
     // #59：证据链 / 服务记录导出。只读；存档不可用时降级为空原文。
     async getDraftEvidence(draftId: string) {
       const draft = serviceRef?.store.getDraft(draftId);
@@ -363,6 +551,37 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       // 语音转写：凭据缺失时 available=false，语音消息保持「不处理」
       const asr = tencentAsrFromEnv();
       if (!asr.available) log('语音识别未配置：客户语音消息不会被转写');
+
+      // 运行时服务群名单：profile 白名单只是种子，控制台可在运行时增删
+      const registry = new ServiceGroupRegistry({
+        seedRoomIds: config.serviceGroupRoomIds,
+        snapshot: store.getMeta('service_roster'),
+        now: () => clock.now(),
+        save: (snapshot) => store.setMeta('service_roster', snapshot),
+      });
+      registryRef = registry;
+
+      // 群昵称：凭据齐全才启用；不可用时患者域继续显示 id 尾号
+      const groupInfo = new GroupInfoClient({
+        corpId: config.corpId,
+        contactSecret: config.contactSecret,
+        clock,
+        logger: log,
+      });
+      if (!groupInfo.enabled) {
+        log('群昵称查询未启用：缺少 contactSecret / corpId，成员显示 id 尾号');
+      }
+
+      // 会话存档同意状态：复用存档 config.txt 的 corpid/secret（msgaudit 应用）
+      const roomAgree = new RoomAgreeClient({
+        configPath: config.archive.configPath,
+        clock,
+        logger: log,
+      });
+      if (!roomAgree.enabled) {
+        log('存档同意同步未启用：无法读取存档凭据，成员保持「存档待确认」');
+      }
+
       const archive = new WeComArchiveAdapter({
         binaryPath: config.archive.binaryPath,
         privateKeyPath: config.archive.privateKeyPath,
@@ -370,7 +589,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         batchSize: config.archive.batchSize,
         maxBatchesPerPoll: config.archive.maxBatchesPerPoll,
         cacheLimit: config.archive.cacheLimit,
-        isServiceGroup: serviceGroupFilter(config),
+        // 每轮轮询都会调用；名单在控制台「开始服务 / 移出服务」后即时生效
+        isServiceGroup: (roomId) => registry.isAllowed(roomId),
         media: {
           rootDir: config.mediaRootDir,
           binaryPath: config.archive.binaryPath,
@@ -392,6 +612,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       let runtime: WecomRuntime | undefined;
       let confirmHandler: ((key: string) => void) | undefined;
 
+      // 顾问在企微 1:1 查话术；只回复本人，不向客户群发送（F1）
+      const scriptQuery = new ScriptQueryService(
+        () => ctx.get<ScriptsApi>('zhibanScripts'),
+        () => clock.now(),
+      );
+
       bot = new WeComBotAdapter(
         { botId: config.botId, secret: config.botSecret, logger: log },
         {
@@ -400,8 +626,28 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
               `机器人收到消息 chattype=${message.chattype} msgtype=${message.msgtype} ` +
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
-            // #56：顾问与机器人的 1:1 文本 = 改稿指令
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
+              // 「话术 …」是查询指令；看过列表后直接发编号也取全文；其余文本按改稿指令处理（#56）
+              const reply =
+                scriptQuery.reply(message.userid, message.text) ??
+                scriptQuery.replyToSelection(message.userid, message.text);
+              if (reply !== undefined) {
+                const target = botRef;
+                if (target) {
+                  void (async () => {
+                    // 长话术按字节拆成多条，避免超过企微 markdown 单条上限
+                    for (const chunk of splitForWecom(reply)) {
+                      await target.sendText(message.userid, chunk);
+                    }
+                  })().catch((error: unknown) =>
+                    log(
+                      `话术回复失败 user=${tailId(message.userid)}：` +
+                        `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+                    ),
+                  );
+                }
+                return;
+              }
               void runtime?.handleAdvisorMessage(message.userid, message.text);
             }
           },
@@ -430,7 +676,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       serviceRef = service;
       botRef = bot;
 
-      // 顾问与群绑定：已存在则保留，只同步配置里的 chatId
+      // 顾问与群绑定：已存在则保留，同步配置里的显示名与 chatId
       const advisor = store.getAdvisor(config.advisorId);
       if (!advisor) {
         service.addAdvisor({
@@ -438,10 +684,14 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           name: config.advisorName,
           chatId: config.advisorChatId,
         });
-      } else if (advisor.chatId !== config.advisorChatId) {
-        store.saveAdvisor({ ...advisor, chatId: config.advisorChatId });
+      } else if (advisor.chatId !== config.advisorChatId || advisor.name !== config.advisorName) {
+        store.saveAdvisor({
+          ...advisor,
+          name: config.advisorName,
+          chatId: config.advisorChatId,
+        });
       }
-      for (const roomId of config.serviceGroupRoomIds) {
+      for (const roomId of registry.roomIds()) {
         if (store.getGroup(roomId)) continue;
         service.bindGroup({
           roomId,
@@ -469,13 +719,31 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         clock,
         compose: makeTemplateCompose(config),
         config: {
-          roomIds: config.serviceGroupRoomIds,
+          // 每轮重新取：控制台新增的服务群无需重启
+          roomIds: () => registry.roomIds(),
           excludeSender: config.advisorId,
           startedAt,
           includeMedia: true,
         },
         logger: log,
       });
+
+      // 只发现企业创建的客户群：客户群列表接口返回的群，登记为候选待人工确认
+      const discovery =
+        config.serviceGroupDiscovery.enabled && groupInfo.enabled
+          ? new GroupDiscovery({
+              client: groupInfo,
+              registry,
+              patient: () => patientApi(),
+              now: () => clock.now(),
+              maxPerScan: config.serviceGroupDiscovery.maxPerScan,
+              ownerUserIds: config.serviceGroupDiscovery.ownerUserIds,
+              logger: log,
+            })
+          : undefined;
+      if (config.serviceGroupDiscovery.enabled && !groupInfo.enabled) {
+        log('服务群自动发现未启用：缺少 contactSecret / corpId');
+      }
 
       runtime = new WecomRuntime({
         store,
@@ -486,6 +754,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         config,
         clock,
         patient: patientSink,
+        staffQuality: checkStaffMessage,
+        groupInfo,
+        roomAgree,
+        discovery: discovery
+          ? { scanOnce: () => discovery.scanOnce(), intervalMs: config.serviceGroupDiscovery.intervalMs }
+          : undefined,
         emit: (type, data) => {
           ctx.emit(type, data);
         },
@@ -497,7 +771,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
 
       await bot.connect();
       runtime.start({ downtimeGapMs });
-      log(`已就绪：顾问=${config.advisorId}，群=${config.serviceGroupRoomIds.join(',')}`);
+      log(`已就绪：顾问=${config.advisorId}，群=${registry.roomIds().join(',')}`);
       log('提示：同一机器人只允许一个长连接；开发环境请使用「知伴-开发」机器人（F14）');
 
       return async () => {
@@ -505,6 +779,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         bot?.close();
         serviceRef = undefined;
         botRef = undefined;
+        registryRef = undefined;
         await domain.close();
         log('已停止并落盘');
       };
@@ -512,6 +787,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       bot?.close();
       serviceRef = undefined;
       botRef = undefined;
+      registryRef = undefined;
       await domain.close();
       throw error;
     }

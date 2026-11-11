@@ -56,9 +56,32 @@
 - 群内外部成员默认 `role=unknown`、`consent=unknown`；内部员工自动标为
   `advisor` / `colleague`，内部发言只作为上下文，不触发回合。
 - 第一个外部发言会自动建档并绑定；也可以把多个群绑定到同一患者，路由到同一个 Session。
+- **患者身份**（`identityStatus` / `identitySource` / `identityConfirmedAt`）：
+  - 系统按发言猜测建档的自动患者为 `pending` / `auto`（员工先发言时取第一个外部成员建档，
+    可能绑错人）；
+  - 顾问在控制台确认/改绑后置为 `confirmed` / `manual`：患者指向服务群里选定的外部成员，
+    被选成员角色置为 `self`，原「本人」成员降为 `family`，患者的同意状态跟随被选成员；
+  - 患者姓名默认跟随被选成员的群昵称，可显式覆盖。
 - 家属/身份未知的发言会在回合提示词里明确「不能当作患者本人的事实」，并要求
   用自然提问核实（如「请问是您本人还是家属？」），不把「家属说」「群里有人问到」
   这类来源说明写进正文。
+- **群名同步**：`zhiban-wecom` 用客户联系 API（`groupchat/get?need_name=1`，与昵称同一次请求）
+  取回企微当前群名，经 `observeGroup({ groupName, groupNameSource: 'api' })` 写回群名；
+  群里改名后下一轮存档轮询（昵称缓存 10 分钟）内生效。控制台手工改名把
+  `nameSource` 置为 `manual`，此后企微群名不再覆盖；空群名不覆盖已有名称。
+- **服务群自动发现**（#106）：
+  - `zhiban-wecom` 启动后立即扫一轮，之后每 5 分钟（`serviceGroupDiscovery.intervalMs`）
+    调客户联系 API `externalcontact/groupchat/list`，只发现**企业创建的客户群**；
+    配置 `ownerUserIds` 后只发现本环境群主名下的群（demo / dev 共用 corpid 时的隔离）。
+  - 新群自动登记为 `pending` 候选（带群名与成员，经 `observeRooms` 写入患者域），
+    出现在控制台群列表；**不会拉取存档消息、不会生成草稿**。
+  - 管理员在控制台点「开始服务」时必须选负责顾问和**服务对象**（从群里的外部成员中选）：
+    先按 `externalUserId` 复用已有患者（一个客户多个群共用一个 Agent），没有则建档并绑定，
+    再把群置为 `serving` 并加入存档拉取白名单，下一轮轮询即开始处理新消息。
+    没有可选外部成员的群不能开始服务；已绑定过的群沿用原绑定。
+    「忽略 / 移出服务」写入停用名单，重启后不会被重新发现。
+  - 白名单 = profile `serviceGroupRoomIds`（种子）∪ 已开始服务的群 − 停用名单，
+    持久化在 `zhiban_wecom` 元数据 `service_roster`，改状态无需重启。
 
 ### 2.2 回复与降级
 
@@ -151,11 +174,20 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 
 ---
 
-## 4. 同意状态（已知缺口）
+## 4. 同意状态自动同步
 
-- 目前没有调用企微 `check_room_agree` 接口；同意状态通过
-  `PatientService.setMemberConsent` / `refreshConsent` 手工写入（控制台接口后续补）。
-- 因此真机验收中「客户同意存档状态自动同步」为 ⏳ 待真机，不能写成已通过。
+- `zhiban-wecom` 启动时用存档凭据（`/etc/zhiban/archive/config.txt` 第 1 行 corpid、
+  第 2 行会话存档 Secret）创建 `RoomAgreeClient`，轮询存档时按 roomid 调
+  `msgaudit/check_room_agree`，把 `Agree` / `Disagree` 映射为 `agreed` / `disagreed`，
+  经 `memberConsent` 交给 `PatientService.observeGroup`，再刷新成员与患者的同意状态。
+- 成功结果缓存 5 分钟、失败负缓存 10 分钟；token 失效（40014/42001）自动换一次。
+  凭据缺失、权限不足（如内部群 90501）或网络失败时静默保持原状态，不阻塞存档链路。
+- Secret / access_token / 外部联系人 id / 昵称都不进日志；只记群 id 尾号、成员数量与
+  errcode。本插件仍没有任何 Secret，凭据只从环境或存档配置文件读取。
+- 控制台仍保留 `setMemberConsent` / `refreshConsent` 手工修正入口。
+- ⏳ 待真机：确认 `check_room_agree` 返回的 `exteranalopenid` 与存档/成员表里的
+  `externalUserId` 是同一个值；若不一致，状态不会落到成员上（需按真机返回值调整映射）。
+  本项在真机确认前不能写成「已通过」。
 - 未同意时的提示文案固定为「该成员未同意存档，需人工服务（状态待确认）」。
 
 ---
@@ -170,6 +202,11 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 | serving / collect_only / disabled 即时生效 | `tests/patient-service.test.ts` |
 | 两群绑同一患者、重启后状态与会话不丢 | `tests/patient-service.test.ts` |
 | 成员角色与同意状态 | `tests/patient-service.test.ts` |
+| 群名同步（企微改名生效、手工改名优先、空名不覆盖） | `tests/patient-service.test.ts`、`tests/wecom-group-info.test.ts` |
+| 同意状态自动同步（映射、缓存、token 重试、失败降级、不落 id） | `tests/wecom-room-agree.test.ts`、`tests/wecom-runtime.test.ts` |
+| 服务群名单（种子、候选、开始服务、移出后不复发、快照容错） | `tests/wecom-service-groups.test.ts` |
+| 自动发现（列表翻页、候选登记、刷新、跳过、失败降级、日志不含群名/昵称） | `tests/wecom-group-discovery.test.ts` |
+| 控制台状态 ↔ 存档白名单同步（失败回滚） | `tests/console-plugin.test.ts` |
 | 工具参数校验、正常草稿、四种降级 | `tests/agent-reply.test.ts` |
 | reply_skip、重复调用、核验回写 | `tests/agent-reply.test.ts` |
 | 连发合并、2 分钟上限、内部上下文、去重、家属提示 | `tests/group-context.test.ts` |
@@ -189,15 +226,25 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 4. **顾问改稿**：顾问在机器人 1:1 回一句改稿指令，确认收到「正在改第 2 版」、
    新卡片标题为「第 2 版」、点旧卡片提示新版本。
 5. **停用与采集**：把群改为 `collect_only` / `disabled`，确认不再生成新草稿。
-6. **同意状态**：手工把成员同意改为 `disagreed`，确认消息不再触发自动服务，
-   且顾问能看到提示。
-7. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
+6. **群名同步**：在企业微信里改群名，等一轮存档轮询后确认控制台群名变化；
+   再在控制台手工改名，确认随后的轮询不再把它改回企微群名。
+7. **同意状态**：让真实客户在群里分别点「已同意保存 / 不同意保存」，等一轮轮询后确认
+   控制台成员与患者状态自动变化；同时核对接口返回的 `exteranalopenid` 与成员
+   `externalUserId` 一致。`disagreed` 的消息不再触发自动服务，且顾问能看到提示。
+8. **真实图片回合**：客户在服务群发一张餐食照，确认 Session 收到图片、模型调用
    `image_classify` / `meal_log_write`、卡片出现「客户发来图片 · 餐食」、
    原图转发到顾问 1:1，控制台饮食记录可见。
-8. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
+9. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
    正文不解读指标、不判断能否服用。
+10. **自动发现端到端**：在企业微信里新建一个客户群（企业创建、有外部客户），
+    等一轮发现周期后确认控制台出现 `pending` 候选、群名与成员正确，且此时客户发言
+    不产生草稿；点「开始服务」后客户再发一条，确认出现草稿。同时核对
+    `groupchat/list` 返回的 `chat_id` 与存档 roomid 是同一个值——不一致会导致
+    白名单对不上，需按真机返回值调整映射。
+11. **停用持久化**：把已发现的群「忽略 / 移出服务」后重启服务，确认它仍是停用状态、
+    不会重新变成候选。
 
-> 以上 1–8 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
+> 以上 1–11 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
 
 ---
 

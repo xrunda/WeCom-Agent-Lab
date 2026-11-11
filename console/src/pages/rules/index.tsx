@@ -58,7 +58,7 @@ function errorMessage(error: unknown): string {
 export default function RulesPage() {
   const { can } = useAuth();
   const { message } = App.useApp();
-  const canWrite = can('rule.write');
+  const canWrite = can('tenant.write');
 
   const [rules, setRules] = useState<RiskRule[]>([]);
   const [loading, setLoading] = useState(true);

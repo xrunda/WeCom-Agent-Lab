@@ -5,6 +5,9 @@ import {
   attachPatientToGroup,
   createPatient,
   getPatientDetail,
+  listGroupMembers,
+  listPatients,
+  setPatientIdentity,
   type ConsentStatus,
   type Patient,
 } from './patients.ts';
@@ -17,7 +20,7 @@ export interface Group {
   roomId: string;
   chatId: string | null;
   name: string;
-  nameSource: 'config' | 'api' | 'members' | 'roomid';
+  nameSource: 'config' | 'api' | 'members' | 'roomid' | 'manual';
   status: GroupStatus;
   advisorId: string | null;
   patientIds: string[];
@@ -171,7 +174,8 @@ export async function updateGroup(
     const name = patch.name.trim();
     if (!name) throw new ApiError('VALIDATION_FAILED', '群名不能为空', 422);
     group.name = name;
-    group.nameSource = 'config';
+    // 手工改名优先，企微群名同步不再覆盖
+    group.nameSource = 'manual';
   }
   if (patch.status) group.status = patch.status;
   if (patch.advisorId !== undefined) group.advisorId = patch.advisorId || null;
@@ -201,6 +205,57 @@ export async function bindPatient(
   }
   const patient = await createPatient(input.newPatient);
   return addBinding(state, group, patient);
+}
+
+/**
+ * 从群成员选服务对象：同一 externalUserId 已有患者时复用，否则新建再绑定。
+ * 与后端 POST /groups/{id}/bindings { memberId } 语义一致。
+ */
+export async function bindGroupMember(
+  groupId: string,
+  memberId: string,
+): Promise<{ binding: GroupBinding; patient: Patient }> {
+  if (!isMockMode) {
+    return apiRequest<{ binding: GroupBinding; patient: Patient }>(
+      `/groups/${groupId}/bindings`,
+      { method: 'POST', body: JSON.stringify({ memberId }) },
+    );
+  }
+
+  const member = (await listGroupMembers(groupId)).find((item) => item.id === memberId);
+  if (!member) throw new ApiError('VALIDATION_FAILED', '群成员不存在', 422);
+  if (!member.isExternal || !member.externalUserId) {
+    throw new ApiError('VALIDATION_FAILED', '只能选择外部成员作为服务对象', 422);
+  }
+
+  const state = readState();
+  const group = state.groups.find((item) => item.id === groupId && item.deletedAt === null);
+  if (!group) throw new ApiError('NOT_FOUND', '群不存在', 404);
+
+  const existing = (await listPatients({ pageSize: 200 })).items.find(
+    (item) => item.externalUserId === member.externalUserId,
+  );
+  let patient =
+    existing ??
+    (await createPatient({
+      displayName: member.displayName,
+      consent: member.consent,
+    }));
+
+  const bound = state.bindings.find(
+    (item) =>
+      item.groupId === group.id && item.patientId === patient.id && item.deletedAt === null,
+  );
+  const binding = bound ?? addBinding(state, group, patient).binding;
+
+  // 患者身份指向所选成员（role=self、同意状态跟随）
+  patient = await setPatientIdentity(patient.id, {
+    groupId,
+    externalUserId: member.externalUserId,
+    displayName: member.displayName,
+  });
+
+  return { binding, patient };
 }
 
 function addBinding(
