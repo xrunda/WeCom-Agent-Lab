@@ -88,8 +88,23 @@ DSH 现有 hook 无法在 `reply_draft` 入队前改写参数（`tools/pre-execu
 ```
 
 - 领域：`zhiban_guard`（`rules` / `alerts` / `audit`）。
-- 提供 `zhibanGuard` 服务：`review`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
+- 提供 `zhibanGuard` 服务：`review`、`reviewStaffMessage`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
 - 事件：`risk_rule.created|updated|deleted|hit`、`alert.created`、`draft.guard.hit`、`audit`。
+
+### 2.7 员工发言质检（人工消息也过红线）
+
+服务群里顾问 / 客服自己发出的消息，与 AI 草稿走同一套关键词规则：
+
+- 入口：`zhiban-wecom` 轮询到「非 `wm` 开头」的内部员工发言时，调用 `zhibanGuard.reviewStaffMessage({ text, advisorId, groupId, groupName, messageId })`，再照常把消息交给患者域做上下文。
+- 只匹配 `action=flag` 的规则（内置三条 + 自定义关键词规则）。急症规则是「患者说症状 → 引导就医」，员工复述症状属于正常沟通，不判违规。
+- 否定句不命中：关键词前 4 字出现「不要 / 不能 / 请勿 / 别 / 未 / 避免 …」时视为合规提醒（如「不要自行加量」「请勿停药」）；「特别加量」这类不含否定的仍会命中。
+- 命中后：
+  - 规则 `hitCount += 1`，写审计 `risk_rule.hit`（`errorCode=staff_message`），发 `risk_rule.hit`（`source=staff`）；
+  - 生成 `kind=redline / severity=warning` 告警，带 `advisorId` / `groupId` / `source=staff` / `messageId`，标题固定「员工发言命中红线」；
+  - 告警事件与控制台 `AlertService.ingest` 字段对齐（`id` / `advisorId` / `groupId` 等），管理后台「质检与告警」可见；
+  - `zhiban-wecom` 通过机器人 1:1 给发言人推送提醒（只含群名和规则名），并计入「顾问 → 红线命中」个人留痕。
+- 同一条 `msgid` 只质检一次（进程内去重），避免重启或重复轮询产生重复告警。
+- 告警、审计、事件、日志都不带员工发言正文。
 
 ## 3. #38 知识库
 

@@ -11,7 +11,7 @@ import { DomainStore, MemoryStoreBackend } from '../plugins/zhiban-wecom/domain.
 import type { GroupInfoClient } from '../plugins/zhiban-wecom/group-info.ts';
 import type { RoomAgreeClient } from '../plugins/zhiban-wecom/room-agree.ts';
 import { WecomRuntime, makeTemplateCompose } from '../plugins/zhiban-wecom/runtime.ts';
-import type { PatientSink } from '../plugins/zhiban-wecom/runtime.ts';
+import type { PatientSink, StaffQualityMessage } from '../plugins/zhiban-wecom/runtime.ts';
 
 const CUSTOMER_TEXT = '客户说血糖有点高，晚上睡不好';
 const ADV = 'adv_1';
@@ -55,6 +55,7 @@ function harness(
     groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
     roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
     patient?: PatientSink;
+    staffQuality?: (message: StaffQualityMessage) => void;
   } = {},
 ): Harness {
   const clock = new FakeClock(1_000_000);
@@ -132,6 +133,7 @@ function harness(
     groupInfo: options.groupInfo,
     roomAgree: options.roomAgree,
     patient: options.patient,
+    staffQuality: options.staffQuality,
   });
 
   return { clock, store, bot, service, runtime, events, logs };
@@ -609,4 +611,39 @@ test('同意状态查询失败时缺省该字段，草稿链路不受影响', as
   assert.equal(room?.memberConsent, undefined);
   assert.equal(h.store.listDrafts().length, 1);
   assert.ok(!h.logs.join('\n').includes('MSGAUDIT_DOWN'));
+});
+
+test('内部员工发言送质检，外部客户发言不进质检；质检异常不影响会话链路', async () => {
+  const calls: StaffQualityMessage[] = [];
+  let throws = true;
+  const h = harness({
+    staffQuality: (message) => {
+      calls.push(message);
+      if (throws) {
+        throws = false;
+        throw new Error('GUARD_NOT_READY');
+      }
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    await h.runtime.pollOnce();
+
+    // 第一轮是客户消息（不质检），第二轮是顾问发言（质检，且异常被吞掉）
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.from, ADV);
+    assert.equal(calls[0]!.roomId, 'wrGROUP1');
+    assert.equal(calls[0]!.groupName, '减重-张女士');
+    assert.ok(calls[0]!.text.length > 0);
+    assert.equal(calls.some((call) => call.from === 'wmCUSTOMER'), false);
+
+    // 质检抛错后，正常草稿链路不受影响
+    assert.equal(h.store.listDrafts().length, 1);
+    assert.ok(h.logs.some((line) => line.includes('员工发言质检失败')));
+    const failedLog = h.logs.find((line) => line.includes('员工发言质检失败'))!;
+    assert.equal(failedLog.includes(calls[0]!.text), false);
+  } finally {
+    await h.runtime.stop();
+  }
 });

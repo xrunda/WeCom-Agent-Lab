@@ -201,6 +201,12 @@ export interface AdvisorView {
   queueDepth: number;
   consecutiveMisroutes: number;
   pausedAt: number | null;
+  /** 员工发言命中红线的累计条数（按 advisorId 统计），作为个人考核留痕 */
+  redlineHits: number;
+  /** 其中尚未处理（open + acknowledged）的条数 */
+  redlineOpen: number;
+  /** 最近一次命中时间；没有命中为 null */
+  redlineLastAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -653,7 +659,15 @@ export function patientView(
   };
 }
 
-export function advisorView(advisor: AdvisorRecord, queueDepth: number): AdvisorView {
+export function advisorView(
+  advisor: AdvisorRecord,
+  queueDepth: number,
+  redline: { hits: number; open: number; lastAt: number | null } = {
+    hits: 0,
+    open: 0,
+    lastAt: null,
+  },
+): AdvisorView {
   return {
     id: advisor.id,
     tenantId: advisor.tenantId,
@@ -666,6 +680,9 @@ export function advisorView(advisor: AdvisorRecord, queueDepth: number): Advisor
     queueDepth,
     consecutiveMisroutes: advisor.consecutiveMisroutes,
     pausedAt: null,
+    redlineHits: redline.hits,
+    redlineOpen: redline.open,
+    redlineLastAt: redline.lastAt,
     createdAt: advisor.createdAt,
     updatedAt: advisor.updatedAt,
   };

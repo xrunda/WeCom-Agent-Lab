@@ -701,13 +701,18 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ```json
 {
   "items": [
-    { "id": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p", "tenantId": "tn_...", "wecomUserId": "li.guwen", "name": "李顾问", "status": "active", "seatExpireAt": 1794067200000, "chatBound": true, "online": true, "queueDepth": 1, "consecutiveMisroutes": 0, "pausedAt": null, "createdAt": 1759500000000, "updatedAt": 1762645800000 }
+    { "id": "adv_01j9zc3d4e5f6g7h8j9k0m1n2p", "tenantId": "tn_...", "wecomUserId": "li.guwen", "name": "李顾问", "status": "active", "seatExpireAt": 1794067200000, "chatBound": true, "online": true, "queueDepth": 1, "consecutiveMisroutes": 0, "pausedAt": null, "redlineHits": 2, "redlineOpen": 1, "redlineLastAt": 1762645800000, "createdAt": 1759500000000, "updatedAt": 1762645800000 }
   ],
   "page": 1,
   "pageSize": 20,
   "total": 3
 }
 ```
+
+- `redlineHits`：该顾问累计的员工发言红线命中条数（`kind=redline` 且 `advisorId` 指向该顾问），作为个人考核留痕。
+- `redlineOpen`：其中状态为 `open` / `acknowledged` 的条数。
+- `redlineLastAt`：最近一次命中时间；没有命中为 `null`。
+- 明细用 `GET /alerts?kind=redline&advisorId=...` 查询。
 
 ### `POST /advisors`
 
@@ -744,6 +749,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ### `GET /alerts?kind=&status=&advisorId=&patientId=&from=&to=&page=`
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。响应 `200`：`{ "items": [alert], ... }`。
+
+员工在服务群里的发言也会过红线质检：命中时生成 `kind=redline`、`title="员工发言命中红线"` 的告警，`advisorId` 指向发言人，`groupId` 指向群，`message` 只写群名与规则名，不含发言正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
 ### `GET /alerts/unresolved-count`
 

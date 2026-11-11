@@ -60,6 +60,17 @@ export interface PatientSink {
   handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
 }
 
+/** 员工在服务群里的发言：交给 zhiban-guard 做红线质检（不落正文） */
+export interface StaffQualityMessage {
+  msgid: string;
+  /** 发言人企微 userid；P1 里即顾问 id */
+  from: string;
+  roomId: string;
+  groupName?: string;
+  text: string;
+  msgtime: number;
+}
+
 export interface WecomRuntimeDeps {
   store: DomainStore;
   service: C2Service;
@@ -72,6 +83,11 @@ export interface WecomRuntimeDeps {
   /** 发到 DSH 事件总线：ctx.emit(type, data) */
   emit: (type: string, data: unknown) => void;
   logger?: (line: string) => void;
+  /**
+   * 员工（顾问 / 客服）在服务群里的发言质检。
+   * 只把原文交给质检方做关键词匹配；本运行时日志不会打正文。
+   */
+  staffQuality?: (message: StaffQualityMessage) => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
   /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
@@ -142,6 +158,7 @@ export class WecomRuntime {
   private readonly clock: Clock;
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
+  private readonly staffQuality?: (message: StaffQualityMessage) => void;
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
@@ -165,6 +182,7 @@ export class WecomRuntime {
     this.clock = deps.clock;
     this.emit = deps.emit;
     this.logger = deps.logger;
+    this.staffQuality = deps.staffQuality;
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
@@ -249,6 +267,29 @@ export class WecomRuntime {
       ].sort((a, b) => a.message.msgtime - b.message.msgtime);
 
       for (const { message, event } of ordered) {
+        // 员工发言先进质检再走上下文：命中红线时仍保留会话上下文，
+        // 不因质检拦截而丢失患者域看到的对话顺序。
+        if (!event && this.staffQuality && (message.msgtype === 'text' || message.msgtype === undefined)) {
+          const text = message.text ?? '';
+          if (text.trim() !== '') {
+            try {
+              this.staffQuality({
+                msgid: message.msgid,
+                from: message.from,
+                roomId: message.roomid,
+                groupName: this.store.getGroup(message.roomid)?.name,
+                text,
+                msgtime: message.msgtime,
+              });
+            } catch (error) {
+              // 质检失败不影响正常会话链路；日志只带 msgid，不带正文
+              this.log(
+                `员工发言质检失败 msgid=${tailId(message.msgid)}：` +
+                  `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+              );
+            }
+          }
+        }
         if (this.patient) {
           const routed = this.patient.routeInbound({
             msgid: message.msgid,

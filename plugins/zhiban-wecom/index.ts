@@ -68,6 +68,22 @@ export function maxDraftSeq(drafts: Draft[]): number {
   return max;
 }
 
+/** 只依赖 zhiban-guard 的质检入口；未安装 guard 时静默跳过 */
+interface StaffQualityGuard {
+  reviewStaffMessage?(input: {
+    text: string;
+    advisorId?: string;
+    groupId?: string;
+    groupName?: string;
+    messageId?: string;
+  }): {
+    hits: string[];
+    hitNames: string[];
+    riskLevel: string;
+    alertId?: string;
+  };
+}
+
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   const config = parsePluginConfig(rawConfig);
   const log = (line: string): void => ctx.logger?.info?.(`[zhiban-wecom] ${line}`);
@@ -89,6 +105,72 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   const requireRegistry = (): ServiceGroupRegistry => {
     if (!registryRef) throw new Error('WECOM_SERVICE_NOT_READY');
     return registryRef;
+  };
+
+  /** 员工发言 → 顾问：P1 里顾问 id 与企微 userid 相同，同时兼容按 chatId 绑定 */
+  const resolveStaffAdvisor = (userId: string) => {
+    const found = (serviceRef?.store.listAdvisors() ?? []).find(
+      (advisor) => advisor.id === userId || advisor.chatId === userId,
+    );
+    if (found) return found;
+    if (userId === config.advisorId || userId === config.advisorChatId) {
+      return {
+        id: config.advisorId,
+        name: config.advisorName,
+        chatId: config.advisorChatId,
+        status: 'active' as const,
+        consecutiveMisroutes: 0,
+      };
+    }
+    return undefined;
+  };
+
+  /** 命中后 1:1 提醒本人；提醒里只有群名与规则名，不含发言正文 */
+  const notifyStaffQuality = async (input: {
+    chatId: string;
+    groupName: string;
+    hitNames: string[];
+  }): Promise<void> => {
+    if (!botRef) return;
+    try {
+      await botRef.sendText(
+        input.chatId,
+        `【质检提醒】你在群「${input.groupName}」的发言命中了红线规则「${input.hitNames.join('、')}」。\n` +
+          '这条已记录到「质检与告警」，并计入个人质检记录。请及时撤回或更正，必要时向主管说明。',
+      );
+    } catch (error) {
+      log(`质检提醒推送失败：${error instanceof Error ? error.message : 'UNKNOWN'}`);
+    }
+  };
+
+  /** 员工发言质检：交给 zhiban-guard 关键词匹配，命中后由本插件推送 1:1 提醒 */
+  const checkStaffMessage = (message: {
+    msgid: string;
+    from: string;
+    roomId: string;
+    groupName?: string;
+    text: string;
+  }): void => {
+    const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
+    if (!guard?.reviewStaffMessage) return;
+    const advisor = resolveStaffAdvisor(message.from);
+    const result = guard.reviewStaffMessage({
+      text: message.text,
+      ...(advisor ? { advisorId: advisor.id } : {}),
+      groupId: message.roomId,
+      ...(message.groupName ? { groupName: message.groupName } : {}),
+      messageId: message.msgid,
+    });
+    if (!result?.alertId) return;
+    log(
+      `员工发言命中红线：advisor=${tailId(advisor?.id ?? message.from)} ` +
+        `group=${tailId(message.roomId)} rules=${result.hits.join(',')}（正文不落日志）`,
+    );
+    void notifyStaffQuality({
+      chatId: advisor?.chatId ?? message.from,
+      groupName: message.groupName ?? '服务群',
+      hitNames: result.hitNames,
+    });
   };
   const wecomBridge: PatientBridge = {
     async enqueueDraft(input) {
@@ -622,6 +704,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         config,
         clock,
         patient: patientSink,
+        staffQuality: checkStaffMessage,
         groupInfo,
         roomAgree,
         discovery: discovery
