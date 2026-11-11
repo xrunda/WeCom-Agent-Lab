@@ -105,7 +105,7 @@ export default function SolutionDetailPage() {
               查看知识库
             </Button>
             <Button onClick={() => navigate('/rules')}>查看风险规则</Button>
-            <Button onClick={() => navigate('/skills')}>查看技能市场</Button>
+            <Button onClick={() => navigate('/settings/agent')}>查看 Agent 能力</Button>
           </Space>
         </Space>
       </Card>

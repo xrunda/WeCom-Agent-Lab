@@ -35,7 +35,6 @@ describe('控制台菜单与页面元数据', () => {
         '/knowledge',
         '/rules',
         '/scripts',
-        '/skills',
         '/reports',
         '/solutions',
         '/settings/agent',
@@ -47,6 +46,14 @@ describe('控制台菜单与页面元数据', () => {
         '/settings/onboarding',
       ]),
     );
+  });
+
+  it('技能市场不再作为导航入口', () => {
+    const paths = flatten(buildMenuItems('患者'))
+      .map((item) => item.path)
+      .filter((path): path is string => Boolean(path));
+
+    expect(paths).not.toContain('/skills');
   });
 
   it('C 档入口带「即将上线」角标', () => {

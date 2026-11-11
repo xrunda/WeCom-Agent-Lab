@@ -28,8 +28,6 @@ import SettingsOnboardingPage from './pages/settings/onboarding/index.tsx';
 import SettingsSecurityPage from './pages/settings/security/index.tsx';
 import SettingsWecomPage from './pages/settings/wecom/index.tsx';
 import ShiftsPage from './pages/shifts/index.tsx';
-import SkillDetailPage from './pages/skills/skill-detail.tsx';
-import SkillsPage from './pages/skills/index.tsx';
 import SolutionDetailPage from './pages/solutions/solution-detail.tsx';
 import SolutionsPage from './pages/solutions/index.tsx';
 
@@ -105,22 +103,6 @@ export default function App() {
             element={
               <RealModeOnly title="话术库" description="团队常用表达，可按分类查找。">
                 <ScriptsPage />
-              </RealModeOnly>
-            }
-          />
-          <Route
-            path="/skills"
-            element={
-              <RealModeOnly title="技能市场" description="可插拔插件与已启用能力。">
-                <SkillsPage />
-              </RealModeOnly>
-            }
-          />
-          <Route
-            path="/skills/:skillId"
-            element={
-              <RealModeOnly title="技能详情">
-                <SkillDetailPage />
               </RealModeOnly>
             }
           />

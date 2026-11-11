@@ -1,6 +1,5 @@
 import {
   AlertOutlined,
-  AppstoreOutlined,
   AuditOutlined,
   BarChartOutlined,
   BookOutlined,
@@ -79,7 +78,6 @@ export function buildMenuItems(term: string): MenuDataItem[] {
         { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
         { path: '/rules', name: '风险规则', icon: <SafetyCertificateOutlined /> },
         { path: '/scripts', name: '话术库', icon: <CommentOutlined /> },
-        { path: '/skills', name: '技能市场', icon: <AppstoreOutlined /> },
       ],
     },
     {
@@ -212,12 +210,6 @@ export function buildPageMeta(term: string): PageMeta[] {
       title: '话术库',
       description: '常用话术示例与团队共享。',
       tier: 'B',
-    },
-    {
-      path: '/skills',
-      title: '技能市场',
-      description: '已安装的插件能力与即将上线的技能。',
-      tier: 'A',
     },
     {
       path: '/reports',
