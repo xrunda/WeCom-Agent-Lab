@@ -197,15 +197,52 @@ export interface DashboardValue {
   computedAt: number;
 }
 
-export interface DashboardRecentItem {
-  id: string;
-  patientName: string;
+export type TeamAttentionLevel = 'L1' | 'L2';
+
+export type TeamAttentionCode =
+  | 'redline'
+  | 'misroute'
+  | 'unverified'
+  | 'advisor_paused'
+  | 'queue_blocked'
+  | 'no_reply'
+  | 'backlog'
+  | 'slow_response'
+  | 'high_revision';
+
+export interface TeamAttentionReason {
+  code: TeamAttentionCode;
+  level: TeamAttentionLevel;
+  text: string;
+  waitMinutes: number;
+  draftId?: string;
+  patientId?: string;
+  groupId?: string;
+}
+
+export interface TeamAttentionPerson {
+  advisorId: string;
   advisorName: string;
-  groupName: string;
-  preview: string;
-  outcome: 'verified' | 'edit_sent' | 'misroute' | 'unverified' | 'pending';
-  at: number;
-  sandbox: boolean;
+  online: boolean;
+  patientCount: number;
+  pendingCount: number;
+  level: TeamAttentionLevel;
+  reasons: TeamAttentionReason[];
+  suggestion: string;
+  oldestWaitMinutes: number;
+  lastActivityAt: number | null;
+}
+
+export interface TeamAttention {
+  generatedAt: number;
+  people: TeamAttentionPerson[];
+  summary: {
+    peopleCount: number;
+    immediateCount: number;
+    verifiedToday: number;
+    avgResponseSeconds: number;
+    unverifiedCount: number;
+  };
 }
 
 /* ---------- WP-L：设置 / 账号 / 审计 ---------- */

@@ -291,13 +291,59 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 }
 ```
 
-### `GET /dashboard/recent?limit=10`
+### `GET /dashboard/team-attention`
 
-角色：全部。响应 `200`：`{ "items": [ServiceFlowRow] }`，按 `createdAt` 倒序，默认 10、最大 20。`ServiceFlowRow` 见 §6。
+角色：全部（`patient.read`）。响应 `200`：
+
+```json
+{
+  "generatedAt": 1762646400000,
+  "people": [
+    {
+      "advisorId": "adv_...",
+      "advisorName": "李光",
+      "online": true,
+      "patientCount": 12,
+      "pendingCount": 4,
+      "level": "L1",
+      "reasons": [
+        {
+          "code": "queue_blocked",
+          "level": "L1",
+          "text": "草稿已推送 42 分钟未处理，队列可能阻塞",
+          "waitMinutes": 42,
+          "draftId": "draft_...",
+          "patientId": "pat_...",
+          "groupId": "grp_..."
+        }
+      ],
+      "suggestion": "去实时服务流查看阻塞草稿，必要时在告警台账释放队列",
+      "oldestWaitMinutes": 42,
+      "lastActivityAt": 1762643880000
+    }
+  ],
+  "summary": {
+    "peopleCount": 1,
+    "immediateCount": 1,
+    "verifiedToday": 18,
+    "avgResponseSeconds": 180,
+    "unverifiedCount": 2
+  }
+}
+```
+
+口径：
+
+- **一行一位服务人员**（顾问与客服不区分角色）。只输出行为元数据，**不返回消息正文、患者姓名或健康数值**。
+- `L1`（立即介入）：未解决红线 / 发错群 / 未核验 / 顾问暂停告警；`PUSHED` 超过 15 分钟；客户最新消息超过 60 分钟无人跟进。
+- `L2`（今日跟进）：客户消息 30–60 分钟无人跟进；`QUEUED + PUSHED` 超过 3 条；今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍；今日改稿或忽略率 ≥40%（至少 4 条草稿）。
+- 未解决告警 = `status` 为 `open` 或 `acknowledged`；告警归属依次取 `advisorId` → 草稿顾问 → 患者顾问。
+- 排序：`L1` 先于 `L2`；同级别按原因优先级（客户安全 → 服务履约 → 人员状态）→ 最久等待 → 姓名。同一服务人员只出现一次，原因最多由前端展示 2 条。
+- 只做发现与跳转；催办、释放队列、恢复顾问仍在质检与告警台账处理。沙盒数据不计入。
 
 ### B 档图表数据
 
-趋势图、排行、数据报表为 B 档，数据来自 `console/src/sample/`，**不提供后端接口**。前端必须显示 `<SampleDataTag/>`。
+数据报表为 B 档，数据来自 `console/src/sample/`，**不提供后端接口**。前端必须显示 `<SampleDataTag/>`。工作台趋势图与顾问排行已由 `GET /dashboard/value` 返回真实数据，不属于 B 档。
 
 ---
 
@@ -1306,7 +1352,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 |---|---|---|---|
 | 工作台 | 价值条 | `GET /dashboard/value` | A |
 | 工作台 | KPI | `GET /dashboard/kpis` | A |
-| 工作台 | 最近动态 | `GET /dashboard/recent` | A |
+| 工作台 | 团队关注 | `GET /dashboard/team-attention` | A |
 | 工作台 | 趋势图、排行 | `GET /dashboard/value` 的 `trend` / `advisorRanking` | A |
 | 工作台 | 开通引导卡片 | `GET /settings/onboarding` | A |
 | 患者 Agent | 卡片墙列表 | `GET /patients` | A |

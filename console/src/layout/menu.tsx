@@ -142,8 +142,8 @@ export function buildPageMeta(term: string): PageMeta[] {
     {
       path: '/dashboard',
       title: '工作台',
-      description: '价值条、KPI、趋势与最近服务动态。',
-      tier: 'B',
+      description: '价值条、团队关注、KPI、趋势与排行。',
+      tier: 'A',
     },
     {
       path: '/patients',

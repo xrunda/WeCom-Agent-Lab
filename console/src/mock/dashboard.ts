@@ -1,7 +1,7 @@
 import { getTenant } from './api.ts';
 import { apiRequest, isMockMode } from './http.ts';
 import { toQuery } from './storage.ts';
-import type { DashboardKpis, DashboardRange, DashboardRecentItem, DashboardValue } from '../types.ts';
+import type { DashboardKpis, DashboardRange, DashboardValue, TeamAttention } from '../types.ts';
 
 /**
  * A 档 KPI 的 mock 替身。真实模式下全部来自后端口径，
@@ -131,75 +131,67 @@ export async function getDashboardKpis(range: DashboardRange = 'today'): Promise
   };
 }
 
-const RECENT_ITEMS: Array<Omit<DashboardRecentItem, 'at'>> = [
-  {
-    id: 'draft_recent_01',
-    patientName: '陈女士',
-    advisorName: '李顾问',
-    groupName: '陈女士-健康服务群',
-    preview: '晚餐与餐后活动建议',
-    outcome: 'verified',
-    sandbox: false,
-  },
-  {
-    id: 'draft_recent_02',
-    patientName: '王女士',
-    advisorName: '王顾问',
-    groupName: '王女士-健康服务群',
-    preview: '控糖主食替换建议',
-    outcome: 'edit_sent',
-    sandbox: false,
-  },
-  {
-    id: 'draft_recent_03',
-    patientName: '赵女士',
-    advisorName: '赵顾问',
-    groupName: '赵女士-健康服务群',
-    preview: '睡眠作息调整建议',
-    outcome: 'pending',
-    sandbox: false,
-  },
-  {
-    id: 'draft_recent_04',
-    patientName: '刘先生',
-    advisorName: '李顾问',
-    groupName: '刘先生-健康服务群',
-    preview: '复诊提醒',
-    outcome: 'misroute',
-    sandbox: false,
-  },
-  {
-    id: 'draft_recent_05',
-    patientName: '周女士',
-    advisorName: '李顾问',
-    groupName: '周女士-健康服务群',
-    preview: '外食选择建议',
-    outcome: 'verified',
-    sandbox: false,
-  },
-  {
-    id: 'draft_recent_06',
-    patientName: '黄先生',
-    advisorName: '赵顾问',
-    groupName: '黄先生-健康服务群',
-    preview: '运动量确认',
-    outcome: 'unverified',
-    sandbox: false,
-  },
-];
+/** GET /dashboard/team-attention */
+export async function getDashboardTeamAttention(): Promise<TeamAttention> {
+  if (!isMockMode) return apiRequest('/dashboard/team-attention');
 
-/** GET /dashboard/recent */
-export async function getDashboardRecent(
-  limit = 10,
-): Promise<{ items: DashboardRecentItem[] }> {
-  if (!isMockMode) return apiRequest(`/dashboard/recent${toQuery({ limit })}`);
-
-  const safeLimit = Math.min(Math.max(limit, 1), 20);
   const now = Date.now();
   return {
-    items: RECENT_ITEMS.slice(0, safeLimit).map((item, index) => ({
-      ...item,
-      at: now - (index + 1) * 7 * 60_000 - index * 90_000,
-    })),
+    generatedAt: now,
+    people: [
+      {
+        advisorId: 'adv_sample_1',
+        advisorName: '王顾问',
+        online: true,
+        patientCount: 12,
+        pendingCount: 4,
+        level: 'L1',
+        reasons: [
+          {
+            code: 'queue_blocked',
+            level: 'L1',
+            text: '草稿已推送 42 分钟未处理，队列可能阻塞',
+            waitMinutes: 42,
+            draftId: 'draft_sample_blocked',
+          },
+          {
+            code: 'unverified',
+            level: 'L1',
+            text: '未核验 2 条待核实',
+            waitMinutes: 26,
+          },
+        ],
+        suggestion: '去实时服务流查看阻塞草稿，必要时在告警台账释放队列',
+        oldestWaitMinutes: 42,
+        lastActivityAt: now - 42 * 60_000,
+      },
+      {
+        advisorId: 'adv_sample_2',
+        advisorName: '李顾问',
+        online: false,
+        patientCount: 8,
+        pendingCount: 1,
+        level: 'L2',
+        reasons: [
+          {
+            code: 'no_reply',
+            level: 'L2',
+            text: '客户消息 32 分钟无人跟进',
+            waitMinutes: 32,
+            patientId: 'pat_sample_1',
+          },
+        ],
+        suggestion: '查看对话，确认服务人员是否在忙，必要时转交',
+        oldestWaitMinutes: 32,
+        lastActivityAt: now - 32 * 60_000,
+      },
+    ],
+    summary: {
+      peopleCount: 2,
+      immediateCount: 1,
+      verifiedToday: 18,
+      avgResponseSeconds: 180,
+      unverifiedCount: 2,
+    },
   };
 }

@@ -6,6 +6,7 @@
  */
 import type { Draft } from '../c2/types.ts';
 import { dayKey } from './console-types.ts';
+import type { AlertRecord } from './console-types.ts';
 import type { CarePlanRecord } from './care.ts';
 import type { MemoryRecord } from './memory.ts';
 import type { AdvisorRecord, GroupBinding, Patient } from './types.ts';
@@ -294,6 +295,8 @@ export interface GroupLike {
   roomId: string;
   name: string;
   advisorId?: string;
+  /** 群当前服务状态；团队关注用它排除未开始服务的群 */
+  status?: string;
   demo: boolean;
   deletedAt?: number;
 }
@@ -831,6 +834,483 @@ export function dashboardKpis(input: {
     avgResponseSeconds,
     openAlerts: input.openAlerts,
     computedAt: input.now,
+  };
+}
+
+// ---------- 团队关注（工作台） ----------
+
+export type TeamAttentionLevel = 'L1' | 'L2';
+
+export type TeamAttentionCode =
+  | 'redline'
+  | 'misroute'
+  | 'unverified'
+  | 'advisor_paused'
+  | 'queue_blocked'
+  | 'no_reply'
+  | 'backlog'
+  | 'slow_response'
+  | 'high_revision';
+
+export interface TeamAttentionReasonView {
+  code: TeamAttentionCode;
+  level: TeamAttentionLevel;
+  text: string;
+  waitMinutes: number;
+  draftId?: string;
+  patientId?: string;
+  groupId?: string;
+}
+
+export interface TeamAttentionPersonView {
+  advisorId: string;
+  advisorName: string;
+  online: boolean;
+  patientCount: number;
+  pendingCount: number;
+  level: TeamAttentionLevel;
+  reasons: TeamAttentionReasonView[];
+  suggestion: string;
+  oldestWaitMinutes: number;
+  lastActivityAt: number | null;
+}
+
+export interface TeamAttentionView {
+  generatedAt: number;
+  people: TeamAttentionPersonView[];
+  summary: {
+    peopleCount: number;
+    immediateCount: number;
+    verifiedToday: number;
+    avgResponseSeconds: number;
+    unverifiedCount: number;
+  };
+}
+
+/** 团队关注的阈值集中在这里，文档与测试引用同一组数字。 */
+export const TEAM_ATTENTION_THRESHOLDS = {
+  queueBlockedMinutes: 15,
+  noReplyL2Minutes: 30,
+  noReplyL1Minutes: 60,
+  backlogCount: 3,
+  slowResponseMinutes: 10,
+  slowResponseRatio: 2,
+  revisionRate: 0.4,
+  minRevisionDrafts: 4,
+  minResponseSamples: 2,
+} as const;
+
+const TEAM_ATTENTION_PRIORITY: Record<TeamAttentionCode, number> = {
+  redline: 1,
+  misroute: 2,
+  unverified: 3,
+  queue_blocked: 4,
+  no_reply: 5,
+  advisor_paused: 6,
+  backlog: 7,
+  slow_response: 8,
+  high_revision: 9,
+};
+
+const TEAM_ATTENTION_SUGGESTION: Record<TeamAttentionCode, string> = {
+  redline: '去质检与告警跟进高风险草稿',
+  misroute: '去质检与告警核对发送群',
+  unverified: '去质检与告警核实是否送达',
+  advisor_paused: '去质检与告警查看暂停原因',
+  queue_blocked: '去实时服务流查看阻塞草稿，必要时在告警台账释放队列',
+  no_reply: '查看对话，确认服务人员是否在忙，必要时转交',
+  backlog: '查看待处理草稿，确认是否需要催办或释放队列',
+  slow_response: '查看该服务人员的服务流，确认是否负荷过高',
+  high_revision: '查看草稿质量，必要时调整话术或补充知识',
+};
+
+interface TeamAttentionAccumulator {
+  advisorId: string;
+  reasons: TeamAttentionReasonView[];
+  pendingCount: number;
+  patientCount: number;
+  lastActivityAt: number | null;
+}
+
+function minutesSince(now: number, at: number): number {
+  return Math.max(0, Math.floor((now - at) / 60_000));
+}
+
+function teamAttentionLevelOf(reasons: TeamAttentionReasonView[]): TeamAttentionLevel {
+  return reasons.some((reason) => reason.level === 'L1') ? 'L1' : 'L2';
+}
+
+/**
+ * 工作台的「团队关注」：按服务人员聚合需要管理员介入的事项。
+ *
+ * 只输出行为元数据（谁、哪类事件、等了多久、去哪里看），不带消息正文或健康数值。
+ * 事件级台账仍在质检与告警，这里只做发现与跳转。
+ */
+export function dashboardTeamAttention(input: {
+  now: number;
+  timeZone: string;
+  drafts: Draft[];
+  patients: Patient[];
+  advisors: AdvisorRecord[];
+  groups: GroupLike[];
+  bindings: GroupBinding[];
+  alerts: AlertRecord[];
+}): TeamAttentionView {
+  const { now } = input;
+  const patients = input.patients.filter((patient) => patient.deletedAt === undefined);
+  const lookups: DraftLookups = {
+    patients,
+    groups: input.groups,
+    bindings: input.bindings,
+    advisors: input.advisors,
+  };
+  const advisorById = new Map(input.advisors.map((advisor) => [advisor.id, advisor]));
+  const patientById = new Map(patients.map((patient) => [patient.id, patient]));
+  const draftById = new Map(input.drafts.map((draft) => [draft.id, draft]));
+  const patientAdvisorCache = new Map<string, string | undefined>();
+  const accumulators = new Map<string, TeamAttentionAccumulator>();
+
+  const advisorOfPatient = (patient: Patient): string | undefined => {
+    if (!patientAdvisorCache.has(patient.id)) {
+      patientAdvisorCache.set(patient.id, patientAdvisorId(patient, input.groups, input.bindings));
+    }
+    return patientAdvisorCache.get(patient.id);
+  };
+
+  const advisorOfAlert = (alert: AlertRecord): string | undefined => {
+    if (alert.advisorId && advisorById.has(alert.advisorId)) return alert.advisorId;
+    const draft = alert.draftId ? draftById.get(alert.draftId) : undefined;
+    if (draft && advisorById.has(draft.advisorId)) return draft.advisorId;
+    const patient = alert.patientId ? patientById.get(alert.patientId) : undefined;
+    const fromPatient = patient ? advisorOfPatient(patient) : undefined;
+    return fromPatient && advisorById.has(fromPatient) ? fromPatient : undefined;
+  };
+
+  const accumulatorFor = (advisorId: string): TeamAttentionAccumulator | undefined => {
+    if (!advisorById.has(advisorId)) return undefined;
+    let accumulator = accumulators.get(advisorId);
+    if (!accumulator) {
+      accumulator = {
+        advisorId,
+        reasons: [],
+        pendingCount: 0,
+        patientCount: 0,
+        lastActivityAt: null,
+      };
+      accumulators.set(advisorId, accumulator);
+    }
+    return accumulator;
+  };
+
+  const addReason = (advisorId: string, reason: TeamAttentionReasonView): void => {
+    const accumulator = accumulatorFor(advisorId);
+    if (!accumulator) return;
+    if (accumulator.reasons.some((item) => item.code === reason.code)) return;
+    accumulator.reasons.push(reason);
+  };
+
+  // 先为每位服务人员建立聚合槽，后续积压/慢响应/改稿率才能落到没有告警的人身上。
+  for (const advisor of input.advisors) accumulatorFor(advisor.id);
+
+  // 告警类：只取未解决（open / acknowledged）的真实告警。
+  const alertTargetAdvisor = new Map<string, string>();
+  for (const alert of input.alerts) {
+    if (alert.sandbox || alert.status === 'resolved') continue;
+    const advisorId = advisorOfAlert(alert);
+    if (advisorId) alertTargetAdvisor.set(alert.id, advisorId);
+  }
+
+  const alertGroups = new Map<string, AlertRecord[]>();
+  for (const alert of input.alerts) {
+    if (!alertTargetAdvisor.has(alert.id)) continue;
+    if (!['redline', 'misroute', 'unverified', 'advisor_paused'].includes(alert.kind)) continue;
+    const key = `${alert.kind}|${alertTargetAdvisor.get(alert.id)}`;
+    const list = alertGroups.get(key) ?? [];
+    list.push(alert);
+    alertGroups.set(key, list);
+  }
+
+  for (const [key, list] of alertGroups) {
+    const [kind, advisorId] = key.split('|') as [TeamAttentionCode, string];
+    const oldest = list.reduce((left, right) => (left.createdAt <= right.createdAt ? left : right));
+    const waitMinutes = minutesSince(now, oldest.createdAt);
+    const text =
+      kind === 'redline'
+        ? `高风险草稿 ${list.length} 条待处理`
+        : kind === 'misroute'
+          ? `发错群 ${list.length} 条待核对`
+          : kind === 'unverified'
+            ? `未核验 ${list.length} 条待核实`
+            : `服务人员暂停告警 ${list.length} 条待处理`;
+    addReason(advisorId, {
+      code: kind,
+      level: 'L1',
+      text,
+      waitMinutes,
+      ...(oldest.draftId ? { draftId: oldest.draftId } : {}),
+      ...(oldest.patientId ? { patientId: oldest.patientId } : {}),
+      ...(oldest.groupId ? { groupId: oldest.groupId } : {}),
+    });
+  }
+
+  // 顾问账号被暂停，即使没有对应告警也要提示。
+  for (const advisor of input.advisors) {
+    if (advisor.status !== 'paused') continue;
+    const accumulator = accumulatorFor(advisor.id);
+    if (!accumulator) continue;
+    if (accumulator.reasons.some((reason) => reason.code === 'advisor_paused')) continue;
+    accumulator.reasons.push({
+      code: 'advisor_paused',
+      level: 'L1',
+      text: '账号处于暂停状态，需确认是否恢复',
+      waitMinutes: 0,
+    });
+  }
+
+  // 队列阻塞：已推送超过 15 分钟仍未处理。
+  const blockedByAdvisor = new Map<string, Draft[]>();
+  for (const draft of input.drafts) {
+    if (draft.status !== 'PUSHED') continue;
+    const since = draft.pushedAt ?? draft.createdAt;
+    if (minutesSince(now, since) < TEAM_ATTENTION_THRESHOLDS.queueBlockedMinutes) continue;
+    const list = blockedByAdvisor.get(draft.advisorId) ?? [];
+    list.push(draft);
+    blockedByAdvisor.set(draft.advisorId, list);
+  }
+  for (const [advisorId, list] of blockedByAdvisor) {
+    const oldest = list.reduce((left, right) =>
+      (left.pushedAt ?? left.createdAt) <= (right.pushedAt ?? right.createdAt) ? left : right,
+    );
+    const waitMinutes = minutesSince(now, oldest.pushedAt ?? oldest.createdAt);
+    const patient = draftPatient(oldest, lookups);
+    const accumulator = accumulatorFor(advisorId);
+    if (!accumulator) continue;
+    accumulator.reasons.push({
+      code: 'queue_blocked',
+      level: 'L1',
+      text:
+        list.length === 1
+          ? `草稿已推送 ${waitMinutes} 分钟未处理，队列可能阻塞`
+          : `队列阻塞 ${list.length} 条，最久已等待 ${waitMinutes} 分钟`,
+      waitMinutes,
+      draftId: oldest.id,
+      ...(patient ? { patientId: patient.id } : {}),
+      groupId: oldest.groupRoomId,
+    });
+  }
+
+  // 客户消息无人跟进：最新客户消息晚于该患者最新草稿，且已超过 30 分钟。
+  const latestDraftAtByPatient = new Map<string, number>();
+  const latestActivityByAdvisor = new Map<string, number>();
+  for (const draft of input.drafts) {
+    const patient = draftPatient(draft, lookups);
+    if (patient) {
+      latestDraftAtByPatient.set(
+        patient.id,
+        Math.max(latestDraftAtByPatient.get(patient.id) ?? 0, draft.createdAt),
+      );
+    }
+    const touched = Math.max(
+      draft.createdAt,
+      draft.pushedAt ?? 0,
+      draft.ackAt ?? 0,
+      draft.verification?.checkedAt ?? 0,
+    );
+    latestActivityByAdvisor.set(
+      draft.advisorId,
+      Math.max(latestActivityByAdvisor.get(draft.advisorId) ?? 0, touched),
+    );
+  }
+
+  const longestNoReplyByAdvisor = new Map<string, { patient: Patient; waitMinutes: number }>();
+  for (const patient of patients) {
+    if (patient.status !== 'serving' || patient.consent === 'disagreed') continue;
+    if (patient.lastActiveAt === undefined) continue;
+    const waitMinutes = minutesSince(now, patient.lastActiveAt);
+    if (waitMinutes < TEAM_ATTENTION_THRESHOLDS.noReplyL2Minutes) continue;
+    if ((latestDraftAtByPatient.get(patient.id) ?? 0) >= patient.lastActiveAt) continue;
+    const advisorId = advisorOfPatient(patient);
+    if (!advisorId || !advisorById.has(advisorId)) continue;
+    const current = longestNoReplyByAdvisor.get(advisorId);
+    if (!current || waitMinutes > current.waitMinutes) {
+      longestNoReplyByAdvisor.set(advisorId, { patient, waitMinutes });
+    }
+    latestActivityByAdvisor.set(
+      advisorId,
+      Math.max(latestActivityByAdvisor.get(advisorId) ?? 0, patient.lastActiveAt),
+    );
+  }
+  for (const [advisorId, item] of longestNoReplyByAdvisor) {
+    const accumulator = accumulatorFor(advisorId);
+    if (!accumulator) continue;
+    accumulator.reasons.push({
+      code: 'no_reply',
+      level: item.waitMinutes >= TEAM_ATTENTION_THRESHOLDS.noReplyL1Minutes ? 'L1' : 'L2',
+      text: `客户消息 ${item.waitMinutes} 分钟无人跟进`,
+      waitMinutes: item.waitMinutes,
+      patientId: item.patient.id,
+      ...(item.patient.groupIds?.[0] ? { groupId: item.patient.groupIds[0] } : {}),
+    });
+  }
+
+  // 待处理积压与今日响应/改稿质量。
+  const today = rangeWindow('today', now, input.timeZone);
+  const todayDrafts = input.drafts.filter((draft) => inWindow(draft.createdAt, today.from, today.to));
+  const todayResponseByAdvisor = new Map<string, number[]>();
+  for (const draft of todayDrafts) {
+    if (draft.lastInboundAt === undefined) continue;
+    const samples = todayResponseByAdvisor.get(draft.advisorId) ?? [];
+    samples.push(Math.max(0, draft.createdAt - draft.lastInboundAt));
+    todayResponseByAdvisor.set(draft.advisorId, samples);
+  }
+  const allResponseSamples = [...todayResponseByAdvisor.values()].flat();
+  const teamAvgMs =
+    allResponseSamples.length === 0
+      ? 0
+      : allResponseSamples.reduce((sum, value) => sum + value, 0) / allResponseSamples.length;
+
+  const todayByAdvisor = new Map<string, Draft[]>();
+  for (const draft of todayDrafts) {
+    const list = todayByAdvisor.get(draft.advisorId) ?? [];
+    list.push(draft);
+    todayByAdvisor.set(draft.advisorId, list);
+  }
+
+  const pendingByAdvisor = new Map<string, Draft[]>();
+  for (const accumulator of accumulators.values()) {
+    for (const patient of patients) {
+      if (patient.status === 'archived') continue;
+      if (advisorOfPatient(patient) === accumulator.advisorId) accumulator.patientCount += 1;
+    }
+    const pending = input.drafts.filter(
+      (draft) =>
+        draft.advisorId === accumulator.advisorId &&
+        (draft.status === 'QUEUED' || draft.status === 'PUSHED'),
+    );
+    accumulator.pendingCount = pending.length;
+    pendingByAdvisor.set(accumulator.advisorId, pending);
+    const latest = latestActivityByAdvisor.get(accumulator.advisorId);
+    accumulator.lastActivityAt = latest ?? null;
+  }
+
+  for (const accumulator of accumulators.values()) {
+    const pending = pendingByAdvisor.get(accumulator.advisorId) ?? [];
+    if (pending.length > TEAM_ATTENTION_THRESHOLDS.backlogCount) {
+      const oldest = pending.reduce((left, right) => {
+        const leftAt = left.pushedAt ?? left.createdAt;
+        const rightAt = right.pushedAt ?? right.createdAt;
+        return leftAt <= rightAt ? left : right;
+      });
+      const waitMinutes = minutesSince(now, oldest.pushedAt ?? oldest.createdAt);
+      const patient = draftPatient(oldest, lookups);
+      accumulator.reasons.push({
+        code: 'backlog',
+        level: 'L2',
+        text: `待处理草稿 ${pending.length} 条，超过 ${TEAM_ATTENTION_THRESHOLDS.backlogCount} 条`,
+        waitMinutes,
+        draftId: oldest.id,
+        ...(patient ? { patientId: patient.id } : {}),
+        groupId: oldest.groupRoomId,
+      });
+    }
+
+    const samples = todayResponseByAdvisor.get(accumulator.advisorId) ?? [];
+    if (
+      samples.length >= TEAM_ATTENTION_THRESHOLDS.minResponseSamples &&
+      teamAvgMs > 0
+    ) {
+      const advisorAvgMs = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+      if (
+        advisorAvgMs >= TEAM_ATTENTION_THRESHOLDS.slowResponseMinutes * 60_000 &&
+        advisorAvgMs >= teamAvgMs * TEAM_ATTENTION_THRESHOLDS.slowResponseRatio
+      ) {
+        accumulator.reasons.push({
+          code: 'slow_response',
+          level: 'L2',
+          text: `今日平均响应 ${Math.round(advisorAvgMs / 60_000)} 分钟，高于团队均值 2 倍`,
+          waitMinutes: 0,
+        });
+      }
+    }
+
+    const todays = todayByAdvisor.get(accumulator.advisorId) ?? [];
+    if (todays.length >= TEAM_ATTENTION_THRESHOLDS.minRevisionDrafts) {
+      const acted = todays.filter(
+        (draft) => hasStaffRevision(draft) || draft.ackAction === 'skipped',
+      ).length;
+      if (acted / todays.length >= TEAM_ATTENTION_THRESHOLDS.revisionRate) {
+        accumulator.reasons.push({
+          code: 'high_revision',
+          level: 'L2',
+          text: `今日 ${todays.length} 条草稿中 ${acted} 条改稿或忽略（${Math.round(
+            (acted / todays.length) * 100,
+          )}%）`,
+          waitMinutes: 0,
+        });
+      }
+    }
+  }
+
+  const people: TeamAttentionPersonView[] = [];
+  for (const accumulator of accumulators.values()) {
+    if (accumulator.reasons.length === 0) continue;
+    const advisor = advisorById.get(accumulator.advisorId);
+    if (!advisor) continue;
+    accumulator.reasons.sort(
+      (left, right) =>
+        TEAM_ATTENTION_PRIORITY[left.code] - TEAM_ATTENTION_PRIORITY[right.code] ||
+        right.waitMinutes - left.waitMinutes,
+    );
+    const level = teamAttentionLevelOf(accumulator.reasons);
+    const oldestWaitMinutes = Math.max(
+      0,
+      ...accumulator.reasons.map((reason) => reason.waitMinutes),
+    );
+    people.push({
+      advisorId: accumulator.advisorId,
+      advisorName: advisor.name,
+      online: advisorOnline(advisor),
+      patientCount: accumulator.patientCount,
+      pendingCount: accumulator.pendingCount,
+      level,
+      reasons: accumulator.reasons,
+      suggestion: TEAM_ATTENTION_SUGGESTION[accumulator.reasons[0]?.code ?? 'backlog'],
+      oldestWaitMinutes,
+      lastActivityAt: accumulator.lastActivityAt,
+    });
+  }
+  people.sort(
+    (left, right) =>
+      (left.level === right.level ? 0 : left.level === 'L1' ? -1 : 1) ||
+      TEAM_ATTENTION_PRIORITY[left.reasons[0]?.code ?? 'high_revision'] -
+        TEAM_ATTENTION_PRIORITY[right.reasons[0]?.code ?? 'high_revision'] ||
+      right.oldestWaitMinutes - left.oldestWaitMinutes ||
+      left.advisorName.localeCompare(right.advisorName, 'zh-CN'),
+  );
+
+  const sentToday = todayDrafts.filter((draft) => draft.ackAction === 'sent');
+  const verifiedToday = sentToday.filter((draft) => draft.status === 'VERIFIED').length;
+  const avgResponseSeconds =
+    allResponseSamples.length === 0
+      ? 0
+      : Math.round(
+          allResponseSamples.reduce((sum, value) => sum + value, 0) / allResponseSamples.length / 1000,
+        );
+  const unverifiedCount = input.alerts.filter(
+    (alert) =>
+      !alert.sandbox && alert.status !== 'resolved' && alert.kind === 'unverified',
+  ).length;
+
+  return {
+    generatedAt: now,
+    people,
+    summary: {
+      peopleCount: people.length,
+      immediateCount: people.filter((person) => person.level === 'L1').length,
+      verifiedToday,
+      avgResponseSeconds,
+      unverifiedCount,
+    },
   };
 }
 

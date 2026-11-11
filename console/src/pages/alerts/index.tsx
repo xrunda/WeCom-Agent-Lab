@@ -20,7 +20,7 @@ import {
 } from 'antd';
 import type { TableProps } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
@@ -127,17 +127,30 @@ function AlertActions({
   );
 }
 
+function asAlertKind(value: string | null): AlertKind | undefined {
+  return value && value in ALERT_KIND_LABELS ? (value as AlertKind) : undefined;
+}
+
+function asAlertStatus(value: string | null): AlertStatus | undefined {
+  return value && value in ALERT_STATUS_LABELS ? (value as AlertStatus) : undefined;
+}
+
 export default function AlertsPage() {
   const { can } = useAuth();
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlKind = searchParams.get('kind');
+  const urlStatus = searchParams.get('status');
+  const urlAdvisorId = searchParams.get('advisorId') ?? undefined;
   const canWrite = can('alert.write');
 
   const [items, setItems] = useState<AlertItem[]>([]);
   const [count, setCount] = useState<AlertCount>({ open: 0, acknowledged: 0, total: 0 });
   const [loading, setLoading] = useState(true);
-  const [kind, setKind] = useState<AlertKind | undefined>();
-  const [status, setStatus] = useState<AlertStatus | undefined>();
+  const [kind, setKind] = useState<AlertKind | undefined>(() => asAlertKind(urlKind));
+  const [status, setStatus] = useState<AlertStatus | undefined>(() => asAlertStatus(urlStatus));
+  const [advisorFilter, setAdvisorFilter] = useState<string | undefined>(urlAdvisorId);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [advisorNames, setAdvisorNames] = useState<Record<string, string>>({});
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
@@ -146,11 +159,25 @@ export default function AlertsPage() {
   const [resolveTarget, setResolveTarget] = useState<AlertItem | null>(null);
   const [note, setNote] = useState('');
 
+  // 工作台「团队关注」深链：kind / status / advisorId 都从 URL 恢复。
+  useEffect(() => {
+    setKind(asAlertKind(urlKind));
+    setStatus(asAlertStatus(urlStatus));
+    setAdvisorFilter(urlAdvisorId);
+  }, [urlKind, urlStatus, urlAdvisorId]);
+
+  const clearAdvisorFilter = () => {
+    setAdvisorFilter(undefined);
+    const next = new URLSearchParams(searchParams);
+    next.delete('advisorId');
+    setSearchParams(next, { replace: true });
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [list, unresolved, patients, advisors, groups] = await Promise.all([
-        listAlerts({ kind, status }),
+        listAlerts({ kind, status, advisorId: advisorFilter }),
         unresolvedCount(),
         listPatients({ pageSize: 100 }),
         listAdvisors(),
@@ -170,7 +197,7 @@ export default function AlertsPage() {
     } finally {
       setLoading(false);
     }
-  }, [kind, status, message]);
+  }, [advisorFilter, kind, status, message]);
 
   useEffect(() => {
     void load();
@@ -354,6 +381,19 @@ export default function AlertsPage() {
             <Statistic title="未处理合计" value={count.total} />
           </Card>
         </Space>
+
+        {advisorFilter ? (
+          <Alert
+            type="info"
+            showIcon
+            message={`已按服务人员筛选：${advisorNames[advisorFilter] ?? advisorFilter}`}
+            action={
+              <Button size="small" onClick={clearAdvisorFilter}>
+                清除人员筛选
+              </Button>
+            }
+          />
+        ) : null}
 
         <Card variant="borderless">
           <Space wrap size={12}>

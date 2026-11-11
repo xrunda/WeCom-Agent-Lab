@@ -55,6 +55,7 @@ import {
   buildPatientActions,
   buildPatientTimeline,
   dashboardKpis,
+  dashboardTeamAttention,
   dashboardValue,
   decodeArchiveMediaId,
   draftPatient,
@@ -1188,6 +1189,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           roomId: group.roomId,
           name: group.name,
           advisorId: group.advisorId ?? mapped?.advisorId,
+          status: group.status,
           demo: group.demo,
         };
       });
@@ -1239,17 +1241,6 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     const parseConsent = (raw: unknown): Patient['consent'] => {
       if (raw === 'agreed' || raw === 'unknown' || raw === 'disagreed') return raw;
       throw new ConsoleError('VALIDATION_FAILED', 'consent 必须是 agreed / unknown / disagreed');
-    };
-
-    /** 工作台「最近服务动态」的口径：只区分已核验/改后发送/发错群/未核验，其余为待核验。 */
-    const recentOutcome = (
-      status: Draft['status'],
-    ): 'verified' | 'edit_sent' | 'misroute' | 'unverified' | 'pending' => {
-      if (status === 'VERIFIED') return 'verified';
-      if (status === 'EDIT_SENT') return 'edit_sent';
-      if (status === 'MISROUTE_ALERT') return 'misroute';
-      if (status === 'UNVERIFIED') return 'unverified';
-      return 'pending';
     };
 
     const ARCHIVE_MEDIA_TYPES: Record<string, string> = {      jpg: 'image/jpeg',
@@ -1351,28 +1342,28 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
 
     router.add(
       'GET',
-      '/dashboard/recent',
+      '/dashboard/team-attention',
       (rc) => {
         tenantActor(rc);
-        const limit = Math.min(20, positiveInt(rc.query.get('limit'), 10));
         const lookups = consoleLookups();
-        const items = consoleDrafts()
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, limit)
-          .map((draft) => {
-            const row = serviceFlowRow(draft, lookups);
-            return {
-              id: row.id,
-              patientName: row.patientName,
-              advisorName: row.advisorName,
-              groupName: row.groupName,
-              preview: row.summary,
-              outcome: recentOutcome(draft.status),
-              at: row.createdAt,
-              sandbox: false,
-            };
-          });
-        respond(rc, 200, { items });
+        const unresolved = [
+          ...alerts.list({ status: 'open', pageSize: 200 }).items,
+          ...alerts.list({ status: 'acknowledged', pageSize: 200 }).items,
+        ];
+        respond(
+          rc,
+          200,
+          dashboardTeamAttention({
+            now: nowMs(),
+            timeZone: auth.tenant.timezone,
+            drafts: consoleDrafts(),
+            patients: lookups.patients,
+            advisors: lookups.advisors,
+            groups: lookups.groups,
+            bindings: lookups.bindings,
+            alerts: unresolved,
+          }),
+        );
       },
       { permission: 'patient.read' },
     );
