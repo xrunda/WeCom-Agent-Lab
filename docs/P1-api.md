@@ -1211,6 +1211,8 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 
 `types` 支持前缀通配：`draft.*`、`sandbox.*`、`alert.*`。
 
+每帧都带 `event: <type>`，属于**命名事件**：浏览器端必须按类型 `addEventListener('<type>', ...)` 监听，`onmessage` 只会收到未命名事件（本服务不发送）。断线重连成功后应先走一次 REST 校准，补齐断线期间的事件。
+
 | 事件 | 触发 | `data` |
 |---|---|---|
 | `draft.created` | Agent 产出草稿并入队 | `{ draftId, patientId, groupId, advisorId, source, riskLevel, status }` |
