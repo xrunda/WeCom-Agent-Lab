@@ -45,7 +45,7 @@ export interface GroupDiscoveryOptions {
   /** 单轮最多处理多少个群（含新增与刷新），避免一次拉太多接口 */
   maxPerScan?: number;
   /**
-   * 只发现这些群主（企微 userid）名下的客户群。
+   * 只发现这些群主（企微 userid）名下的客户群，经列表接口 `owner_filter` 过滤。
    * 两个环境共用同一个 corpid，配置本环境的顾问后，另一个环境的群不会被登记。
    * 空数组表示不按群主过滤。
    */
@@ -72,7 +72,7 @@ export class GroupDiscovery {
   private readonly now: () => number;
   private readonly logger?: (line: string) => void;
   private readonly maxPerScan: number;
-  private readonly ownerUserIds?: Set<string>;
+  private readonly ownerUserIds: string[];
 
   private scanning = false;
 
@@ -83,10 +83,8 @@ export class GroupDiscovery {
     this.now = options.now;
     this.logger = options.logger;
     this.maxPerScan = options.maxPerScan ?? DEFAULT_MAX_PER_SCAN;
-    this.ownerUserIds =
-      options.ownerUserIds && options.ownerUserIds.length > 0
-        ? new Set(options.ownerUserIds)
-        : undefined;
+    // 群主过滤交给企微列表接口（owner_filter）；响应里没有群主字段
+    this.ownerUserIds = (options.ownerUserIds ?? []).filter((owner) => owner.trim() !== '');
   }
 
   /**
@@ -98,20 +96,9 @@ export class GroupDiscovery {
     if (this.scanning) return empty;
     this.scanning = true;
     try {
-      const fetched = await this.client.listCustomerGroups();
-      if (!fetched) return empty;
-
-      // 同一 corpid 下可能同时跑 demo / dev：只保留本环境群主的群
-      const owners = this.ownerUserIds;
-      const listed = owners
-        ? fetched.filter((item) => item.owner !== undefined && owners.has(item.owner))
-        : fetched;
-      if (listed.length === 0) {
-        if (owners && fetched.length > 0) {
-          this.log(`服务群发现：列出 ${fetched.length}，均不属于本环境群主，跳过`);
-        }
-        return empty;
-      }
+      // ownerUserIds 非空时由企微按群主过滤（owner_filter），响应不含群主字段
+      const listed = await this.client.listCustomerGroups(this.ownerUserIds);
+      if (!listed) return empty;
 
       const listedIds = new Set(listed.map((item) => item.chatId));
       const skipped = listed.filter((item) => this.registry.isKnown(item.chatId)).length;

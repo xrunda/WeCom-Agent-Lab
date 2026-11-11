@@ -226,6 +226,32 @@ test('客户群列表按 cursor 翻页并去重，只返回定位信息', async 
   assert.deepEqual(listBodies[1], { status_filter: 0, limit: 100, cursor: 'cursor_2' });
 });
 
+test('群主过滤通过 owner_filter 传给企微，而不是靠响应里的 owner 字段', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const listBodies: unknown[] = [];
+  const fetchImpl = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (String(input).includes('/gettoken')) {
+      return jsonResponse({ errcode: 0, access_token: 'token_test', expires_in: 7200 });
+    }
+    listBodies.push(JSON.parse(String(init?.body ?? '{}')));
+    // 真机响应只有 chat_id / status，没有 owner
+    return jsonResponse({ errcode: 0, group_chat_list: [{ chat_id: 'wrA', status: 0 }] });
+  }) as typeof fetch;
+  const info = client(fetchImpl, clock);
+
+  const groups = await info.listCustomerGroups([' LiGuang ', '', 'Wang']);
+
+  assert.deepEqual(
+    groups?.map((group) => group.chatId),
+    ['wrA'],
+  );
+  assert.deepEqual(listBodies[0], {
+    status_filter: 0,
+    limit: 100,
+    owner_filter: { userid_list: ['LiGuang', 'Wang'] },
+  });
+});
+
 test('客户群列表失败返回 undefined，只打 errcode', async () => {
   const clock = new FakeClock(1_700_000_000_000);
   const logs: string[] = [];
