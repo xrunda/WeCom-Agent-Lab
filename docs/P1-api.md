@@ -778,9 +778,13 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 10. 知识库 / 风险规则 / 话术库
 
-### `GET /knowledge?category=&enabled=&q=&page=`
+### `GET /knowledge?category=&enabled=&q=&page=&pageSize=`
 
-角色：全部。响应 `200`：`{ "items": [knowledge], ... }`，按 `category`、`title` 排序。
+角色：全部。响应 `200`：`{ "items": [knowledge], page, pageSize, total }`，按 `category`、`title` 排序。
+
+- `enabled` 只接受 `true` / `false`，其它值返回 `422 VALIDATION_FAILED`。
+- `page` 默认 1；`pageSize` 默认 50，上限 200。
+- 只返回未删除条目；`deletedAt` 在响应中统一为 `null`（后端记录用 `undefined`）。
 
 ### `GET /knowledge/categories`
 
@@ -790,17 +794,28 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 { "items": [{ "category": "饮食建议", "count": 8 }, { "category": "作息管理", "count": 5 }] }
 ```
 
+只统计未删除条目，按分类名排序。
+
 ### `POST /knowledge`
 
 角色：admin。请求：`{ "category": "饮食建议", "title": "晚餐建议在 19 点前完成", "content": "……", "enabled": true }`。响应 `201`：knowledge。保存后重新生成 skill 资源，下一轮生效。
+
+- `category`、`title`、`content` trim 后不能为空；`title` ≤ 60 字、`content` ≤ 2000 字、`category` ≤ 30 字，否则 `422`。
+- `enabled` 缺省为 `true`；不是布尔值返回 `422`。
+- 同一分类下已存在同名条目返回 `409 CONFLICT`；不同分类允许同名。
 
 ### `PATCH /knowledge/{id}`
 
 角色：admin。请求：`category`、`title`、`content`、`enabled`。响应 `200`：knowledge。
 
+- 条目不存在或已删除返回 `404`。
+- 修改后与同分类其它条目重名返回 `409 CONFLICT`。
+
 ### `DELETE /knowledge/{id}`
 
-角色：admin。软删除；响应 `204`。
+角色：admin。软删除；响应 `204`。重复删除保持 `204`，不重复写审计。
+
+写操作写控制台审计 `knowledge.created` / `knowledge.updated` / `knowledge.deleted`，`detail` 只含标题与分类，不含正文。
 
 ### `GET /risk-rules?kind=&enabled=`
 

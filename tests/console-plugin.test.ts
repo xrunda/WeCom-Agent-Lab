@@ -14,6 +14,13 @@ import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
 import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
 import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
+import { KnowledgeService } from '../src/p1/knowledge.ts';
+import type {
+  KnowledgeCreateInput,
+  KnowledgeQuery,
+  KnowledgeRecord,
+  KnowledgeUpdateInput,
+} from '../src/p1/knowledge.ts';
 import type { MemoryRecord } from '../src/p1/memory.ts';
 import type { AdvisorRecord, ConsentStatus, Patient } from '../src/p1/types.ts';
 import type { Draft } from '../src/c2/types.ts';
@@ -1367,6 +1374,221 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
 
   return { patients, advisor, drafts, paused, memories };
 }
+
+/** 用真实 KnowledgeService + 内存后端，验证控制台路由而不是另写一份知识逻辑。 */
+function installKnowledgeApi(ctx: FakeConsoleContext): { records: Map<string, KnowledgeRecord> } {
+  const records = new Map<string, KnowledgeRecord>();
+  let seq = 0;
+  const service = new KnowledgeService({
+    tenantId: 'tn_test',
+    backend: {
+      load: () => [...records.values()],
+      put: async (record) => {
+        records.set(record.id, record);
+      },
+    },
+    newId: () => `knw_${++seq}`,
+  });
+  ctx.provide('zhibanKnowledge', {
+    list: (query?: KnowledgeQuery) => service.list(query),
+    get: (id: string) => service.get(id),
+    create: (input: KnowledgeCreateInput) => service.create(input, 'test'),
+    update: (id: string, patch: KnowledgeUpdateInput) => service.update(id, patch, 'test'),
+    remove: (id: string) => service.remove(id, 'test'),
+    categories: () => service.categories(),
+  });
+  return { records };
+}
+
+test('知识库：真实 CRUD、分页、重复标题与控制台审计', async () => {
+  const { ctx, call } = await start();
+  installKnowledgeApi(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const empty = await call('GET', '/zhiban/api/knowledge', { cookie });
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.json(), { items: [], page: 1, pageSize: 50, total: 0 });
+
+  const created = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: {
+      category: '饮食建议',
+      title: '晚餐建议在 19 点前完成',
+      content: '晚餐尽量在 19 点前吃完，避免夜间加餐。',
+    },
+  });
+  assert.equal(created.status, 201);
+  const first = created.json() as unknown as KnowledgeRecord;
+  assert.equal(first.id, 'knw_1');
+  assert.equal(first.enabled, true);
+  assert.equal(first.hits, 0);
+  assert.equal(first.deletedAt, null);
+  assert.equal(first.category, '饮食建议');
+
+  const duplicate = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: { category: '饮食建议', title: '晚餐建议在 19 点前完成', content: '另一段内容' },
+  });
+  assert.equal(duplicate.status, 409);
+  assert.equal((duplicate.json() as { error: { code: string } }).error.code, 'CONFLICT');
+
+  // 跨分类允许同名
+  const otherCategory = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: { category: '作息管理', title: '晚餐建议在 19 点前完成', content: '早睡早起。' },
+  });
+  assert.equal(otherCategory.status, 201);
+
+  const missingTitle = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: { category: '饮食建议', title: '   ', content: '正文' },
+  });
+  assert.equal(missingTitle.status, 422);
+  assert.equal((missingTitle.json() as { error: { code: string } }).error.code, 'VALIDATION_FAILED');
+
+  const longTitle = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: { category: '饮食建议', title: '超'.repeat(61), content: '正文' },
+  });
+  assert.equal(longTitle.status, 422);
+
+  const badEnabled = await call('POST', '/zhiban/api/knowledge', {
+    cookie,
+    body: { category: '饮食建议', title: '开关', content: '正文', enabled: 'yes' },
+  });
+  assert.equal(badEnabled.status, 422);
+
+  const filtered = await call('GET', '/zhiban/api/knowledge?category=%E9%A5%AE%E9%A3%9F%E5%BB%BA%E8%AE%AE', {
+    cookie,
+  });
+  assert.equal(filtered.status, 200);
+  const filteredBody = filtered.json() as { items: KnowledgeRecord[]; total: number };
+  assert.equal(filteredBody.total, 1);
+  assert.equal(filteredBody.items[0]!.id, 'knw_1');
+
+  const badFilter = await call('GET', '/zhiban/api/knowledge?enabled=maybe', { cookie });
+  assert.equal(badFilter.status, 422);
+
+  const categories = await call('GET', '/zhiban/api/knowledge/categories', { cookie });
+  assert.equal(categories.status, 200);
+  assert.deepEqual((categories.json() as { items: Array<{ category: string; count: number }> }).items, [
+    { category: '饮食建议', count: 1 },
+    { category: '作息管理', count: 1 },
+  ]);
+
+  const disabled = await call('PATCH', `/zhiban/api/knowledge/${first.id}`, {
+    cookie,
+    body: { enabled: false },
+  });
+  assert.equal(disabled.status, 200);
+  assert.equal((disabled.json() as unknown as KnowledgeRecord).enabled, false);
+
+  const renamed = await call('PATCH', `/zhiban/api/knowledge/knw_2`, {
+    cookie,
+    body: { title: '晚餐建议在 19 点前完成' },
+  });
+  assert.equal(renamed.status, 200);
+
+  const updateConflict = await call('PATCH', `/zhiban/api/knowledge/knw_2`, {
+    cookie,
+    body: { category: '饮食建议', title: '晚餐建议在 19 点前完成' },
+  });
+  assert.equal(updateConflict.status, 409);
+
+  const missing = await call('PATCH', '/zhiban/api/knowledge/knw_404', {
+    cookie,
+    body: { title: '不存在' },
+  });
+  assert.equal(missing.status, 404);
+
+  const removed = await call('DELETE', `/zhiban/api/knowledge/${first.id}`, { cookie });
+  assert.equal(removed.status, 204);
+
+  const afterDelete = await call('GET', '/zhiban/api/knowledge', { cookie });
+  assert.equal((afterDelete.json() as { total: number }).total, 1);
+
+  const removeAgain = await call('DELETE', `/zhiban/api/knowledge/${first.id}`, { cookie });
+  assert.equal(removeAgain.status, 204);
+
+  const audit = await call('GET', '/zhiban/api/audit?targetType=knowledge', { cookie });
+  assert.equal(audit.status, 200);
+  const events = (audit.json() as { items: Array<{ action: string; targetId: string; detail?: Record<string, unknown> }> }).items;
+  assert.deepEqual(
+    events.map((event) => event.action).sort(),
+    [
+      'knowledge.created',
+      'knowledge.created',
+      'knowledge.deleted',
+      'knowledge.updated',
+      'knowledge.updated',
+    ],
+  );
+  assert.equal(JSON.stringify(events).includes('夜间加餐'), false);
+  assert.equal(JSON.stringify(events).includes('晚餐建议在 19 点前完成'), true);
+});
+
+test('知识库：读对全部角色开放，写仅 admin，platform 一律 404', async () => {
+  const { ctx, call } = await start();
+  installKnowledgeApi(ctx);
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+
+  for (const [username, role] of [
+    ['supervisor.kb', 'supervisor'],
+    ['viewer.kb', 'viewer'],
+  ] as const) {
+    const created = await call('POST', '/zhiban/api/accounts', {
+      cookie: admin.cookie,
+      body: { username, displayName: username, role, password: 'StaffPass123' },
+    });
+    assert.equal(created.status, 201);
+  }
+
+  for (const [username, role] of [
+    ['supervisor.kb', 'supervisor'],
+    ['viewer.kb', 'viewer'],
+  ] as const) {
+    const { cookie } = await login(call, username, 'StaffPass123');
+    const readable = await call('GET', '/zhiban/api/knowledge', { cookie });
+    assert.equal(readable.status, 200, `${role} 应可读`);
+    const write = await call('POST', '/zhiban/api/knowledge', {
+      cookie,
+      body: { category: '通用', title: `${role} 写入`, content: '正文' },
+    });
+    assert.equal(write.status, 403, `${role} 不应可写`);
+    assert.equal((write.json() as { error: { code: string } }).error.code, 'FORBIDDEN');
+  }
+
+  const platform = await login(call, 'platform', PLATFORM_PASSWORD);
+  const platformRead = await call('GET', '/zhiban/api/knowledge', { cookie: platform.cookie });
+  assert.equal(platformRead.status, 404);
+
+  // 写入后分页信息完整
+  for (let i = 0; i < 3; i += 1) {
+    const created = await call('POST', '/zhiban/api/knowledge', {
+      cookie: admin.cookie,
+      body: { category: '通用', title: `条目 ${i}`, content: '正文' },
+    });
+    assert.equal(created.status, 201);
+  }
+  const page = await call('GET', '/zhiban/api/knowledge?page=2&pageSize=2', { cookie: admin.cookie });
+  assert.equal(page.status, 200);
+  const pageBody = page.json() as { items: KnowledgeRecord[]; page: number; pageSize: number; total: number };
+  assert.deepEqual(pageBody.items.map((item) => item.title), ['条目 2']);
+  assert.equal(pageBody.page, 2);
+  assert.equal(pageBody.pageSize, 2);
+  assert.equal(pageBody.total, 3);
+  const capped = await call('GET', '/zhiban/api/knowledge?pageSize=999', { cookie: admin.cookie });
+  assert.equal((capped.json() as { pageSize: number }).pageSize, 200);
+});
+
+test('知识库：插件未就绪时返回 502 而不是 500', async () => {
+  const { call } = await start();
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+  const res = await call('GET', '/zhiban/api/knowledge', { cookie });
+  assert.equal(res.status, 502);
+  assert.equal((res.json() as { error: { code: string } }).error.code, 'UPSTREAM_UNAVAILABLE');
+});
+
 
 test('工作台：价值与 KPI 直接来自真实草稿，不出现示例数据', async () => {
   const { ctx, call } = await start();
