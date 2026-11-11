@@ -61,13 +61,16 @@ export function DietTab({ patientId }: { patientId: string }) {
       {logs.map((log) => (
         <Card key={log.id} size="small" className="diet-card">
           <div className="diet-card-body">
-            <Image
-              src={log.photoUrl}
-              alt={`${MEAL_TYPE_LABELS[log.mealType]}照片`}
-              width={132}
-              height={104}
-              style={{ objectFit: 'cover', borderRadius: 8 }}
-            />
+            {log.photoUrl ? (
+              <Image
+                src={log.photoUrl}
+                alt={`${MEAL_TYPE_LABELS[log.mealType]}照片`}
+                width={132}
+                height={104}
+                style={{ objectFit: 'cover', borderRadius: 8 }}
+                fallback="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='104'%3E%3Crect width='100%25' height='100%25' fill='%23f2f2f2'/%3E%3Ctext x='50%25' y='50%25' font-size='12' fill='%23999' text-anchor='middle' dominant-baseline='middle'%3E照片无法加载%3C/text%3E%3C/svg%3E"
+              />
+            ) : null}
             <div className="diet-card-main">
               <Space size={8} wrap>
                 <Tag bordered={false} color={MEAL_COLORS[log.mealType]}>

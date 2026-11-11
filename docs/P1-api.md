@@ -488,7 +488,14 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 #### `GET /patients/{id}/meal-logs?from=&to=&page=`
 
-角色：全部。响应 `200`：`{ "items": [meal_log], ... }`，按 `createdAt` 倒序。
+角色：全部（`patient.read`）。响应 `200`：`{ "items": [meal_log], ... }`，按 `createdAt` 倒序。
+有原图的记录返回 `photoUrl`（`/zhiban/api/patients/{id}/meal-logs/{logId}/photo`），没有原图为 `null`；
+不返回服务器磁盘路径。
+
+#### `GET /patients/{id}/meal-logs/{logId}/photo`
+
+角色：全部（`patient.read`）。按记录 id 回读存档原图，`content-type` 按文件魔数判断（扩展名不可信），
+`cache-control: private, max-age=300`。错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在）。
 
 ### B 档 Tab
 
@@ -1197,7 +1204,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 患者 Agent 主页 | 主动计划 | `GET /patients/{id}/care-plans` + `POST` | A |
 | 患者 Agent 主页 | 办事记录 | `GET /patients/{id}/actions` | A |
 | 患者 Agent 主页 | 对话时间线 | `GET /patients/{id}/timeline` | A |
-| 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /media/{id}` | A |
+| 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /patients/{id}/meal-logs/{logId}/photo` | A |
 | 患者 Agent 主页 | 健康档案 | `GET /patients/{id}/health-profile`（`sample:true`） | B |
 | 患者 Agent 主页 | 服务计划 | `GET /patients/{id}/service-plan`（`sample:true`） | B |
 | 实时服务流 | 列表 + SSE | `GET /service-flow`、`GET /stream` | A |

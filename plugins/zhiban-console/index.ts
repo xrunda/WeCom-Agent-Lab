@@ -65,7 +65,7 @@ import type {
   GroupServiceStatus,
   Patient,
 } from '../../src/p1/types.ts';
-import { mealLogView, type MealLogRecord } from '../../src/p1/vision.ts';
+import { mealLogView, sniffImageMediaType, type MealLogRecord } from '../../src/p1/vision.ts';
 
 import { ConsoleAuthService, publicAccount } from './auth.ts';
 import type { AuthActor } from './auth.ts';
@@ -828,12 +828,50 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
               (from === undefined || log.createdAt >= from) &&
               (to === undefined || log.createdAt <= to),
           )
-          .map((log) => mealLogView(log));
+          .map((log) =>
+            mealLogView(
+              log,
+              log.mediaPath
+                ? `${API_PREFIX}/patients/${encodeURIComponent(patient.id)}/meal-logs/${encodeURIComponent(log.id)}/photo`
+                : undefined,
+            ),
+          );
         respond(
           rc,
           200,
           paginate(items, positiveInt(rc.query.get('page'), 1), positiveInt(rc.query.get('pageSize'), 20)),
         );
+      },
+      { permission: 'patient.read' },
+    );
+
+    // 饮食照片只经鉴权接口回读；磁盘路径不出接口、不进日志
+    router.add(
+      'GET',
+      '/patients/:id/meal-logs/:logId/photo',
+      async (rc) => {
+        tenantActor(rc);
+        const patientApi = ctx.get<PatientApiLike>('zhibanPatient');
+        const patient = patientApi?.getPatient?.(rc.params.id!);
+        if (!patient) throw new ConsoleError('NOT_FOUND', '患者不存在');
+        const log = (patientApi?.listMealLogs?.(patient.id) ?? []).find(
+          (item) => item.id === rc.params.logId,
+        );
+        if (!log?.mediaPath) throw new ConsoleError('NOT_FOUND', '照片不存在');
+        let data: Buffer;
+        try {
+          data = await readFile(log.mediaPath);
+        } catch {
+          throw new ConsoleError('NOT_FOUND', '照片不存在');
+        }
+        const contentType = sniffImageMediaType(data) ?? 'application/octet-stream';
+        rc.res.writeHead(200, {
+          'content-type': contentType,
+          'content-length': data.length,
+          'cache-control': 'private, max-age=300',
+          'x-request-id': rc.requestId,
+        });
+        rc.res.end(data);
       },
       { permission: 'patient.read' },
     );
