@@ -53,6 +53,23 @@ test('卡片带群名、客户名、摘要和三个按钮', () => {
   );
 });
 
+test('命中规则优先显示名称，旧数据回退到 id', () => {
+  const named = buildCard(
+    makeDraft({ ruleIds: ['rul_builtin_emergency'], ruleNames: ['急症只引导就医'] }),
+    1,
+  );
+  assert.equal(
+    named.template_card.horizontal_content_list?.find((x) => x.keyname === '命中规则')?.value,
+    '急症只引导就医',
+  );
+
+  const legacy = buildCard(makeDraft({ ruleIds: ['rul_builtin_emergency'] }), 1);
+  assert.equal(
+    legacy.template_card.horizontal_content_list?.find((x) => x.keyname === '命中规则')?.value,
+    'rul_builtin_emergency',
+  );
+});
+
 test('标题只放群名，客户名放到「客户」一行，避免标题被截断', () => {
   const draft = makeDraft({ groupName: '客户-汪女士-20261108', customerName: '外部客户 9NfOsA' });
   const card = buildCard(draft, 1);

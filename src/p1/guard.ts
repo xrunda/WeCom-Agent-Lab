@@ -3,7 +3,9 @@
  *
  * 设计约定：
  * - 内置四条红线（不诊断 / 不调药 / 不承诺疗效 / 急症只引导就医）只读，
- *   全部参与草稿后校验；急症规则同时检查患者输入，确保模型不重复症状也能升级。
+ *   全部参与草稿后校验。`flag` 规则校验草稿正文，防止 Agent 自己说出违规内容；
+ *   `guide` / `escalate` 规则只看患者输入——草稿里的条件式提醒
+ *   （如「如果出现胸痛、呼吸困难请立即就医」）是合规提示，不应触发整段改写。
  * - 命中的风险等级取「模型自评」与「规则等级」的较高者，不阻断推送。
  * - 急症（action=escalate）与只引导就医（action=guide）会改写草稿正文，
  *   只保留就医引导；action=flag 只抬高风险，正文交给顾问审核。
@@ -381,7 +383,12 @@ export class GuardService {
     const hits: RiskRuleRecord[] = [];
     for (const rule of this.rules.values()) {
       if (!rule.enabled) continue;
-      const matchesBody = rule.keywords.some((keyword) => input.body.includes(keyword));
+      // flag：校验草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
+      // guide / escalate：只看患者输入，确保模型没复述症状也能升级；
+      // 草稿正文里的条件式提醒不参与匹配，否则正常关怀草稿会被整段替换成就医引导。
+      const matchesBody =
+        rule.action === 'flag' &&
+        rule.keywords.some((keyword) => input.body.includes(keyword));
       const matchesInbound =
         (rule.action === 'guide' || rule.action === 'escalate') &&
         typeof input.inboundText === 'string' &&

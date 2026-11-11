@@ -88,6 +88,8 @@ export interface FakeEnqueue {
   customerName: string;
   body: string;
   riskLevel: RiskLevel;
+  ruleIds?: string[];
+  ruleNames?: string[];
   source: 'inbound' | 'proactive';
   fallback: boolean;
   inboundSummary: string;
@@ -266,6 +268,8 @@ export function c2Bridge(service: import('../src/c2/service.ts').C2Service): Pat
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,
+        ruleIds: input.ruleIds,
+        ruleNames: input.ruleNames,
         source: input.source,
         fallback: input.fallback,
         citedMemoryIds: input.citedMemoryIds,

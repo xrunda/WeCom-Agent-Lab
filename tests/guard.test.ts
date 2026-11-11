@@ -156,7 +156,13 @@ test('#37 自定义规则：CRUD、guide 改写、停用后不再命中', async 
   assert.equal(created.builtin, false);
   assert.equal(created.enabled, false);
 
-  const off = h.service.review({ body: '您心慌的话先坐一下。', riskLevel: 'low', patientId: 'pt_3', source: 'inbound' });
+  const off = h.service.review({
+    body: '您心慌的话先坐一下。',
+    riskLevel: 'low',
+    patientId: 'pt_3',
+    source: 'inbound',
+    inboundText: '我今天有点心慌。',
+  });
   assert.equal(off.hits.includes(created.id), false);
 
   h.service.update(created.id, { enabled: true });
@@ -165,9 +171,19 @@ test('#37 自定义规则：CRUD、guide 改写、停用后不再命中', async 
     riskLevel: 'low',
     patientId: 'pt_3',
     source: 'inbound',
+    inboundText: '我今天有点心慌。',
   });
   assert.ok(on.hits.includes(created.id));
   assert.equal(on.guideOnly, true);
+
+  // guide 规则同样只看患者输入：草稿里出现关键词不触发改写
+  const bodyOnly = h.service.review({
+    body: '您心慌的话先坐一下。',
+    riskLevel: 'low',
+    patientId: 'pt_3',
+    source: 'inbound',
+  });
+  assert.equal(bodyOnly.hits.includes(created.id), false);
   assert.equal(on.referralBody, REFERRAL_BODY);
 
   h.service.remove(created.id);
@@ -272,6 +288,9 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   const enqueued = runtimeHarness.bridge.enqueued[0]!;
   assert.equal(enqueued.body, REFERRAL_BODY);
   assert.equal(enqueued.riskLevel, 'high');
+  // #37：命中规则要落进草稿，卡片才能显示规则名而不是「无」
+  assert.deepEqual(enqueued.ruleIds, ['rul_builtin_emergency']);
+  assert.deepEqual(enqueued.ruleNames, ['急症只引导就医']);
   const event = runtimeHarness.events.find((item) => item.type === 'draft.guard.hit');
   assert.ok(event);
   const data = event!.data as {
@@ -292,6 +311,37 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   assert.ok(alert);
   assert.equal(alert!.draftId, draftId);
   assert.equal(alert!.groupId, group.id);
+});
+
+test('#37 急症规则不因草稿里的条件式提醒自触发', () => {
+  const h = harness();
+  const result = h.service.review({
+    body: '另外要提醒一句：如果胸闷同时伴有胸痛、明显呼吸困难、出汗，请立即拨打 120。',
+    riskLevel: 'low',
+    patientId: 'pt_4',
+    sessionId: 's_4',
+    source: 'inbound',
+    inboundText: '我平时有高血压，偶尔会胸闷气短。',
+  });
+  assert.equal(result.escalate, false);
+  assert.equal(result.guideOnly, false);
+  assert.equal(result.riskLevel, 'low');
+  assert.deepEqual(result.hits, []);
+  assert.deepEqual(result.hitNames, []);
+  assert.equal(result.referralBody, undefined);
+  assert.equal(h.service.alerts().length, 0);
+  assert.equal(h.service.get('rul_builtin_emergency')?.hitCount, 0);
+
+  // flag 规则仍然只看草稿正文：Agent 自己说出「停药」必须抬风险
+  const flagged = h.service.review({
+    body: '您可以先停药观察。',
+    riskLevel: 'low',
+    patientId: 'pt_4',
+    source: 'inbound',
+    inboundText: '我血压有点高。',
+  });
+  assert.deepEqual(flagged.hits, ['rul_builtin_no_medication']);
+  assert.equal(flagged.riskLevel, 'high');
 });
 
 test('#37 运行链路：改稿分支同样过门禁', async () => {
@@ -344,6 +394,8 @@ test('#37 运行链路：改稿分支同样过门禁', async () => {
   assert.equal(revised.input.riskLevel, 'high');
   // 改稿回合没有新消息，但患者上一轮的急症描述仍会复核，正文保持就医引导
   assert.equal(revised.input.body, REFERRAL_BODY);
+  assert.deepEqual(revised.input.ruleIds, ['rul_builtin_no_medication', 'rul_builtin_emergency']);
+  assert.deepEqual(revised.input.ruleNames, ['不调药', '急症只引导就医']);
   assert.ok(runtimeHarness.events.some((event) => event.type === 'draft.guard.hit'));
 });
 

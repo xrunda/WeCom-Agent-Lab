@@ -42,6 +42,9 @@ export interface EnqueueAgentDraftInput {
   inboundSummary: string;
   body: string;
   riskLevel: RiskLevel;
+  /** #37：命中的风险规则 id 与名称，落到草稿供卡片展示 */
+  ruleIds?: string[];
+  ruleNames?: string[];
   source: 'inbound' | 'proactive';
   fallback: boolean;
   citedMemoryIds: string[];
@@ -52,6 +55,9 @@ export interface ReviseAgentDraftInput {
   body: string;
   inboundSummary?: string;
   riskLevel?: RiskLevel;
+  /** #37：改稿后重新校验的命中规则 */
+  ruleIds?: string[];
+  ruleNames?: string[];
   instruction: string;
   citedMemoryIds?: string[];
   citedKnowledgeIds?: string[];
