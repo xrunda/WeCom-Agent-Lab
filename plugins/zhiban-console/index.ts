@@ -732,6 +732,21 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       pageSize: positiveInt(rc.query.get('pageSize'), 20),
     });
 
+    /** 顾问个人维度的红线留痕：员工发言命中条数 / 未处理数 / 最近命中时间 */
+    const redlineStats = (
+      advisorId: string,
+    ): { hits: number; open: number; lastAt: number | null } => {
+      const latest = alerts.list({ kind: 'redline', advisorId, pageSize: 1 });
+      const open =
+        alerts.list({ kind: 'redline', advisorId, status: 'open', pageSize: 1 }).total +
+        alerts.list({ kind: 'redline', advisorId, status: 'acknowledged', pageSize: 1 }).total;
+      return {
+        hits: latest.total,
+        open,
+        lastAt: latest.items[0]?.createdAt ?? null,
+      };
+    };
+
     router.add(
       'GET',
       '/alerts',
@@ -1992,6 +2007,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
               drafts.filter(
                 (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
               ).length,
+              redlineStats(advisor.id),
             ),
           );
         respond(
@@ -2027,7 +2043,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         );
         respond(rc, 200, advisorView(updated, consoleDrafts().filter(
           (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
-        ).length));
+        ).length, redlineStats(advisor.id)));
       },
       { permission: 'advisor.operate' },
     );
@@ -2050,7 +2066,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         store.appendAudit(auditRecord(config.tenantId, actor, 'advisor.resume', 'advisor', advisor.id));
         respond(rc, 200, advisorView(updated, consoleDrafts().filter(
           (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
-        ).length));
+        ).length, redlineStats(advisor.id)));
       },
       { permission: 'advisor.operate' },
     );

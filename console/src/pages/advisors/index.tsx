@@ -5,6 +5,7 @@ import {
   App,
   Button,
   Card,
+  Drawer,
   Popconfirm,
   Space,
   Statistic,
@@ -19,7 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth, useTenantSettings } from '../../auth/AuthContext.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
 import { isMockMode } from '../../mock/http.ts';
-import { formatDate } from '../../utils/format.ts';
+import { formatDate, formatDateTime } from '../../utils/format.ts';
 import {
   ADVISOR_STATUS_LABELS,
   listAdvisors,
@@ -30,6 +31,12 @@ import {
   type Advisor,
   type AdvisorPerformanceRow,
 } from '../../mock/advisors.ts';
+import {
+  ALERT_STATUS_LABELS,
+  listAlerts,
+  type Alert as QualityAlert,
+  type AlertStatus,
+} from '../../mock/alerts.ts';
 
 const { Text } = Typography;
 
@@ -40,10 +47,16 @@ export default function AdvisorsPage() {
   const settings = useTenantSettings();
   const { message } = App.useApp();
   const canPause = can('advisor.operate');
+  const canReadAlerts = can('alert.read');
 
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  // 红线质检留痕：点顾问的命中次数展开最近记录
+  const [redlineAdvisor, setRedlineAdvisor] = useState<Advisor | null>(null);
+  const [redlineRows, setRedlineRows] = useState<QualityAlert[]>([]);
+  const [redlineTotal, setRedlineTotal] = useState(0);
+  const [redlineLoading, setRedlineLoading] = useState(false);
 
   const pricePerSeat = settings?.archiveSeatPriceYuan ?? DEFAULT_SEAT_PRICE;
 
@@ -86,6 +99,26 @@ export default function AdvisorsPage() {
       refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
+    }
+  };
+
+  const openRedline = async (advisor: Advisor) => {
+    setRedlineAdvisor(advisor);
+    setRedlineRows([]);
+    setRedlineTotal(0);
+    setRedlineLoading(true);
+    try {
+      const result = await listAlerts({
+        advisorId: advisor.id,
+        kind: 'redline',
+        pageSize: 20,
+      });
+      setRedlineRows(result.items);
+      setRedlineTotal(result.total);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载质检记录失败');
+    } finally {
+      setRedlineLoading(false);
     }
   };
 
@@ -143,6 +176,42 @@ export default function AdvisorsPage() {
         ) : (
           <Text type="secondary">0</Text>
         ),
+    },
+    {
+      title: '红线命中',
+      dataIndex: 'redlineHits',
+      width: 130,
+      render: (value: number | undefined, advisor) => {
+        if (typeof value !== 'number') return <Text type="secondary">-</Text>;
+        if (value === 0) return <Text type="secondary">0</Text>;
+        if (!canReadAlerts) {
+          return (
+            <Text>
+              {value} 次
+              {advisor.redlineOpen ? (
+                <Text type="danger" style={{ marginLeft: 4, fontSize: 12 }}>
+                  {advisor.redlineOpen} 待处理
+                </Text>
+              ) : null}
+            </Text>
+          );
+        }
+        return (
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0, height: 'auto' }}
+            onClick={() => void openRedline(advisor)}
+          >
+            {value} 次
+            {advisor.redlineOpen ? (
+              <Text type="danger" style={{ marginLeft: 4, fontSize: 12 }}>
+                {advisor.redlineOpen} 待处理
+              </Text>
+            ) : null}
+          </Button>
+        );
+      },
     },
     {
       title: '席位到期',
@@ -215,6 +284,37 @@ export default function AdvisorsPage() {
         ) : (
           '0'
         ),
+    },
+  ];
+
+  const redlineColumns: TableProps<QualityAlert>['columns'] = [
+    {
+      title: '时间',
+      dataIndex: 'createdAt',
+      width: 160,
+      render: (value: number) => formatDateTime(value),
+    },
+    {
+      title: '命中说明',
+      dataIndex: 'title',
+      render: (value: string, alert) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{value}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {alert.message || '—'}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 90,
+      render: (value: AlertStatus) => (
+        <Tag bordered={false} color={value === 'resolved' ? 'green' : 'gold'}>
+          {ALERT_STATUS_LABELS[value]}
+        </Tag>
+      ),
     },
   ];
 
@@ -303,6 +403,37 @@ export default function AdvisorsPage() {
           ]}
         />
       </Space>
+
+      <Drawer
+        title={`${redlineAdvisor?.name ?? ''} · 红线质检记录`}
+        open={redlineAdvisor !== null}
+        onClose={() => setRedlineAdvisor(null)}
+        width={640}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`累计命中 ${redlineTotal} 条红线`}
+            description="员工在服务群里的发言命中。AI 草稿自身的红线命中在「质检与告警」按草稿查看。"
+          />
+          <Table<QualityAlert>
+            rowKey="id"
+            size="small"
+            loading={redlineLoading}
+            columns={redlineColumns}
+            dataSource={redlineRows}
+            pagination={false}
+            locale={{ emptyText: '暂无红线记录' }}
+          />
+          {redlineTotal > redlineRows.length ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              仅显示最近 {redlineRows.length} 条，完整记录请到「质检与告警」按顾问筛选。
+            </Text>
+          ) : null}
+        </Space>
+      </Drawer>
     </PageContainer>
   );
 }

@@ -1927,15 +1927,45 @@ test('顾问：队列深度来自真实草稿，暂停/恢复同时落到企微�
   const ports = installRealDataPorts(ctx);
   const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
 
+  // 员工发言命中红线：告警带 advisorId，顾问列表能看到个人留痕
+  ctx.emitTo('alert.created', {
+    id: 'alt_staff_test_1',
+    kind: 'redline',
+    severity: 'warning',
+    status: 'open',
+    title: '员工发言命中红线',
+    message: '群「服务群」的员工发言命中规则：不调药',
+    advisorId: 'adv_1',
+    groupId: 'grp_1',
+    createdAt: Date.now(),
+  });
+  const redlineAlerts = await call('GET', '/zhiban/api/alerts?kind=redline&advisorId=adv_1', {
+    cookie,
+  });
+  assert.equal(redlineAlerts.status, 200);
+  assert.equal((redlineAlerts.json() as { total: number }).total, 1);
+
   const list = await call('GET', '/zhiban/api/advisors', { cookie });
   assert.equal(list.status, 200);
   const body = list.json() as {
-    items: Array<{ id: string; name: string; status: string; queueDepth: number; online: boolean }>;
+    items: Array<{
+      id: string;
+      name: string;
+      status: string;
+      queueDepth: number;
+      online: boolean;
+      redlineHits: number;
+      redlineOpen: number;
+      redlineLastAt: number | null;
+    }>;
     total: number;
   };
   assert.equal(body.total, 1);
   assert.equal(body.items[0]!.queueDepth, 1);
   assert.equal(body.items[0]!.online, true);
+  assert.equal(body.items[0]!.redlineHits, 1);
+  assert.equal(body.items[0]!.redlineOpen, 1);
+  assert.equal(typeof body.items[0]!.redlineLastAt, 'number');
 
   const paused = await call('POST', '/zhiban/api/advisors/adv_1/pause', {
     cookie,

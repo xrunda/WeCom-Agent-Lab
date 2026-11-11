@@ -546,3 +546,78 @@ test('#37 配置：tenantId 必填，sandbox 默认 false', () => {
     sandbox: true,
   });
 });
+
+// ---------- 员工发言质检 ----------
+
+test('员工发言命中红线：告警带顾问 / 群 / msgid 维度，正文不落库', () => {
+  const h = harness();
+  const text = '建议加量服用，效果会更好';
+  const result = h.service.reviewStaffMessage({
+    text,
+    advisorId: 'LiGuang',
+    groupId: 'wr_test_1',
+    groupName: '测试服务群',
+    messageId: 'msg_staff_1',
+  });
+
+  assert.ok(result.hits.includes('rul_builtin_no_medication'));
+  assert.equal(result.riskLevel, 'high');
+  assert.ok(result.alertId);
+
+  const alert = h.service.alerts()[0]!;
+  assert.equal(alert.id, result.alertId);
+  assert.equal(alert.kind, 'redline');
+  assert.equal(alert.severity, 'warning');
+  assert.equal(alert.advisorId, 'LiGuang');
+  assert.equal(alert.groupId, 'wr_test_1');
+  assert.equal(alert.messageId, 'msg_staff_1');
+  assert.equal(alert.source, 'staff');
+  assert.equal(JSON.stringify(alert).includes(text), false);
+  assert.equal(alert.message.includes('测试服务群'), true);
+  assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 1);
+
+  // 事件与审计同样不能带正文；告警事件要给控制台 ingest 所需字段
+  assert.equal(JSON.stringify(h.events).includes(text), false);
+  assert.equal(JSON.stringify(h.service.audits()).includes(text), false);
+  const hit = h.events.find((event) => event.type === 'risk_rule.hit')!.data as Record<string, unknown>;
+  assert.equal(hit.source, 'staff');
+  assert.equal(hit.advisorId, 'LiGuang');
+  const created = h.events.find((event) => event.type === 'alert.created')!.data as Record<string, unknown>;
+  assert.equal(created.id, alert.id);
+  assert.equal(created.advisorId, 'LiGuang');
+  assert.equal(created.groupId, 'wr_test_1');
+  assert.equal(created.title, '员工发言命中红线');
+});
+
+test('员工发言质检：否定句、症状复述不算违规；同一 msgid 只记一次', () => {
+  const h = harness();
+
+  const negated = h.service.reviewStaffMessage({
+    text: '不要自行加量，也别停药，有情况随时联系医生。',
+  });
+  assert.equal(negated.hits.length, 0);
+
+  // 「特别加量」「特别建议加量」里的「别」不是否定，仍应命中
+  const special = h.service.reviewStaffMessage({ text: '特别加量' });
+  assert.ok(special.hits.includes('rul_builtin_no_medication'));
+  const special2 = h.service.reviewStaffMessage({ text: '特别建议加量' });
+  assert.ok(special2.hits.includes('rul_builtin_no_medication'));
+
+  // 急症规则只针对患者输入；员工复述症状是正常沟通
+  const symptom = h.service.reviewStaffMessage({
+    text: '阿姨说胸口很痛，我建议她马上去医院。',
+  });
+  assert.equal(symptom.hits.length, 0);
+
+  const first = h.service.reviewStaffMessage({
+    text: '这个药可以换药试试',
+    messageId: 'msg_same',
+  });
+  assert.deepEqual(first.hits, ['rul_builtin_no_medication']);
+  const again = h.service.reviewStaffMessage({
+    text: '这个药可以换药试试',
+    messageId: 'msg_same',
+  });
+  assert.equal(again.hits.length, 0);
+  assert.equal(h.service.alerts().length, 3); // 两条「特别」+ 换药；否定句与症状复述不告警
+});
