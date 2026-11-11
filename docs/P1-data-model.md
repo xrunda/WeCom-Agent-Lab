@@ -458,7 +458,8 @@ media：文件在磁盘，元数据随消息保存
 | `sentVersion` | number | 是 | 核验匹配到的实发版本；未核验为空 |
 | `riskLevel` | enum | 否 | `low` / `medium` / `high` |
 | `status` | enum | 否 | 见 §6，**大写 C2 常量** |
-| `ruleIds` | array<string> | 否 | 命中的风险规则 |
+| `ruleIds` | array<string> | 否 | 命中的风险规则 id |
+| `ruleNames` | array<string> | 是 | 命中的风险规则名称，与 `ruleIds` 一一对应；卡片优先显示名称，旧数据为空时回退到 id |
 | `citedMemoryIds` | array<string> | 否 | Agent 声明引用的记忆 |
 | `citedKnowledgeIds` | array<string> | 否 | Agent 声明引用的知识 |
 | `fallback` | boolean | 否 | 是否为模板草稿（模型超时/报错/未调工具） |

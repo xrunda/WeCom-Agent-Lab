@@ -93,7 +93,10 @@ export interface Draft {
   inboundSummary: string;
   /** 要发出去的正文 */
   body: string;
+  /** #37：命中的风险规则 id，供接口与详情展示 */
   ruleIds: string[];
+  /** #37：命中的风险规则名称；卡片优先展示名称，旧数据为空时回退到 id */
+  ruleNames?: string[];
   riskLevel: RiskLevel;
   status: DraftStatus;
   /** 当前版本号，从 1 开始（#56） */

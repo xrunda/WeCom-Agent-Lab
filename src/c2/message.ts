@@ -114,7 +114,12 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
           : []),
         {
           keyname: '命中规则',
-          value: draft.ruleIds.length > 0 ? draft.ruleIds.join('、') : '无',
+          value:
+            draft.ruleNames && draft.ruleNames.length > 0
+              ? draft.ruleNames.join('、')
+              : draft.ruleIds.length > 0
+                ? draft.ruleIds.join('、')
+                : '无',
         },
         { keyname: '风险', value: RISK_LABEL[draft.riskLevel] },
         ...(draft.source === 'proactive' ? [{ keyname: '来源', value: 'Agent 主动' }] : []),

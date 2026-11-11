@@ -105,6 +105,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         inboundSummary: input.inboundSummary,
         body: input.body,
         riskLevel: input.riskLevel,
+        ruleIds: input.ruleIds,
+        ruleNames: input.ruleNames,
         source: input.source,
         fallback: input.fallback,
         citedMemoryIds: input.citedMemoryIds,

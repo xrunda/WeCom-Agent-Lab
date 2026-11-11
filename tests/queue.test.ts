@@ -26,6 +26,33 @@ function enqueue(service: C2Service, id: string, body = `这是 ${id} 的回复�
   });
 }
 
+test('#37 命中规则随草稿落库，改稿后按新结果更新', () => {
+  const { service, store } = prepare();
+  const draft = service.enqueueDraft({
+    id: 'D_guard',
+    advisorId: 'a1',
+    groupRoomId: 'room_1',
+    customerId: 'c1',
+    customerName: '客户 1',
+    inboundMessageId: 'in_guard',
+    inboundSummary: '客户问题',
+    body: '您描述的情况需要尽快由医生处理。',
+    ruleIds: ['rul_builtin_emergency'],
+    ruleNames: ['急症只引导就医'],
+    riskLevel: 'high',
+  });
+  assert.deepEqual(store.getDraft(draft.id)?.ruleIds, ['rul_builtin_emergency']);
+  assert.deepEqual(store.getDraft(draft.id)?.ruleNames, ['急症只引导就医']);
+
+  const revised = service.reviseDraft(draft.id, {
+    body: '改后的正文',
+    ruleIds: [],
+    ruleNames: [],
+  });
+  assert.deepEqual(store.getDraft(revised.id)?.ruleIds, []);
+  assert.equal(store.getDraft(revised.id)?.ruleNames, undefined);
+});
+
 test('同一顾问同一时间只推送一条草稿', async () => {
   const { service, store, bot } = prepare();
   enqueue(service, 'D1');

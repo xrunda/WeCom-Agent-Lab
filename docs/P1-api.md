@@ -548,7 +548,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ```json
 {
-  "draft": { "id": "draft_1001", "body": "晚上建议清淡一点…", "version": 1, "revisions": [{ "version": 1, "body": "晚上建议清淡一点…", "instruction": null, "createdBy": "agent", "createdAt": 1762645860000 }], "sentVersion": 1, "riskLevel": "low", "status": "VERIFIED", "ruleIds": [], "citedMemoryIds": ["mem_..."], "citedKnowledgeIds": ["knw_..."], "fallback": false, "sandbox": false, "demo": false, "cardTaskId": "task_1001", "pushAttempts": 1, "verifyAttempts": 1, "createdAt": 1762645800000, "pushedAt": 1762645880000, "ackedAt": 1762646060000, "verifiedAt": 1762646245000, "verificationId": "vrf_..." },
+  "draft": { "id": "draft_1001", "body": "晚上建议清淡一点…", "version": 1, "revisions": [{ "version": 1, "body": "晚上建议清淡一点…", "instruction": null, "createdBy": "agent", "createdAt": 1762645860000 }], "sentVersion": 1, "riskLevel": "low", "status": "VERIFIED", "ruleIds": [], "ruleNames": [], "citedMemoryIds": ["mem_..."], "citedKnowledgeIds": ["knw_..."], "fallback": false, "sandbox": false, "demo": false, "cardTaskId": "task_1001", "pushAttempts": 1, "verifyAttempts": 1, "createdAt": 1762645800000, "pushedAt": 1762645880000, "ackedAt": 1762646060000, "verifiedAt": 1762646245000, "verificationId": "vrf_..." },
   "patient": { "id": "pat_...", "displayName": "张女士" },
   "group": { "id": "grp_...", "name": "糖友-张女士", "roomId": "wr..." },
   "advisor": { "id": "adv_...", "name": "李顾问" },

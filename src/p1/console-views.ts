@@ -111,6 +111,7 @@ export interface ServiceFlowDetailView {
     riskLevel: string;
     status: string;
     ruleIds: string[];
+    ruleNames: string[];
     citedMemoryIds: string[];
     citedKnowledgeIds: string[];
     fallback: boolean;
@@ -561,6 +562,7 @@ export function serviceFlowDetail(draft: Draft, ctx: FlowDetailContext): Service
       riskLevel: draft.riskLevel,
       status: draft.status,
       ruleIds: [...(draft.ruleIds ?? [])],
+      ruleNames: [...(draft.ruleNames ?? [])],
       citedMemoryIds: [...(draft.citedMemoryIds ?? [])],
       citedKnowledgeIds: [...(draft.citedKnowledgeIds ?? [])],
       fallback: draft.fallback === true,

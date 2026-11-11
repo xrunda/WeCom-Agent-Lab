@@ -44,15 +44,16 @@
 
 ### 2.2 校验算法
 
-1. 遍历所有启用规则，用**字面包含**匹配草稿正文。
-2. `action=guide|escalate` 的规则**同时**匹配本轮患者输入；这样模型即使没在草稿里复述「胸痛」，急症仍会触发。改稿回合没有新消息时，沿用该患者最近一次入站文本（只在内存中保留，不落盘、不进日志）。
-3. 风险等级 = `max(模型自评, 所有命中规则等级)`。
-4. 动作合并：
+1. `action=flag` 的规则用**字面包含**匹配草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
+2. `action=guide|escalate` 的规则**只**匹配本轮患者输入：急症证据必须来自患者本人（或其家属）的话，模型即使没在草稿里复述「胸痛」也会触发。草稿里的条件式提醒（如「如果出现胸痛、呼吸困难请立即就医」）是合规提示，不参与匹配，否则正常关怀草稿会被整段替换掉。改稿回合没有新消息时，沿用该患者最近一次入站文本（只在内存中保留，不落盘、不进日志）。
+3. 命中规则写入草稿的 `ruleIds` / `ruleNames`，顾问卡片显示规则名称；未命中时卡片显示「无」。
+4. 风险等级 = `max(模型自评, 所有命中规则等级)`。
+5. 动作合并：
    - 任一 `escalate` → 改写正文为就医引导（`REFERRAL_BODY`），生成 `kind=escalate / severity=critical` 告警；
    - 否则任一 `guide` → 同样改写正文；
    - 仅 `flag` → 只抬高风险，正文不动。
-5. 命中规则 `hitCount += 1`，写审计 `risk_rule.hit`，发 `risk_rule.hit` 事件。
-6. 命中且 `escalate || riskLevel === 'high'` 时生成告警；普通 low/medium 命中不告警。告警创建时带 `patientId` / `groupId` / `sessionId` / `ruleIds`，草稿入队后由运行时代回调 `linkDraft` 回填 `draftId`。
+6. 命中规则 `hitCount += 1`，写审计 `risk_rule.hit`，发 `risk_rule.hit` 事件。
+7. 命中且 `escalate || riskLevel === 'high'` 时生成告警；普通 low/medium 命中不告警。告警创建时带 `patientId` / `groupId` / `sessionId` / `ruleIds`，草稿入队后由运行时代回调 `linkDraft` 回填 `draftId`。
 
 `REFERRAL_BODY`：`您描述的情况需要尽快由医生处理。请立即拨打 120 或前往最近医院急诊，不要等待线上回复。`
 
