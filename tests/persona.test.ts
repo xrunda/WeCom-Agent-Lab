@@ -57,6 +57,14 @@ test('系统提示词要求草稿正文可直接转发到客户群', () => {
   assert.doesNotMatch(prompt, /引用时要写明/);
 });
 
+test('记忆规则：患者本人改口时以最新表述为准并直接修正原记录', () => {
+  const prompt = buildSystemPrompt(SETTINGS, { memory: true, care: false });
+
+  assert.match(prompt, /以最新一次明确表述为准/);
+  assert.match(prompt, /memory_update 直接修正原记录/);
+  assert.match(prompt, /只有分不清是本人还是家属/);
+});
+
 test('身份未知的发言人：用自然提问核实，不把来源写进正文', () => {
   const prompt = buildTurnPrompt(merged(UNKNOWN), SETTINGS);
 

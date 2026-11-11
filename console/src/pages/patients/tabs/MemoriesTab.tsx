@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   Alert,
   App,
@@ -54,24 +54,40 @@ export function MemoriesTab({ patientId, canWrite, onChanged }: MemoriesTabProps
   const [category, setCategory] = useState<MemoryCategory | undefined>();
   const [editing, setEditing] = useState<Memory | null>(null);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [form] = Form.useForm<{
     category: MemoryCategory;
     subject: MemorySubject;
     content: string;
   }>();
 
-  const load = useCallback(() => {
-    setLoading(true);
-    listMemories(patientId, category)
-      .then(setMemories)
-      .catch((error: unknown) => {
-        message.error(error instanceof Error ? error.message : '加载记忆失败');
-      })
-      .finally(() => setLoading(false));
-  }, [patientId, category, message]);
+  const load = useCallback(
+    (silent = false) => {
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      listMemories(patientId, category)
+        .then(setMemories)
+        .catch((error: unknown) => {
+          message.error(error instanceof Error ? error.message : '加载记忆失败');
+        })
+        .finally(() => {
+          setLoading(false);
+          setRefreshing(false);
+        });
+    },
+    [patientId, category, message],
+  );
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // 抽屉打开期间静默刷新，Agent 新写入或修正的记忆能及时出现
+  useEffect(() => {
+    const timer = setInterval(() => {
+      load(true);
+    }, 30_000);
+    return () => clearInterval(timer);
   }, [load]);
 
   const grouped = useMemo(() => {
@@ -128,17 +144,27 @@ export function MemoriesTab({ patientId, canWrite, onChanged }: MemoriesTabProps
         description="每条记忆都标出来源原话；编辑与删除立即生效，并写入审计日志。"
       />
 
-      <Space wrap>
-        <Select
-          allowClear
-          placeholder="按分类筛选"
-          style={{ minWidth: 200 }}
-          value={category}
-          options={CATEGORY_ORDER.map((key) => ({ label: MEMORY_CATEGORY_LABELS[key], value: key }))}
-          onChange={setCategory}
-        />
-        <Text type="secondary">共 {memories.length} 条</Text>
-      </Space>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Space wrap>
+          <Select
+            allowClear
+            placeholder="按分类筛选"
+            style={{ minWidth: 200 }}
+            value={category}
+            options={CATEGORY_ORDER.map((key) => ({ label: MEMORY_CATEGORY_LABELS[key], value: key }))}
+            onChange={setCategory}
+          />
+          <Text type="secondary">共 {memories.length} 条</Text>
+        </Space>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={refreshing}
+          onClick={() => load(true)}
+        >
+          刷新
+        </Button>
+      </div>
 
       {loading ? (
         <div style={{ padding: '48px 0', textAlign: 'center' }}>
@@ -198,6 +224,11 @@ export function MemoriesTab({ patientId, canWrite, onChanged }: MemoriesTabProps
                         ) : (
                           <Tag bordered={false}>人工添加</Tag>
                         )}
+                        {memory.revisedAt && memory.revisedAt > memory.createdAt ? (
+                          <Tag bordered={false} color="gold">
+                            已修正
+                          </Tag>
+                        ) : null}
                       </Space>
                     }
                     description={
@@ -207,7 +238,12 @@ export function MemoriesTab({ patientId, canWrite, onChanged }: MemoriesTabProps
                         ) : (
                           <Text type="secondary">来源：人工录入</Text>
                         )}
-                        <Text type="secondary">记录于 {formatDateTime(memory.createdAt)}</Text>
+                        <Text type="secondary">
+                          记录于 {formatDateTime(memory.createdAt)}
+                          {memory.updatedAt > memory.createdAt
+                            ? ` · 更新于 ${formatDateTime(memory.updatedAt)}`
+                            : ''}
+                        </Text>
                       </Space>
                     }
                   />

@@ -876,16 +876,37 @@ export function buildPatientTimeline(input: {
   }
   for (const memory of input.memories) {
     if (memory.deletedAt !== undefined) continue;
+    const createdActor =
+      memory.createdBy === 'staff'
+        ? { type: 'advisor' as const, name: '顾问' }
+        : { type: 'agent' as const, name: 'Agent' };
+    const revised = memory.revisedAt !== undefined && memory.revisedAt > memory.createdAt;
     events.push({
       id: `evt_${memory.id}`,
       at: memory.createdAt,
       type: 'memory',
-      actor: { type: memory.createdBy === 'staff' ? 'advisor' : 'agent', name: memory.createdBy === 'staff' ? '顾问' : 'Agent' },
+      actor: createdActor,
       title: '记录记忆',
-      detail: memory.content,
+      // 修正过的记忆不能把新内容倒填到旧时间点：优先展示当时的来源原话
+      detail: revised ? (memory.sourceText ?? memory.content) : memory.content,
       draftId: null,
       verificationOutcome: null,
     });
+    if (revised) {
+      events.push({
+        id: `evt_${memory.id}_revised_${memory.revisedAt}`,
+        at: memory.revisedAt!,
+        type: 'memory',
+        actor:
+          memory.updatedBy === 'staff'
+            ? { type: 'advisor', name: '顾问' }
+            : { type: 'agent', name: 'Agent' },
+        title: '修正记忆',
+        detail: memory.content,
+        draftId: null,
+        verificationOutcome: null,
+      });
+    }
   }
   for (const plan of input.carePlans) {
     events.push({
@@ -911,7 +932,8 @@ export function buildPatientTimeline(input: {
       verificationOutcome: null,
     });
   }
-  return events.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  // 时间线按最新在前返回：配合 page/pageSize 分页时，第一页永远是最新事件。
+  return events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id));
 }
 
 export function buildPatientActions(input: {

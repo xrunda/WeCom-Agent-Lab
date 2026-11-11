@@ -129,6 +129,9 @@ test('#35 同一句话不重复记；改口时 update 保留来源并写审计',
   const updated = service.update(first.id, { content: '对虾蟹过敏' }, 'staff', 'acc_1');
   assert.equal(updated.content, '对虾蟹过敏');
   assert.equal(updated.sourceMsgId, 'm_2');
+  assert.equal(updated.revisedAt, 1_700_000_000_000);
+  assert.equal(updated.updatedBy, 'staff');
+  assert.equal(updated.updatedById, 'acc_1');
 
   const actions = service.audits().map((event) => event.action);
   assert.deepEqual(actions, ['memory.write', 'memory.update', 'memory.update']);

@@ -440,20 +440,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 #### `GET /patients/{id}/timeline?page=&pageSize=`
 
-角色：全部。响应 `200`：
+角色：全部。**按 `at` 倒序返回，最新事件在第一页**；默认 `page=1`、`pageSize=20`。响应 `200`：
 
 ```json
 {
   "items": [
     {
-      "id": "evt_01j9ze5f6g7h8j9k0m1n2p3q4r",
-      "at": 1762645800000,
-      "type": "inbound",
-      "actor": { "type": "patient", "name": "张女士" },
-      "title": "客户发来消息",
-      "detail": "晚上吃点什么好",
-      "draftId": null,
-      "verificationOutcome": null
+      "id": "evt_...",
+      "at": 1762646100000,
+      "type": "verification",
+      "actor": { "type": "system", "name": "system" },
+      "title": "核验通过",
+      "detail": "与草稿一致",
+      "draftId": "draft_1001",
+      "verificationOutcome": "verified"
     },
     {
       "id": "evt_...",
@@ -466,14 +466,14 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
       "verificationOutcome": null
     },
     {
-      "id": "evt_...",
-      "at": 1762646100000,
-      "type": "verification",
-      "actor": { "type": "system", "name": "system" },
-      "title": "核验通过",
-      "detail": "与草稿一致",
-      "draftId": "draft_1001",
-      "verificationOutcome": "verified"
+      "id": "evt_01j9ze5f6g7h8j9k0m1n2p3q4r",
+      "at": 1762645800000,
+      "type": "inbound",
+      "actor": { "type": "patient", "name": "张女士" },
+      "title": "客户发来消息",
+      "detail": "晚上吃点什么好",
+      "draftId": null,
+      "verificationOutcome": null
     }
   ],
   "page": 1,
@@ -483,6 +483,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ```
 
 `type`：`inbound` / `draft` / `revision` / `delivery` / `verification` / `memory` / `care_plan` / `alert` / `note`。
+
+记忆被修正（内容 / 分类 / 归属变化）时，除 `createdAt` 的「记录记忆」外，还会在 `revisedAt` 额外返回一条 `memory` 事件，`title` 为「修正记忆」，`detail` 为修正后的内容。
 
 ### 饮食记录
 
