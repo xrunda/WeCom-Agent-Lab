@@ -55,8 +55,9 @@ export const ROLE_CANONICAL_PERMISSIONS: Record<Role, readonly CanonicalPermissi
 /**
  * 仅演示页使用、后端尚无对应路由的权限名。
  * 只授予 mock 管理员，避免把未实现的写操作伪装成真实能力。
+ * 知识库与风险规则接入真实写接口后已清空。
  */
-export const DEMO_ONLY_PERMISSIONS = ['rule.write'] as const;
+export const DEMO_ONLY_PERMISSIONS = [] as const;
 
 /** mock 会话里的 permissions；真实模式由后端返回同样的名字。 */
 export function permissionsForRole(role: Role): string[] {

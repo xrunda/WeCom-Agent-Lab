@@ -14,6 +14,13 @@ import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
 import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
 import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
+import { GuardService } from '../src/p1/guard.ts';
+import type {
+  GuardAlertRecord,
+  RiskRuleCreateInput,
+  RiskRuleRecord,
+  RiskRuleUpdateInput,
+} from '../src/p1/guard.ts';
 import { KnowledgeService } from '../src/p1/knowledge.ts';
 import type {
   KnowledgeCreateInput,
@@ -1400,6 +1407,41 @@ function installKnowledgeApi(ctx: FakeConsoleContext): { records: Map<string, Kn
   return { records };
 }
 
+/** 用真实 GuardService + 内存后端，验证控制台路由与内置红线只读语义。 */
+function installGuardApi(ctx: FakeConsoleContext): {
+  rules: Map<string, RiskRuleRecord>;
+} {
+  const rules = new Map<string, RiskRuleRecord>();
+  const alerts: GuardAlertRecord[] = [];
+  let seq = 0;
+  const service = new GuardService({
+    tenantId: 'tn_test',
+    backend: {
+      loadRules: () => [...rules.values()],
+      loadAlerts: () => alerts,
+      putRule: async (rule) => {
+        rules.set(rule.id, rule);
+      },
+      deleteRule: async (id) => {
+        rules.delete(id);
+      },
+      putAlert: async (alert) => {
+        alerts.push(alert);
+      },
+    },
+    newId: () => `rul_kw_${++seq}`,
+  });
+  ctx.provide('zhibanGuard', {
+    listRules: (query?: { kind?: 'redline' | 'keyword'; enabled?: boolean }) =>
+      service.list(query),
+    getRule: (id: string) => service.get(id),
+    createRule: (input: RiskRuleCreateInput) => service.create(input),
+    updateRule: (id: string, patch: RiskRuleUpdateInput) => service.update(id, patch),
+    deleteRule: (id: string) => service.remove(id),
+  });
+  return { rules };
+}
+
 test('知识库：真实 CRUD、分页、重复标题与控制台审计', async () => {
   const { ctx, call } = await start();
   installKnowledgeApi(ctx);
@@ -2026,4 +2068,171 @@ test('群绑定：绑定已有患者或新建患者，未知群 404，写权限�
   const patientBody = createdPatient.json() as { id: string; displayName: string; demo: boolean };
   assert.equal(patientBody.displayName, '独立患者');
   assert.equal(patientBody.demo, false);
+});
+
+test('风险规则：内置红线只读，关键词规则 CRUD 与审计', async () => {
+  const { ctx, call } = await start();
+  installGuardApi(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const list = await call('GET', '/zhiban/api/risk-rules', { cookie });
+  assert.equal(list.status, 200);
+  const listBody = list.json() as { items: RiskRuleRecord[]; total: number };
+  assert.equal(listBody.total, 4);
+  assert.ok(listBody.items.every((rule) => rule.kind === 'redline' && rule.builtin));
+  const builtin = listBody.items[0]!;
+
+  const keywordOnly = await call('GET', '/zhiban/api/risk-rules?kind=keyword', { cookie });
+  assert.equal((keywordOnly.json() as { total: number }).total, 0);
+  const badKind = await call('GET', '/zhiban/api/risk-rules?kind=other', { cookie });
+  assert.equal(badKind.status, 422);
+  const badEnabled = await call('GET', '/zhiban/api/risk-rules?enabled=maybe', { cookie });
+  assert.equal(badEnabled.status, 422);
+
+  const created = await call('POST', '/zhiban/api/risk-rules', {
+    cookie,
+    body: {
+      kind: 'keyword',
+      name: '自定义规则',
+      keywords: ['胸闷复查词', ' 胸闷复查词 ', '复查提醒'],
+      riskLevel: 'medium',
+    },
+  });
+  assert.equal(created.status, 201);
+  const rule = created.json() as unknown as RiskRuleRecord;
+  assert.equal(rule.kind, 'keyword');
+  assert.equal(rule.builtin, false);
+  assert.equal(rule.action, 'flag');
+  assert.equal(rule.enabled, true);
+  assert.deepEqual(rule.keywords, ['胸闷复查词', '复查提醒']);
+
+  const redline = await call('POST', '/zhiban/api/risk-rules', {
+    cookie,
+    body: {
+      kind: 'redline',
+      name: '自建红线',
+      keywords: ['诊断'],
+      riskLevel: 'high',
+      action: 'flag',
+    },
+  });
+  assert.equal(redline.status, 422);
+  assert.equal((redline.json() as { error: { code: string } }).error.code, 'VALIDATION_FAILED');
+
+  const invalid: Array<[Record<string, unknown>, string]> = [
+    [{ name: '', keywords: ['甲'], riskLevel: 'high' }, '空名称'],
+    [{ name: '超'.repeat(41), keywords: ['甲'], riskLevel: 'high' }, '名称超长'],
+    [{ name: '规则', keywords: [], riskLevel: 'high' }, '空关键词'],
+    [{ name: '规则', keywords: Array.from({ length: 21 }, (_, i) => `词${i}`), riskLevel: 'high' }, '关键词过多'],
+    [{ name: '规则', keywords: ['超'.repeat(31)], riskLevel: 'high' }, '关键词超长'],
+    [{ name: '规则', keywords: ['甲'], riskLevel: 'urgent' }, '等级非法'],
+    [{ name: '规则', keywords: ['甲'], riskLevel: 'high', action: 'ignore' }, '动作非法'],
+    [{ name: '规则', keywords: ['甲'], riskLevel: 'high', enabled: 'yes' }, '启用非布尔'],
+  ];
+  for (const [body, label] of invalid) {
+    const res = await call('POST', '/zhiban/api/risk-rules', { cookie, body });
+    assert.equal(res.status, 422, label);
+  }
+
+  const updated = await call('PATCH', `/zhiban/api/risk-rules/${rule.id}`, {
+    cookie,
+    body: { name: '改名规则', keywords: ['复查提醒'], enabled: false },
+  });
+  assert.equal(updated.status, 200);
+  const updatedRule = updated.json() as unknown as RiskRuleRecord;
+  assert.equal(updatedRule.name, '改名规则');
+  assert.equal(updatedRule.enabled, false);
+
+  const filtered = await call('GET', '/zhiban/api/risk-rules?kind=keyword&enabled=false', { cookie });
+  assert.equal((filtered.json() as { total: number }).total, 1);
+
+  const patchBuiltin = await call('PATCH', `/zhiban/api/risk-rules/${builtin.id}`, {
+    cookie,
+    body: { name: '改红线' },
+  });
+  assert.equal(patchBuiltin.status, 409);
+  assert.equal((patchBuiltin.json() as { error: { code: string } }).error.code, 'BUILTIN_RULE');
+
+  const patchMissing = await call('PATCH', '/zhiban/api/risk-rules/rul_404', {
+    cookie,
+    body: { name: '不存在' },
+  });
+  assert.equal(patchMissing.status, 404);
+
+  const deleteBuiltin = await call('DELETE', `/zhiban/api/risk-rules/${builtin.id}`, { cookie });
+  assert.equal(deleteBuiltin.status, 409);
+  assert.equal((deleteBuiltin.json() as { error: { code: string } }).error.code, 'BUILTIN_RULE');
+
+  const removed = await call('DELETE', `/zhiban/api/risk-rules/${rule.id}`, { cookie });
+  assert.equal(removed.status, 204);
+  const afterDelete = await call('GET', '/zhiban/api/risk-rules', { cookie });
+  assert.equal((afterDelete.json() as { total: number }).total, 4);
+
+  const deleteMissing = await call('DELETE', '/zhiban/api/risk-rules/rul_404', { cookie });
+  assert.equal(deleteMissing.status, 404);
+
+  const audit = await call('GET', '/zhiban/api/audit?targetType=risk_rule', { cookie });
+  assert.equal(audit.status, 200);
+  const events = (audit.json() as {
+    items: Array<{
+      action: string;
+      targetId: string;
+      detail?: Record<string, unknown>;
+    }>;
+  }).items;
+  assert.deepEqual(
+    events.map((event) => event.action).sort(),
+    ['rule.created', 'rule.deleted', 'rule.updated'],
+  );
+  const updatedEvent = events.find((event) => event.action === 'rule.updated');
+  assert.equal(updatedEvent?.targetId, rule.id);
+  assert.deepEqual(updatedEvent?.detail?.changes, {
+    name: { from: '自定义规则', to: '改名规则' },
+    enabled: { from: true, to: false },
+  });
+  assert.equal(JSON.stringify(events).includes('胸闷复查词'), false);
+});
+
+test('风险规则：读对全部角色开放，写仅 admin，platform 一律 404', async () => {
+  const { ctx, call } = await start();
+  installGuardApi(ctx);
+  const admin = await login(call, 'admin', ADMIN_PASSWORD);
+
+  for (const [username, role] of [
+    ['supervisor.rule', 'supervisor'],
+    ['viewer.rule', 'viewer'],
+  ] as const) {
+    const created = await call('POST', '/zhiban/api/accounts', {
+      cookie: admin.cookie,
+      body: { username, displayName: username, role, password: 'StaffPass123' },
+    });
+    assert.equal(created.status, 201);
+  }
+
+  for (const [username, role] of [
+    ['supervisor.rule', 'supervisor'],
+    ['viewer.rule', 'viewer'],
+  ] as const) {
+    const { cookie } = await login(call, username, 'StaffPass123');
+    const readable = await call('GET', '/zhiban/api/risk-rules', { cookie });
+    assert.equal(readable.status, 200, `${role} 应可读`);
+    const write = await call('POST', '/zhiban/api/risk-rules', {
+      cookie,
+      body: { name: `${role} 写入`, keywords: ['甲'], riskLevel: 'low' },
+    });
+    assert.equal(write.status, 403, `${role} 不应可写`);
+    assert.equal((write.json() as { error: { code: string } }).error.code, 'FORBIDDEN');
+  }
+
+  const platform = await login(call, 'platform', PLATFORM_PASSWORD);
+  const platformRead = await call('GET', '/zhiban/api/risk-rules', { cookie: platform.cookie });
+  assert.equal(platformRead.status, 404);
+});
+
+test('风险规则：插件未就绪时返回 502 而不是 500', async () => {
+  const { call } = await start();
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+  const res = await call('GET', '/zhiban/api/risk-rules', { cookie });
+  assert.equal(res.status, 502);
+  assert.equal((res.json() as { error: { code: string } }).error.code, 'UPSTREAM_UNAVAILABLE');
 });
