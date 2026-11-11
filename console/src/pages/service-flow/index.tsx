@@ -517,7 +517,7 @@ export default function ServiceFlowPage() {
         destroyOnHidden
         loading={detailLoading}
         extra={
-          detail && can('draft.export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
+          detail && can('export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
             <Button
               icon={<FilePdfOutlined />}
               loading={exporting}

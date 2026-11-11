@@ -110,6 +110,7 @@ describe('WP-L 系统设置', () => {
     await renderAt('/settings/agent');
 
     const input = await screen.findByDisplayValue('小安');
+    expect(screen.queryByText('当前角色不能修改 Agent 设定')).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '小康' } });
     fireEvent.click(screen.getByRole('button', { name: /保存\s*设定/ }));
 
@@ -117,6 +118,14 @@ describe('WP-L 系统设置', () => {
       expect((await getTenant()).agentName).toBe('小康');
     });
     expect(screen.getByText(/已保存，下一条草稿与沙盒中的名字立即同步/)).toBeInTheDocument();
+  });
+
+  it('只读账号能查看 Agent 设定但不能修改', async () => {
+    await renderAt('/settings/agent', 'viewer');
+
+    expect(await screen.findByDisplayValue('小安')).toBeDisabled();
+    expect(screen.getByText('当前角色不能修改 Agent 设定')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /保存\s*设定/ })).not.toBeInTheDocument();
   });
 
   it('企微接入状态四路正常，演示断开后转红', async () => {

@@ -58,7 +58,7 @@ function errorMessage(error: unknown): string {
 export default function AccountsSettingsPage() {
   const { can, session } = useAuth();
   const { message } = App.useApp();
-  const canRead = can('account.read');
+  // 后端 GET /accounts 同样要求 account.write，所以「能看」与「能管」是同一权限
   const canWrite = can('account.write');
 
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -74,7 +74,7 @@ export default function AccountsSettingsPage() {
   const [resetForm] = Form.useForm<ResetFormValues>();
 
   const load = useCallback(async () => {
-    if (!canRead) {
+    if (!canWrite) {
       setLoading(false);
       return;
     }
@@ -91,7 +91,7 @@ export default function AccountsSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, message, roleFilter, statusFilter]);
+  }, [canWrite, message, roleFilter, statusFilter]);
 
   useEffect(() => {
     void load();
@@ -172,7 +172,7 @@ export default function AccountsSettingsPage() {
     }
   };
 
-  if (!canRead) {
+  if (!canWrite) {
     return (
       <PageContainer header={{ title: '账号与角色' }}>
         <Result

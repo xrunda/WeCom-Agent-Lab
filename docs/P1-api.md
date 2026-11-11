@@ -184,12 +184,12 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 {
   "account": { "id": "acc_...", "displayName": "林主管", "role": "admin" },
   "tenant": { "id": "tn_...", "name": "安康健康管理中心", "agentName": "小安", "patientTerm": "患者", "agentAvatar": null, "tone": "亲切、专业、简洁", "timezone": "Asia/Shanghai" },
-  "permissions": ["patient.read", "patient.write", "draft.export", "account.write"],
+  "permissions": ["tenant.read", "tenant.write", "patient.read", "patient.write", "draft.read", "alert.read", "alert.write", "advisor.operate", "audit.read", "export", "account.write", "onboarding.submit", "onboarding.list", "sandbox.use"],
   "serverTime": 1762646400000
 }
 ```
 
-`permissions` 供前端隐藏按钮；**后端仍必须逐接口鉴权**。
+`permissions` 供前端隐藏按钮；**后端仍必须逐接口鉴权**。取值只能是 `src/p1/console-types.ts` 的 `Permission`，前端 `can()` 必须使用同一套名字（例如 `tenant.write` 而不是 `setting.write`、`export` 而不是 `draft.export`），否则管理员会被误判成只读账号。
 
 ### `POST /auth/password`
 
@@ -1036,8 +1036,8 @@ Agent 回合异步进行，结果通过 SSE `sandbox.*` 推送；无 SSE 时用 
 {
   "roles": [
     { "role": "admin", "label": "机构管理员", "permissions": ["*"] },
-    { "role": "supervisor", "label": "主管", "permissions": ["patient.read", "patient.write", "draft.read", "alert.write", "advisor.operate", "audit.read", "export"] },
-    { "role": "viewer", "label": "只读", "permissions": ["patient.read", "draft.read", "alert.read", "audit.read"] }
+    { "role": "supervisor", "label": "主管", "permissions": ["tenant.read", "patient.read", "patient.write", "draft.read", "alert.read", "alert.write", "advisor.operate", "audit.read", "export", "onboarding.submit", "sandbox.use"] },
+    { "role": "viewer", "label": "只读", "permissions": ["tenant.read", "patient.read", "draft.read", "alert.read", "audit.read", "sandbox.use"] }
   ]
 }
 ```
