@@ -30,8 +30,11 @@ export interface ComposedDraft {
 export type ComposeFn = (input: ComposeInput) => ComposedDraft | undefined;
 
 export interface ArchiveTriggerConfig {
-  /** 只处理这些群 */
-  roomIds: string[];
+  /**
+   * 只处理这些群。
+   * 传函数时每轮重新取值，用于运行时新增/移出服务群而不重启。
+   */
+  roomIds: string[] | (() => string[]);
   /** 员工本人 userid，用于排除他自己发的消息 */
   excludeSender: string;
   /** 只处理 msgtime >= 该时刻的消息；缺省取构造时刻，避免重放历史 */
@@ -109,16 +112,18 @@ export class ArchiveTrigger {
    */
   async pollWithContext(): Promise<TriggerPollResult> {
     const now = this.clock.now();
+    const roomIds =
+      typeof this.config.roomIds === 'function' ? this.config.roomIds() : this.config.roomIds;
     const list = this.archive.listGroupMessages;
     const messages = list
       ? await list.call(this.archive, {
-          roomIds: this.config.roomIds,
+          roomIds,
           since: this.startedAt,
           until: now,
           includeMedia: this.config.includeMedia === true,
         })
       : await this.archive.listInboundMessages({
-          roomIds: this.config.roomIds,
+          roomIds,
           excludeSender: this.config.excludeSender,
           since: this.startedAt,
           until: now,

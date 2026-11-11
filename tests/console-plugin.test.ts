@@ -415,6 +415,25 @@ test('#60 群管理：列表过滤/排序、状态更新、审计与写权限', 
     group.updatedAt += 1;
     return group;
   };
+  // #106：服务状态变更应同步到企微存档白名单
+  const serviceCalls: Array<{ action: string; roomId: string }> = [];
+  ctx.provide('zhibanWecomAdmin', {
+    releaseQueue: async () => ({ releasedDraftId: 'draft_0', nextDraftId: null }),
+    restoreAdvisor: () => ({
+      id: 'adv_1',
+      name: '顾问',
+      status: 'active',
+      consecutiveMisroutes: 0,
+    }),
+    activateServiceGroup: ({ roomId }: { roomId: string }) => {
+      serviceCalls.push({ action: 'activate', roomId });
+      return { roomId, name: '群', allowed: true };
+    },
+    deactivateServiceGroup: (roomId: string) => {
+      serviceCalls.push({ action: 'deactivate', roomId });
+      return { roomId, allowed: false };
+    },
+  });
 
   const admin = await login(call, 'admin', ADMIN_PASSWORD);
   const pending = await call('GET', '/zhiban/api/groups?status=pending', { cookie: admin.cookie });
@@ -445,9 +464,17 @@ test('#60 群管理：列表过滤/排序、状态更新、审计与写权限', 
     id: 'grp_1',
     patch: { name: '陈嘉禾（演示）', status: 'serving' },
   });
+  assert.deepEqual(serviceCalls, [{ action: 'activate', roomId: 'wr_demo_1' }]);
+
+  const stopped = await call('PATCH', '/zhiban/api/groups/grp_2', {
+    cookie: admin.cookie,
+    body: { status: 'disabled' },
+  });
+  assert.equal(stopped.status, 200);
+  assert.deepEqual(serviceCalls.at(-1), { action: 'deactivate', roomId: 'wr_demo_2' });
 
   const audit = await call('GET', '/zhiban/api/audit?action=group.update', { cookie: admin.cookie });
-  assert.equal((audit.json() as { total: number }).total, 1);
+  assert.equal((audit.json() as { total: number }).total, 2);
 
   const badStatus = await call('PATCH', '/zhiban/api/groups/grp_1', {
     cookie: admin.cookie,

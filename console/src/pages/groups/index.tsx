@@ -1,5 +1,19 @@
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, App, Button, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd';
+import {
+  Alert,
+  App,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Radio,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import type { TableProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -50,7 +64,10 @@ export default function GroupsPage() {
   const [editing, setEditing] = useState<Group | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [starting, setStarting] = useState<Group | null>(null);
+  const [serviceSaving, setServiceSaving] = useState(false);
   const [form] = Form.useForm<EditForm>();
+  const [serviceForm] = Form.useForm<{ advisorId: string }>();
 
   const refresh = useCallback(() => {
     setRefreshKey((value) => value + 1);
@@ -100,6 +117,41 @@ export default function GroupsPage() {
       refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '状态更新失败');
+    }
+  };
+
+  const openStart = (group: Group) => {
+    setStarting(group);
+    serviceForm.setFieldsValue({ advisorId: group.advisorId ?? undefined });
+  };
+
+  const submitStart = async () => {
+    if (!starting) return;
+    const values = await serviceForm.validateFields();
+    setServiceSaving(true);
+    try {
+      await updateGroup(starting.id, { status: 'serving', advisorId: values.advisorId });
+      message.success(`「${starting.name}」已开始服务，新消息会生成草稿`);
+      setStarting(null);
+      refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '开始服务失败');
+    } finally {
+      setServiceSaving(false);
+    }
+  };
+
+  const stopService = async (group: Group, reason: 'stop' | 'ignore') => {
+    try {
+      await updateGroup(group.id, { status: 'disabled' });
+      message.success(
+        reason === 'ignore'
+          ? `已忽略「${group.name}」，不会再作为待确认群出现`
+          : `「${group.name}」已移出服务，不再拉取该群消息`,
+      );
+      refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '操作失败');
     }
   };
 
@@ -242,11 +294,50 @@ export default function GroupsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 90,
+      width: 220,
       render: (_, group) => (
-        <Button type="link" size="small" disabled={!canWrite} onClick={() => openEdit(group)}>
-          编辑
-        </Button>
+        <Space size={0} wrap>
+          {group.status !== 'serving' && group.status !== 'collect_only' ? (
+            <Button
+              type="link"
+              size="small"
+              disabled={!canWrite}
+              onClick={() => openStart(group)}
+            >
+              开始服务
+            </Button>
+          ) : (
+            <Popconfirm
+              title={`移出「${group.name}」？`}
+              description="移出后不再拉取该群消息，也不会生成草稿。"
+              okText="移出"
+              cancelText="取消"
+              disabled={!canWrite}
+              onConfirm={() => void stopService(group, 'stop')}
+            >
+              <Button type="link" size="small" danger disabled={!canWrite}>
+                移出服务
+              </Button>
+            </Popconfirm>
+          )}
+          {group.status === 'pending' ? (
+            <Popconfirm
+              title={`忽略「${group.name}」？`}
+              description="忽略后不再作为待确认群出现，后续也不会自动重新发现。"
+              okText="忽略"
+              cancelText="取消"
+              disabled={!canWrite}
+              onConfirm={() => void stopService(group, 'ignore')}
+            >
+              <Button type="link" size="small" disabled={!canWrite}>
+                忽略
+              </Button>
+            </Popconfirm>
+          ) : null}
+          <Button type="link" size="small" disabled={!canWrite} onClick={() => openEdit(group)}>
+            编辑
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -255,7 +346,8 @@ export default function GroupsPage() {
     <PageContainer
       header={{
         title: '服务群',
-        subTitle: '只有「服务中」的群会进入 Agent 回合；其他状态只保留采集，不产出草稿。',
+        subTitle:
+          '企业创建的客户群会自动出现在待确认；只有「服务中」的群会生成草稿。开始服务只处理新消息。',
       }}
     >
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -264,7 +356,7 @@ export default function GroupsPage() {
             type="warning"
             showIcon
             message={`有 ${pending} 个待确认群`}
-            description="存档里发现的新群默认待确认。确认服务范围后，只有「服务中」的群会触发 Agent。"
+            description="自动发现的客户群默认待确认。点「开始服务」选择顾问后，只有「服务中」的群会触发 Agent。"
             action={
               <Button size="small" onClick={() => setStatus('pending')}>
                 只看待确认
@@ -307,6 +399,40 @@ export default function GroupsPage() {
           scroll={{ x: 980 }}
         />
       </Space>
+
+      <Modal
+        title={starting ? `开始服务「${starting.name}」` : '开始服务'}
+        open={Boolean(starting)}
+        onCancel={() => setStarting(null)}
+        onOk={() => void submitStart()}
+        okText="开始服务"
+        cancelText="取消"
+        confirmLoading={serviceSaving}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="开始后只处理新消息"
+            description="历史消息不会补处理；客户在群里的下一条消息才会进入 Agent 回合。"
+          />
+          <Form form={serviceForm} layout="vertical" requiredMark={false}>
+            <Form.Item
+              label="负责顾问"
+              name="advisorId"
+              rules={[{ required: true, message: '请选择负责顾问' }]}
+            >
+              <Select
+                placeholder="选择顾问"
+                options={advisors
+                  .filter((item) => item.status !== 'left')
+                  .map((item) => ({ label: item.name, value: item.id }))}
+              />
+            </Form.Item>
+          </Form>
+        </Space>
+      </Modal>
 
       <Modal
         title={editing ? `编辑「${editing.name}」` : '编辑群'}

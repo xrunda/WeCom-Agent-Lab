@@ -78,6 +78,11 @@ export interface WecomRuntimeDeps {
   groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   /** 会话存档同意状态（可选）：查询失败时静默保留原状态 */
   roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
+  /** #106：客户群自动发现；未配置客户联系凭据时缺省 */
+  discovery?: {
+    scanOnce(): Promise<unknown>;
+    intervalMs: number;
+  };
 }
 
 export interface StartOptions {
@@ -140,9 +145,11 @@ export class WecomRuntime {
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
+  private readonly discovery?: WecomRuntimeDeps['discovery'];
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
+  private discoveryTimer?: ReturnType<typeof setInterval>;
   private running = false;
   private polling = false;
   private ticking = false;
@@ -161,6 +168,7 @@ export class WecomRuntime {
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
+    this.discovery = deps.discovery;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -198,6 +206,15 @@ export class WecomRuntime {
     }, this.config.tickIntervalMs);
     this.pollTimer.unref?.();
     this.tickTimer.unref?.();
+    if (this.discovery) {
+      // 启动时先扫一轮，让存量客户群马上出现在待确认里；之后按间隔轮询
+      void this.discovery.scanOnce();
+      this.discoveryTimer = setInterval(() => {
+        void this.discovery?.scanOnce();
+      }, this.discovery.intervalMs);
+      this.discoveryTimer.unref?.();
+      this.log(`服务群自动发现已启动：每 ${this.discovery.intervalMs}ms 扫描一次客户群列表`);
+    }
     this.log(
       `已启动：环境=${this.config.environment}，轮询 ${this.config.pollIntervalMs}ms，` +
         `队列 ${this.config.tickIntervalMs}ms`,
@@ -209,8 +226,10 @@ export class WecomRuntime {
     this.running = false;
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.tickTimer) clearInterval(this.tickTimer);
+    if (this.discoveryTimer) clearInterval(this.discoveryTimer);
     this.pollTimer = undefined;
     this.tickTimer = undefined;
+    this.discoveryTimer = undefined;
     this.persistProgress(true);
     await this.store.flush();
   }

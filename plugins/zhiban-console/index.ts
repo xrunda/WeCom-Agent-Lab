@@ -240,6 +240,17 @@ interface WecomAdminLike {
     status: string;
     consecutiveMisroutes: number;
   } | undefined;
+  /** #106：控制台「开始服务 / 移出服务」动态调整存档白名单 */
+  activateServiceGroup?(input: {
+    roomId: string;
+    name?: string;
+    actor?: string;
+  }): { roomId: string; name: string; allowed: boolean };
+  deactivateServiceGroup?(
+    roomId: string,
+    actor?: string,
+  ): { roomId: string; allowed: boolean };
+  listServiceGroupRooms?(): string[];
 }
 
 /** zhiban-memory 的最小控制台读接口 */
@@ -829,6 +840,48 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
 
     // ---------- 服务群（#60 上线：状态入口） ----------
 
+    /**
+     * #106：把患者域的服务状态同步到企微存档白名单。
+     * 服务中 / 仅采集 → 允许拉取；待确认 / 停用 → 移出白名单。
+     * 企微域没加载（或旧版本没有该方法）时跳过，保持原行为。
+     */
+    const syncServiceGroup = (
+      next: GroupServiceStatus,
+      before: PatientGroupViewLike,
+      after: PatientGroupViewLike,
+      actorId: string,
+    ): void => {
+      const admin = ctx.get<WecomAdminLike>('zhibanWecomAdmin');
+      if (!admin) return;
+      const active = next === 'serving' || next === 'collect_only';
+      if (active && !admin.activateServiceGroup) return;
+      if (!active && !admin.deactivateServiceGroup) return;
+
+      try {
+        if (active) {
+          admin.activateServiceGroup!({
+            roomId: after.roomId,
+            name: after.name,
+            actor: actorId,
+          });
+        } else {
+          admin.deactivateServiceGroup!(after.roomId, actorId);
+        }
+      } catch {
+        // 白名单没改成功时回滚服务状态，避免界面显示「服务中」但存档不拉取
+        if (before.status !== after.status) {
+          try {
+            ctx.get<PatientApiLike>('zhibanPatient')?.updateGroup?.(after.id, {
+              status: before.status,
+            });
+          } catch {
+            // 回滚也失败时保留原错误，由下方统一返回
+          }
+        }
+        throw new ConsoleError('UPSTREAM_UNAVAILABLE', '企微服务群同步失败，服务状态未变更');
+      }
+    };
+
     router.add(
       'GET',
       '/groups',
@@ -905,6 +958,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         if (Object.keys(patch).length === 0) {
           throw new ConsoleError('VALIDATION_FAILED', '至少提供一个可更新字段');
         }
+        const before = patientApi.listGroups?.().find((item) => item.id === rc.params.id!);
         let group: PatientGroupViewLike;
         try {
           group = patientApi.updateGroup(rc.params.id!, patch);
@@ -920,6 +974,11 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             throw new ConsoleError('VALIDATION_FAILED', '群名不能为空');
           }
           throw error;
+        }
+        // #106：服务状态决定存档白名单。开始服务后无需重启即可接收新消息；
+        // 移出服务后停止拉取。企微域未加载（如仅患者域的测试）时跳过。
+        if (patch.status !== undefined && before) {
+          await syncServiceGroup(patch.status, before, group, actor.account.id);
         }
         store.appendAudit(
           auditRecord(config.tenantId, actor, 'group.update', 'group', group.id, {

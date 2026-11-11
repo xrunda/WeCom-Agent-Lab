@@ -24,6 +24,12 @@
 `zhiban-wecom` 的 `serviceGroupRoomIds` 只包含本环境允许处理的群，
 非白名单群的记录只计数、不落正文、不下载图片、不生成草稿。
 
+`serviceGroupRoomIds` 现在是**初始种子**：控制台「开始服务 / 移出服务」会在运行时增删白名单，
+并持久化到本环境 `DSH_HOME` 下的 `zhiban_wecom` 元数据 `service_roster`（两套环境各自独立），
+不需要重启。客户群自动发现（#106）也按环境配置群主过滤：
+`serviceGroupDiscovery.ownerUserIds` 只登记本环境顾问名下的群，
+否则共用 corpid 时 demo 会把 dev 的客户群也登记进自己的控制台。
+
 ## 2. 凭据归属与存放
 
 | 凭据 | 谁能持有 | 存放位置 |
@@ -57,8 +63,14 @@
           binaryPath: /opt/zhiban/bin/archive_dump
           privateKeyPath: /etc/zhiban/private_key.pem
           configPath: /etc/zhiban/config.txt
-        serviceGroupRoomIds:
+        serviceGroupRoomIds:            # 初始种子；控制台改状态后以 service_roster 为准
           - <本环境允许处理的群 roomid>
+        serviceGroupDiscovery:          # #106 客户群自动发现
+          enabled: true
+          intervalMs: 300000            # 5 分钟；最小 60000
+          maxPerScan: 50
+          ownerUserIds:                 # 必填：本环境群主的企微 userid，隔离另一个环境
+            - <本环境顾问 userid>
         advisorId: <本环境顾问 userid>
         advisorName: <本环境顾问姓名>
         advisorChatId: <本环境顾问 userid>
@@ -109,7 +121,9 @@ DSH_HOME=~/.dsh-dev ZHIBAN_ENV=dev \
 dsh --profile zhiban-dev --dump-config | grep -A 20 zhiban-wecom
 ```
 
-确认 `environment`、`botId`、`serviceGroupRoomIds` 都属于 dev；**不要**把 dev 进程指向演示群。
+确认 `environment`、`botId`、`serviceGroupRoomIds`、`serviceGroupDiscovery.ownerUserIds`
+都属于 dev；**不要**把 dev 进程指向演示群。`ownerUserIds` 留空会退化为「发现全部企业客户群」，
+共用 corpid 时两个环境会互相看到对方的群，因此两套 profile 都必须配置。
 
 ## 6. 验收对照
 
@@ -118,6 +132,7 @@ dsh --profile zhiban-dev --dump-config | grep -A 20 zhiban-wecom
 | 用 demo 凭据启动 dev 实例被拒绝 | ✅ 单测 | `tests/wecom-plugin-config.test.ts`：`ENV_BOT_CONFLICT` |
 | `ZHIBAN_ENV` 与配置不一致被拒绝 | ✅ 单测 | `ENV_MISMATCH` |
 | 群白名单隔离 | ✅ 单测 | `tests/wecom-archive-media.test.ts`：非服务群不落正文、不下载图片 |
+| 自动发现按群主隔离 | ✅ 单测 | `tests/wecom-group-discovery.test.ts`：只登记 `ownerUserIds` 内的群 |
 | dev / demo 同时运行 30 分钟不断线 | ⏳ 待真机 | 需要两个真实机器人 + 两套 profile |
 | dev 群消息只进 dev、演示群只进 demo | ⏳ 待真机 | 需要企微后台建群、发消息 |
 | 踢掉 demo 长连接后 1 分钟内告警 | ⏳ 待真机 | 插件已发 `BOT_DISCONNECTED`；运维通知通道待接 |

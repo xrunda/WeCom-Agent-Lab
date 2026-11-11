@@ -589,8 +589,13 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 > **实现状态（#60 上线）**：`GET /groups`、`PATCH /groups/{id}`、`GET /groups/{id}/members` 已实现并有单测覆盖；
 > `GET /groups/{id}`、绑定（`POST /groups/{id}/bindings`）与成员角色标注（`PATCH .../members/{id}`）仍为契约待实现。
-> 控制台前端群页面暂未接入真实数据。
+> 控制台前端群页面已接入真实数据。
 > 运维脚本 `npm run group:status` 基于本节接口，用于把演示群从 `pending` 改为 `serving`。
+>
+> **自动发现（#106）**：`zhiban-wecom` 每 5 分钟（`serviceGroupDiscovery.intervalMs`，可配置关闭或改间隔）
+> 调客户联系 API `externalcontact/groupchat/list`，只发现企业创建的客户群；配置
+> `serviceGroupDiscovery.ownerUserIds` 时只登记本环境群主名下的群。新群自动登记为
+> `pending` 候选并出现在 `GET /groups?status=pending`。候选不拉存档消息、不生成草稿。
 
 ### `GET /groups`
 
@@ -612,9 +617,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ### `PATCH /groups/{id}`
 
-角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `manual`，此后不再被企微群名同步覆盖）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。状态变更下一轮存档轮询生效。
+角色：admin / supervisor（`patient.write`）。请求（至少一个字段）：`name`（同时把 `nameSource` 置为 `manual`，此后不再被企微群名同步覆盖）、`status`（`pending` / `serving` / `collect_only` / `disabled`）、`advisorId`。响应 `200`：group。
 
-错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
+状态与存档白名单（#106）：
+
+- `serving` / `collect_only` → 该群加入存档拉取白名单（`zhibanWecomAdmin.activateServiceGroup`）；
+- `pending` / `disabled` → 移出白名单（`deactivateServiceGroup`）；
+- 状态变更立即写入内存白名单，**下一轮存档轮询（默认 5 秒）即生效，无需重启**；
+- 企微域未加载时（如仅患者域的测试装配）跳过同步，只改患者域状态。
+
+错误：`404 NOT_FOUND`（群不存在）、`422 VALIDATION_FAILED`（字段为空、状态非法、顾问不存在）、`502 UPSTREAM_UNAVAILABLE`（白名单同步失败，状态已回滚为变更前值，提示「企微服务群同步失败，服务状态未变更」）。多字段一起提交时先整体校验，任一字段不合法则不写入任何字段。成功后写审计 `group.update`，记录本次修改的字段名，不记录字段值。
 
 ### `POST /groups/{id}/bindings`
 

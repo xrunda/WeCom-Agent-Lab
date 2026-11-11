@@ -81,6 +81,15 @@ test('正常返回时按 userid 映射群昵称，token 与群结果都缓存', 
   const room = await info.roomInfo('wr_group_1');
   assert.equal(room?.name, '客户-张女士');
   assert.equal(room?.names.get('wm_zhang'), NICKNAME);
+  // type=2 是外部联系人；发现任务用它预填候选群成员
+  assert.deepEqual(
+    room?.members?.map((member) => [member.userId, member.isExternal]),
+    [
+      ['wm_zhang', true],
+      ['LiGuang', false],
+      ['wm_nickless', true],
+    ],
+  );
 
   // 缓存命中：不再打接口，token 也只取一次
   await info.memberNames('wr_group_1');
@@ -170,4 +179,65 @@ test('拿不到 access_token 时静默回退，错误信息不含 Secret，且�
   clock.advance(10 * 60_000 + 1);
   assert.equal(await info.memberNames('wr_group_1'), undefined);
   assert.equal(tokenCalls, 2);
+});
+
+test('客户群列表按 cursor 翻页并去重，只返回定位信息', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const pages = [
+    {
+      errcode: 0,
+      group_chat_list: [
+        { chat_id: 'wrA', owner: 'LiGuang', status: 0, create_time: 1 },
+        { chat_id: 'wrB', owner: 'LiGuang', status: 0, create_time: 2 },
+      ],
+      next_cursor: 'cursor_2',
+    },
+    {
+      errcode: 0,
+      group_chat_list: [
+        { chat_id: 'wrB', owner: 'LiGuang', status: 0, create_time: 2 },
+        { chat_id: 'wrC', status: 0 },
+      ],
+      next_cursor: '',
+    },
+  ];
+  const listBodies: unknown[] = [];
+  let listCalls = 0;
+  const fetchImpl = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (String(input).includes('/gettoken')) {
+      return jsonResponse({ errcode: 0, access_token: 'token_test', expires_in: 7200 });
+    }
+    assert.ok(String(input).includes('/groupchat/list'));
+    listBodies.push(JSON.parse(String(init?.body ?? '{}')));
+    const page = pages[listCalls] ?? { errcode: 0, group_chat_list: [] };
+    listCalls += 1;
+    return jsonResponse(page);
+  }) as typeof fetch;
+  const info = client(fetchImpl, clock);
+
+  const groups = await info.listCustomerGroups();
+
+  assert.deepEqual(
+    groups?.map((group) => group.chatId),
+    ['wrA', 'wrB', 'wrC'],
+  );
+  assert.equal(listCalls, 2);
+  assert.deepEqual(listBodies[0], { status_filter: 0, limit: 100 });
+  assert.deepEqual(listBodies[1], { status_filter: 0, limit: 100, cursor: 'cursor_2' });
+});
+
+test('客户群列表失败返回 undefined，只打 errcode', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const logs: string[] = [];
+  const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+    if (String(input).includes('/gettoken')) {
+      return jsonResponse({ errcode: 0, access_token: 'token_test', expires_in: 7200 });
+    }
+    return jsonResponse({ errcode: 60020, errmsg: 'not allow to access from your ip' });
+  }) as typeof fetch;
+  const info = client(fetchImpl, clock, { logger: (line) => logs.push(line) });
+
+  assert.equal(await info.listCustomerGroups(), undefined);
+  assert.ok(logs.some((line) => line.includes('60020')));
+  assert.ok(!logs.join('\n').includes(CONTACT_SECRET));
 });
