@@ -204,6 +204,18 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
           <Tabs
             items={[
               {
+                key: 'profile',
+                label: '基本信息',
+                children: (
+                  <ProfileTab
+                    detail={detail}
+                    term={term}
+                    canWrite={can('patient.write')}
+                    onSaved={reload}
+                  />
+                ),
+              },
+              {
                 key: 'memories',
                 label: '记忆',
                 children: (
@@ -231,18 +243,6 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
                 key: 'diet',
                 label: '饮食记录',
                 children: <DietTab patientId={detail.patient.id} />,
-              },
-              {
-                key: 'profile',
-                label: '基本信息',
-                children: (
-                  <ProfileTab
-                    detail={detail}
-                    term={term}
-                    canWrite={can('patient.write')}
-                    onSaved={reload}
-                  />
-                ),
               },
               {
                 key: 'health',
