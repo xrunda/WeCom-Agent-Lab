@@ -119,7 +119,10 @@ export class AlertService {
       statusRaw && STATUSES.has(statusRaw as AlertStatus) ? (statusRaw as AlertStatus) : 'open';
     const at = asNumber(event.createdAt) ?? asNumber(event.at) ?? this.now();
     const message = asString(event.message) ?? '';
-    // 防御：事件里若混入正文，只保留前 200 字作为详情（调用方本就不该传）
+    const sourceRaw = asString(event.source);
+    const source = sourceRaw === 'staff' || sourceRaw === 'draft' ? sourceRaw : undefined;
+    // 员工发言告警的详情包含发言人、群名、命中规则与原文摘录，放宽到 500 字；
+    // 调用方负责截断，日志与事件仍不带正文。
     const record: AlertRecord = {
       id: sourceId && sourceId.startsWith('alt_') ? sourceId : this.store.newId('alt'),
       tenantId: this.tenantId,
@@ -127,11 +130,12 @@ export class AlertService {
       severity,
       status,
       title: asString(event.title) ?? meta.title,
-      message: message.slice(0, 200),
+      message: message.slice(0, 500),
       draftId: asString(event.draftId) ?? null,
       patientId: asString(event.patientId) ?? null,
       advisorId: asString(event.advisorId) ?? null,
       groupId: asString(event.groupId) ?? null,
+      ...(source ? { source } : {}),
       note: asString(event.note) ?? null,
       resolvedBy: asString(event.resolvedBy) ?? null,
       resolvedAt: asNumber(event.resolvedAt) ?? null,

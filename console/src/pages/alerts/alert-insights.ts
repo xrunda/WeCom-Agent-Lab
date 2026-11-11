@@ -47,8 +47,18 @@ const REASONS: Record<AlertKind, string> = {
 };
 
 /** 告警机制说明；具体触发细节仍以 message 为准 */
-export function alertReason(kind: AlertKind): string {
+export function alertReason(kind: AlertKind, source?: Alert['source']): string {
+  if (kind === 'redline' && source === 'staff') {
+    return '员工在企业微信服务群里的发言命中了健康红线规则（如诊断、用药或疗效承诺），需要人工复核。';
+  }
   return REASONS[kind] ?? '系统根据服务流状态自动生成该告警。';
+}
+
+/** 告警来源标签：员工群发言 / AI 草稿 / 系统事件 */
+export function alertSourceLabel(alert: Pick<Alert, 'source' | 'draftId'>): string {
+  if (alert.source === 'staff') return '员工群发言';
+  if (alert.source === 'draft' || alert.draftId) return 'AI 草稿';
+  return '系统事件';
 }
 
 const GUIDANCE: Record<AlertKind, string> = {
@@ -68,6 +78,9 @@ const GUIDANCE: Record<AlertKind, string> = {
 };
 
 /** 未处理时的建议动作，帮助处理人知道下一步做什么 */
-export function alertGuidance(kind: AlertKind): string {
+export function alertGuidance(kind: AlertKind, source?: Alert['source']): string {
+  if (kind === 'redline' && source === 'staff') {
+    return '确认员工发言是否需要撤回或更正；客户已经看到的话，尽快在群里更正，并视情况与主管沟通。处理后填写备注并标记已处理。';
+  }
   return GUIDANCE[kind] ?? '核对关联草稿与服务流记录，处理完成后填写备注。';
 }

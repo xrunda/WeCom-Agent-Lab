@@ -44,7 +44,7 @@ import {
 } from '../../mock/alerts.ts';
 import { listPatients } from '../../mock/patients.ts';
 import { formatDateTime, formatRelative } from '../../utils/format.ts';
-import { alertGuidance, alertReason, relatedFlowTarget } from './alert-insights.ts';
+import { alertGuidance, alertReason, alertSourceLabel, relatedFlowTarget } from './alert-insights.ts';
 import './alerts.css';
 
 const { Text } = Typography;
@@ -434,7 +434,7 @@ export default function AlertsPage() {
                     <Space direction="vertical" size={4}>
                       <Text>{alert.message || alert.title}</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        {alertReason(alert.kind)}
+                        {alertReason(alert.kind, alert.source)}
                       </Text>
                     </Space>
                   }
@@ -444,6 +444,7 @@ export default function AlertsPage() {
                   <Descriptions.Item label="类型">
                     {ALERT_KIND_LABELS[alert.kind] ?? alert.kind}
                   </Descriptions.Item>
+                  <Descriptions.Item label="来源">{alertSourceLabel(alert)}</Descriptions.Item>
                   <Descriptions.Item label="触发时间">
                     {formatDateTime(alert.createdAt)}
                   </Descriptions.Item>
@@ -495,7 +496,7 @@ export default function AlertsPage() {
                     type="info"
                     showIcon
                     message="怎么处理"
-                    description={alertGuidance(alert.kind)}
+                    description={alertGuidance(alert.kind, alert.source)}
                   />
                 )}
 

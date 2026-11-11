@@ -224,6 +224,8 @@ export interface AlertRecord {
   patientId: string | null;
   advisorId: string | null;
   groupId: string | null;
+  /** 告警来源：员工群发言 / AI 草稿；历史记录可能为空 */
+  source?: 'draft' | 'staff';
   note: string | null;
   resolvedBy: string | null;
   resolvedAt: number | null;
