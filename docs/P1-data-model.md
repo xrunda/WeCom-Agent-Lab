@@ -66,12 +66,13 @@ P1 的业务数据围绕五个东西组织：**租户（tenant）→ 服务群�
 | 标记 | 含义 | 进统计 | 界面表现 |
 |---|---|---|---|
 | `sandbox: true` | 体验中心模拟渠道产生的数据，渠道是假的，Agent 是真的 | **不进**工作台、报表、告警角标 | 「体验沙盒」标识；可一键重置 |
-| `demo: true` | 真实链路跑出来的演示患者数据（虚构人物、真实发送） | **进**统计 | 「演示患者」标签 |
-| 都为 false | 真实客户数据 | 进统计 | 无标记 |
+| `demo: true` | 部署来源标记（历史约定，早期表示「演示患者」） | **进**统计 | **不展示**；控制台已去掉「演示环境 / 演示患者」标签 |
+| 都为 false | 未带标记的记录 | 进统计 | 无标记 |
 
 - `sandbox` 只出现在 draft、delivery、verification、alert、memory、care_plan、meal_log、agent_action、audit_event 上。
 - `demo` 只出现在 patient、group 上；由患者/群继承到其产出的 draft。
 - 任何列表接口默认排除 `sandbox: true`，除非显式 `sandbox=true`；`demo` 默认包含。
+- **已知现状**：部署配置延续了早期的 `demo: true`，真实客户群与患者也可能带该标记；它不表示数据是虚构的，也不再影响界面。
 
 ### 1.5 软删除
 
@@ -223,7 +224,7 @@ media：文件在磁盘，元数据随消息保存
 | `externalMemberCount` | number | 否 | 外部成员数（`wm` 开头） |
 | `consent` | object | 否 | `{ agreed, unknown, disagreed }`，该群外部成员的存档同意统计 |
 | `lastActiveAt` | number | 是 | 最近一条存档消息时间 |
-| `demo` | boolean | 否 | 演示群 |
+| `demo` | boolean | 否 | 部署来源标记（历史约定）；控制台不展示，不代表数据虚构 |
 | `createdAt` | number | 否 | |
 | `updatedAt` | number | 否 | |
 | `deletedAt` | number | 是 | 默认不展示，保留排障 |
@@ -297,7 +298,7 @@ media：文件在磁盘，元数据随消息保存
 | `consent` | enum | 否 | `agreed` / `unknown` / `disagreed`；未同意不自动服务 |
 | `consentCheckedAt` | number | 是 | |
 | `status` | enum | 否 | `serving` / `paused` / `archived` |
-| `demo` | boolean | 否 | 演示患者 |
+| `demo` | boolean | 否 | 部署来源标记（历史约定）；控制台不展示，不代表数据虚构 |
 | `accompaniedSince` | number | 否 | 开始陪伴时间（首次绑定服务群） |
 | `lastActiveAt` | number | 是 | 最近一条双向消息时间 |
 | `memoryCount` | number | 否 | 派生：有效记忆条数 |
@@ -467,7 +468,7 @@ media：文件在磁盘，元数据随消息保存
 | `citedKnowledgeIds` | array<string> | 否 | Agent 声明引用的知识 |
 | `fallback` | boolean | 否 | 是否为模板草稿（模型超时/报错/未调工具） |
 | `sandbox` | boolean | 否 | |
-| `demo` | boolean | 否 | 继承患者 |
+| `demo` | boolean | 否 | 继承患者/群的部署来源标记；控制台不展示 |
 | `cardTaskId` | string | 是 | 企微模板卡片 task_id（F12：必须唯一） |
 | `pushAttempts` | number | 否 | |
 | `verifyAttempts` | number | 否 | |

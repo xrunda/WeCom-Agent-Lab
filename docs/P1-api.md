@@ -122,7 +122,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ### 1.7 `sandbox` 与 `demo`
 
 - 列表默认 `sandbox=false`；沙盒页面显式传 `sandbox=true`。
-- `demo=true` 的数据正常出现在所有列表与统计中，仅用于界面打标签。
+- `demo` 是部署来源标记（历史约定），正常出现在所有列表与统计中；**控制台不再展示「演示环境 / 演示患者」标签**，该字段不影响数据真实性。
 - 沙盒数据不计入工作台、报表、告警角标（服务端聚合时过滤）。
 
 ### 1.8 幂等与并发
@@ -631,7 +631,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 }
 ```
 
-`mediaKinds`：`image` / `meal` / `report` / `medicine` / `voice` / `file` / `video`；无图时 `[]`。`file` / `video` 在前端显示「暂不支持自动草稿」；`voice` 经腾讯云一句话识别转写成功后按文本处理，转写失败的消息不进入服务流。
+`mediaKinds`：`image` / `meal` / `report` / `medicine` / `other`（`image` 为未分类兜底）；无图时 `[]`。语音不计入 `mediaKinds`：经腾讯云一句话识别转写成功后按文本处理，转写失败的消息不进入服务流；文件、视频不进入草稿链路，前端对这三类保留「暂不支持自动草稿」提示。
 
 ### `GET /service-flow`
 
@@ -1393,7 +1393,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 系统设置 · 数据与安全 | 证据 / 记录导出 | `GET /drafts/{id}/evidence.pdf`、`GET /patients/{id}/records.pdf` | A |
 | 系统设置 · 开通正式服务 | 清单、计算器、申请 | `GET /settings/onboarding`、`POST /settings/onboarding/requests` | A |
 
-**缺口检查**：P1-scope §4 的所有 A 档区块都有接口；B 档全部标注 `sample`；C 档不需要接口。文件 / 视频只返回 `mediaKinds` 标记，不提供内容接口（P1 不做）；语音经 ASR 转写后以文本进入服务流。
+**缺口检查**：P1-scope §4 的所有 A 档区块都有接口；B 档全部标注 `sample`；C 档不需要接口。文件 / 视频不进入草稿链路（前端保留「暂不支持自动草稿」提示）；语音经 ASR 转写后以文本进入服务流。
 
 ---
 
