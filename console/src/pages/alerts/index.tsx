@@ -1,4 +1,4 @@
-import { ExportOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { ExportOutlined, EyeOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,
@@ -77,7 +77,7 @@ function AlertActions({
   return (
     <Space wrap size={4}>
       {includeView && (
-        <Button type="link" size="small" onClick={() => onView?.(alert.id)}>
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onView?.(alert.id)}>
           查看
         </Button>
       )}

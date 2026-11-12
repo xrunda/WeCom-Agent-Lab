@@ -1,4 +1,10 @@
-import { LockOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  LockOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,
@@ -265,7 +271,12 @@ export default function RulesPage() {
             width: 112,
             render: (_: unknown, rule: RiskRule) => (
               <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(rule)}>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => openEdit(rule)}
+                >
                   编辑
                 </Button>
                 <Popconfirm
@@ -275,7 +286,7 @@ export default function RulesPage() {
                   okButtonProps={{ danger: true }}
                   onConfirm={() => void remove(rule)}
                 >
-                  <Button type="link" size="small" danger>
+                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                     删除
                   </Button>
                 </Popconfirm>

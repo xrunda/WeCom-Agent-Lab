@@ -1,4 +1,4 @@
-import { FilePdfOutlined } from '@ant-design/icons';
+import { EditOutlined, FilePdfOutlined } from '@ant-design/icons';
 import {
   Alert,
   App,
@@ -209,7 +209,7 @@ export function AgentDrawer({
                 该 Agent 对应{term}：<Text strong>{detail.patient.displayName}</Text>（顾问已确认）
               </Text>
               {can('patient.write') ? (
-                <Button type="link" size="small" onClick={() => setIdentityOpen(true)}>
+                <Button size="small" icon={<EditOutlined />} onClick={() => setIdentityOpen(true)}>
                   修改{term}
                 </Button>
               ) : null}

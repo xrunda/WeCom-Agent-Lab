@@ -1,3 +1,4 @@
+import { EditOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,
@@ -423,7 +424,13 @@ export default function GroupsPage() {
               </Button>
             </Popconfirm>
           ) : null}
-          <Button type="link" size="small" disabled={!canWrite} onClick={() => openEdit(group)}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            disabled={!canWrite}
+            onClick={() => openEdit(group)}
+          >
             编辑
           </Button>
         </Space>

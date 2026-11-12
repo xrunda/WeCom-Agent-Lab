@@ -1,4 +1,10 @@
-import { CheckCircleFilled, KeyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  CheckCircleFilled,
+  DeleteOutlined,
+  KeyOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,
@@ -259,7 +265,7 @@ export default function AccountsSettingsPage() {
           </Button>
           {isSelf(account) ? (
             <Tooltip title="不能删除自己的账号">
-              <Button type="link" size="small" danger disabled>
+              <Button type="link" size="small" danger disabled icon={<DeleteOutlined />}>
                 删除
               </Button>
             </Tooltip>
@@ -272,7 +278,7 @@ export default function AccountsSettingsPage() {
               okButtonProps={{ danger: true }}
               onConfirm={() => void remove(account)}
             >
-              <Button type="link" size="small" danger>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                 删除
               </Button>
             </Popconfirm>

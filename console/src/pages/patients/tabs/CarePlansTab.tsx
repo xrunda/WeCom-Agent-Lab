@@ -1,4 +1,4 @@
-import { ClockCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, CloseCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   App,
   Button,
@@ -145,7 +145,7 @@ export function CarePlansTab({ patientId, canWrite, onChanged }: CarePlansTabPro
                         okButtonProps={{ danger: true }}
                         onConfirm={() => void cancel(plan)}
                       >
-                        <Button type="link" size="small" danger>
+                        <Button type="link" size="small" danger icon={<CloseCircleOutlined />}>
                           取消
                         </Button>
                       </Popconfirm>,

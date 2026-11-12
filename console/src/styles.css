@@ -48,6 +48,20 @@ a {
   text-decoration: none;
 }
 
+/* ---------- 按钮 ---------- */
+/* AntD 的 link 按钮默认和纯文本几乎一样；悬停加下划线，明确“这里能点” */
+.ant-btn.ant-btn-link:not(:disabled):hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 键盘聚焦时给可见焦点环，不只靠颜色变化 */
+.ant-btn.ant-btn-link:focus-visible {
+  outline: 2px solid var(--zb-focus);
+  outline-offset: 2px;
+  border-radius: var(--zb-radius-sm);
+}
+
 .app-loading {
   min-height: 100vh;
   display: grid;

@@ -1,4 +1,4 @@
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   App,
@@ -244,7 +244,7 @@ export default function AuditSettingsPage() {
       key: 'actions',
       width: 70,
       render: (_, event) => (
-        <Button type="link" size="small" onClick={() => setDetail(event)}>
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetail(event)}>
           查看
         </Button>
       ),
