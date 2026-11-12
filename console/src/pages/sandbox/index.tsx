@@ -28,6 +28,7 @@ import {
   SANDBOX_GUIDE_STEPS,
   SANDBOX_OUTCOME_LABELS,
   SANDBOX_PRESET_IMAGES,
+  SANDBOX_SAMPLE_IMAGES,
   applySandboxAction,
   createSandboxSession,
   getSandboxState,
@@ -133,7 +134,18 @@ export default function SandboxPage() {
     if (!state) return;
     setSending(true);
     try {
-      await sendSandboxMessage(payload);
+      let mediaId = payload.mediaId;
+      const sampleSrc =
+        payload.kind === 'image' && mediaId ? SANDBOX_SAMPLE_IMAGES[mediaId] : undefined;
+      if (sampleSrc) {
+        // 预置示例图是前端静态资源：先上传换成真实 mediaId，后端和模型才能读到文件
+        const blob = await (await fetch(sampleSrc)).blob();
+        const uploaded = await uploadSandboxFile(
+          new File([blob], `${mediaId}.jpg`, { type: blob.type || 'image/jpeg' }),
+        );
+        mediaId = uploaded.mediaId;
+      }
+      await sendSandboxMessage({ ...payload, mediaId });
       await refresh();
       if (payload.kind === 'text') setInput('');
     } catch (error) {
@@ -350,7 +362,13 @@ export default function SandboxPage() {
                   disabled={sending}
                   onClick={() => void send({ kind: 'image', mediaId: sample.mediaId })}
                 >
-                  <img src={mediaUrl(sample.mediaId, 'meal', sample.label)} alt={sample.label} />
+                  <img
+                    src={
+                      SANDBOX_SAMPLE_IMAGES[sample.mediaId] ??
+                      mediaUrl(sample.mediaId, 'meal', sample.label)
+                    }
+                    alt={sample.label}
+                  />
                   <span>{sample.label}</span>
                 </button>
               ))}
