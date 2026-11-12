@@ -292,9 +292,18 @@ export async function createSandboxSession(): Promise<SandboxSessionResponse> {
 
 export async function getSandboxState(since?: number): Promise<SandboxState> {
   if (!isMockMode) {
-    return apiRequest<SandboxState>(
+    const state = await apiRequest<SandboxState>(
       `/sandbox/state${typeof since === 'number' ? `?since=${since}` : ''}`,
     );
+    // 真实接口只返回 mediaId，图片地址按鉴权路由补出来
+    return {
+      ...state,
+      messages: state.messages.map((message) =>
+        message.kind === 'image' && message.mediaId && !message.imageUrl
+          ? { ...message, imageUrl: mediaUrl(message.mediaId, 'meal') }
+          : message,
+      ),
+    };
   }
   const state = ensureState();
   if (typeof since !== 'number') return state;

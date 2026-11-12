@@ -533,6 +533,13 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         };
         return port;
       },
+      // 记忆事件只广播定位字段、不带正文；沙盒面板展示时按 id 回查
+      memoryContent: (memoryId) => {
+        const record = ctx.get<MemoryApiLike>('zhibanMemory')?.get?.(memoryId) as
+          | { content?: unknown }
+          | undefined;
+        return typeof record?.content === 'string' ? record.content : undefined;
+      },
     });
     // 患者运行时通过这个服务把沙盒草稿交回来（而不是进入 C2 队列）
     ctx.provide('zhibanSandboxSink', sandbox);

@@ -67,7 +67,13 @@ function jpeg(width: number, height: number): Buffer {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { dailyLimit?: number; withAgent?: boolean } = {}) {
+function setup(
+  options: {
+    dailyLimit?: number;
+    withAgent?: boolean;
+    memoryContent?: (memoryId: string) => string | undefined;
+  } = {},
+) {
   let now = Date.UTC(2026, 0, 15, 4, 0, 0);
   const backend = new MemoryConsoleBackend();
   const store = new ConsoleStore({ backend, now: () => now });
@@ -82,6 +88,7 @@ function setup(options: { dailyLimit?: number; withAgent?: boolean } = {}) {
     emit: (type, data, sandbox) => events.push({ type, data, sandbox }),
     agent: options.withAgent === false ? undefined : () => agent,
     dailyLimit: options.dailyLimit ?? 100,
+    memoryContent: options.memoryContent,
     mediaWriter: {
       async write(mediaId, extension, data) {
         writes.push({ mediaId, extension, size: data.length });
@@ -369,6 +376,23 @@ test('只接收沙盒患者的 memory.created，内容截断到 200 字', async 
   assert.equal(memories[0]!.content, '对海鲜过敏');
   assert.equal(memories[1]!.content.length, 200);
   assert.equal(events.some((event) => event.type === 'sandbox.memory' && event.sandbox === true), true);
+});
+
+test('记忆事件不带正文时，state 按 memoryId 回查内容', async () => {
+  const { service } = setup({
+    memoryContent: (memoryId) => (memoryId === 'mem_1' ? '对海鲜过敏' : undefined),
+  });
+  await service.ensureSession(ACCOUNT);
+
+  service.ingestMemoryEvent('memory.created', {
+    patientId: 'pat_sandbox_acc_test',
+    memoryId: 'mem_1',
+    category: 'dietary_taboo',
+  });
+
+  const state = service.state(ACCOUNT);
+  assert.equal(state.memories.length, 1);
+  assert.equal(state.memories[0]!.content, '对海鲜过敏');
 });
 
 test('上传图片：校验类型与大小、解析尺寸、按账号隔离读取', async () => {
