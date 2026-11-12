@@ -33,6 +33,7 @@ import {
   getSandboxState,
   resetSandboxSession,
   sendSandboxMessage,
+  subscribeSandbox,
   uploadSandboxFile,
   type SandboxAction,
   type SandboxDraft,
@@ -106,6 +107,17 @@ export default function SandboxPage() {
       active = false;
     };
   }, [message]);
+
+  // 真实模式下 Agent 回合是异步的：发送接口返回 202，草稿稍后经 SSE 到达。
+  // 不订阅的话页面只会在发送后刷新一次，看不到随后生成的草稿。
+  useEffect(() => {
+    const unsubscribe = subscribeSandbox(() => {
+      void refresh().catch(() => {
+        // 忽略单次刷新失败；下一次事件会再拉
+      });
+    });
+    return unsubscribe;
+  }, [refresh]);
 
   const draft = state?.drafts.at(-1) ?? null;
   const verification = state?.verification ?? null;
