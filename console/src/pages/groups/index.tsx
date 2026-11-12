@@ -300,11 +300,6 @@ export default function GroupsPage() {
       render: (value: string, group) => (
         <Space size={6} wrap>
           <Text strong={group.status === 'pending'}>{value}</Text>
-          {group.demo ? (
-            <Tag bordered={false} color="purple">
-              演示环境
-            </Tag>
-          ) : null}
           {group.nameSource === 'roomid' ? <Tag bordered={false}>未命名</Tag> : null}
         </Space>
       ),

@@ -1,6 +1,6 @@
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { App, Button, Col, Empty, Input, Row, Select, Space, Spin, Tag, Typography } from 'antd';
+import { App, Button, Col, Empty, Input, Row, Select, Space, Spin, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -139,12 +139,6 @@ export default function PatientsPage() {
             ? '记忆与计划支持编辑，所有变更都会写入审计日志。'
             : '当前角色为只读，记忆与计划不可编辑。'}
           {!isMockMode ? ' 列表与详情来自企微会话存档，不是虚构样例。' : null}
-          {patients.some((item) => item.demo) ? (
-            <span>
-              {' '}
-              标记 <Tag bordered={false}>演示环境</Tag> 的记录产生于演示环境，请勿作为生产数据。
-            </span>
-          ) : null}
         </Text>
       </Space>
 
