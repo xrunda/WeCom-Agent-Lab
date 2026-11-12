@@ -4,13 +4,18 @@ Vite + React 18 + TypeScript + Ant Design 5 + ProComponents 的控制台骨架�
 
 ## 本地运行
 
+仓库根目录的 `./start.sh` **默认以真实接口启动**（`/zhiban/api` 代理到 `127.0.0.1:3080`）；只看示例数据用 `./start.sh mock`。
+
+也可以直接在 console 目录启动：
+
 ```bash
 cd console
 npm install
-npm run dev        # http://127.0.0.1:5173，/zhiban/api 代理到 127.0.0.1:3080
+npm run dev        # mock 模式，http://127.0.0.1:5173
+npm run dev:real   # 真实接口模式，代理到 127.0.0.1:3080
 ```
 
-mock 模式默认开启，演示账号：
+`npm run dev` 是 mock 模式，演示账号：
 
 | 用户名 | 密码 | 角色 |
 |---|---|---|

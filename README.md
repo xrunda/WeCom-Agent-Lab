@@ -33,8 +33,9 @@ P1 把 C2 闭环做成可演示的产品：每位患者一个专属健康 Agent�
 ```bash
 npm test                    # 后端：node --test
 cd console && npm install && npm test   # 控制台：Vitest + Testing Library
-./start.sh                  # 控制台 mock 模式（示例数据）
-./start.sh real             # 控制台连真实接口（默认代理 127.0.0.1:3080）
+./start.sh                  # 控制台连真实接口（默认，代理 127.0.0.1:3080）
+./start.sh mock             # 控制台 mock 模式（示例数据，无需后端）
+./start.sh http://127.0.0.1:18081   # 指定后端地址（如 VM 隧道）
 ```
 
 更细的模块说明：患者 Agent [docs/P1-patient-agent.md](./docs/P1-patient-agent.md) · 红线与知识 [docs/P1-guard-knowledge.md](./docs/P1-guard-knowledge.md) · 记忆与计划 [docs/P1-memory-care.md](./docs/P1-memory-care.md) · 控制台后端 [docs/P1-console-backend.md](./docs/P1-console-backend.md)。
@@ -67,7 +68,7 @@ WeCom-Agent-Lab/
 ├── PRD.md
 ├── README.md
 ├── ISSUES.md
-├── start.sh                     # 本地一键启动控制台（mock / real）
+├── start.sh                     # 本地一键启动控制台（默认真实接口，可选 mock）
 ├── docs/                        # P1 产品与实现文档 + M1/C2 历史文档
 ├── config/.env.example          # 密钥占位，不提交真实值
 ├── evidence/                    # 证据索引（raw/ 已忽略）
