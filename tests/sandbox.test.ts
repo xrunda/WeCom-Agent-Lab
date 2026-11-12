@@ -127,6 +127,12 @@ test('ensureSession 每个账号一个沙盒患者，重复调用不重建', asy
   assert.equal(view.quota.usedToday, 0);
   assert.equal(view.quota.remaining, 100);
   assert.ok(view.presets.length >= 2);
+  // 文本预置必须带原话，否则前端点击后没有内容可发
+  assert.ok(
+    view.presets
+      .filter((preset) => preset.kind === 'text')
+      .every((preset) => typeof preset.text === 'string' && preset.text.length > 0),
+  );
   assert.ok(view.guideSteps.length >= 4);
 
   await service.ensureSession(ACCOUNT);

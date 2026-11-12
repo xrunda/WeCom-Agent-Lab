@@ -385,12 +385,14 @@ export interface SandboxPreset {
   id: string;
   label: string;
   kind: 'text' | 'image';
+  /** 文本预置要发给 Agent 的原话；图片预置不需要 */
+  text?: string;
   mediaId?: string;
 }
 
 export const SANDBOX_PRESETS: readonly SandboxPreset[] = [
-  { id: 'preset_allergy', label: '我对海鲜过敏', kind: 'text' },
-  { id: 'preset_dinner', label: '晚上吃什么好', kind: 'text' },
+  { id: 'preset_allergy', label: '我对海鲜过敏', kind: 'text', text: '我对海鲜过敏' },
+  { id: 'preset_dinner', label: '晚上吃什么好', kind: 'text', text: '晚上吃什么好' },
   { id: 'preset_meal_photo', label: '发一张餐食照片', kind: 'image', mediaId: 'med_sample_meal_01' },
 ];
 

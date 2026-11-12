@@ -1037,8 +1037,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
     "lastActiveAt": 1762646400000
   },
   "presets": [
-    { "id": "preset_allergy", "label": "我对海鲜过敏", "kind": "text" },
-    { "id": "preset_dinner", "label": "晚上吃什么好", "kind": "text" },
+    { "id": "preset_allergy", "label": "我对海鲜过敏", "kind": "text", "text": "我对海鲜过敏" },
+    { "id": "preset_dinner", "label": "晚上吃什么好", "kind": "text", "text": "晚上吃什么好" },
     { "id": "preset_meal_photo", "label": "发一张餐食照片", "kind": "image", "mediaId": "med_sample_meal_01" }
   ],
   "guideSteps": [

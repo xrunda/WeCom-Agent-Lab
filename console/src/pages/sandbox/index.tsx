@@ -169,8 +169,9 @@ export default function SandboxPage() {
     if (!preset) return;
     if (preset.kind === 'image' && preset.mediaId) {
       void send({ kind: 'image', mediaId: preset.mediaId });
-    } else if (preset.text) {
-      void send({ kind: 'text', text: preset.text });
+    } else {
+      // 旧版接口的文本预置没有 text 字段，退回 label，避免点击无反应
+      void send({ kind: 'text', text: preset.text ?? preset.label });
     }
   };
 
