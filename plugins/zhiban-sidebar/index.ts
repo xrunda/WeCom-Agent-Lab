@@ -191,6 +191,17 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
       };
       ctx.provide('zhibanSidebar', api);
 
+      // 顾问身份来自患者域的顾问名册：只有在职（active）成员签发会话，
+      // 侧边栏内部再按「群负责人」二次收窄可见范围。
+      // wecomUserId 带给视图：单聊会话键用登录顾问自己的 userid 构造（#159）
+      const advisorView = (
+        record: { id: string; wecomUserId?: string; status?: string } | undefined,
+      ): SidebarAdvisor | undefined => {
+        if (!record) return undefined;
+        if (record.status !== undefined && record.status !== 'active') return undefined;
+        return { id: record.id, permissions: ['patient.read'], wecomUserId: record.wecomUserId };
+      };
+
       // 侧边栏接口：权限与会话令牌在这里校验；数据依赖懒加载，
       // zhiban-patient / zhiban-wecom 晚于本插件就绪也能查
       registerSidebarHttp(ctx.webServer, {
@@ -200,18 +211,21 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
         ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
         sessionTtlMs: config.sessionTtlMs,
         log,
-        // 顾问身份来自患者域的顾问名册：只有在职（active）成员签发会话，
-        // 侧边栏内部再按「群负责人」二次收窄可见范围
-        resolveAdvisor: (wecomUserId) => {
-          const record = ctx
-            .get<PatientApiLike>('zhibanPatient')
-            ?.listAdvisors()
-            .find((item) => item.wecomUserId === wecomUserId);
-          if (!record) return undefined;
-          if (record.status !== undefined && record.status !== 'active') return undefined;
-          // wecomUserId 带给视图：单聊会话键用登录顾问自己的 userid 构造
-          return { id: record.id, permissions: ['patient.read'], wecomUserId };
-        },
+        resolveAdvisor: (wecomUserId) =>
+          advisorView(
+            ctx
+              .get<PatientApiLike>('zhibanPatient')
+              ?.listAdvisors()
+              .find((item) => item.wecomUserId === wecomUserId),
+          ),
+        // #159 会话路径只有 advisorId：回名册补齐 wecomUserId，单聊才能构造自己的会话键
+        resolveAdvisorById: (advisorId) =>
+          advisorView(
+            ctx
+              .get<PatientApiLike>('zhibanPatient')
+              ?.listAdvisors()
+              .find((item) => item.id === advisorId),
+          ),
         buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => {
           const admin = ctx.get<WecomAdminLike>('zhibanWecomAdmin');
           const patient = ctx.get<PatientApiLike>('zhibanPatient');

@@ -72,6 +72,8 @@ export interface SidebarHttpOptions {
   oauth?: SidebarOAuthPort;
   /** OAuth 换到 userid 后映射顾问；未开通返回 undefined */
   resolveAdvisor?: (wecomUserId: string) => SidebarAdvisor | undefined;
+  /** #159 会话路径按 advisorId 回名册取顾问（带 wecomUserId，单聊会话键需要）；未提供或查不到时只回 id/permissions */
+  resolveAdvisorById?: (advisorId: string) => SidebarAdvisor | undefined;
   /** 侧边栏公网地址；用于设置 Secure Cookie 与回调地址 */
   publicBaseUrl?: string;
   /** 会话有效期（毫秒），默认 8 小时 */
@@ -200,7 +202,13 @@ function resolveAdvisor(
   if (injected) return injected;
   if (!options.sessionSecret) return undefined;
   const payload = verifySession(parseCookies(req), options.sessionSecret, options.now?.() ?? Date.now());
-  return payload ? { id: payload.advisorId, permissions: payload.permissions } : undefined;
+  if (!payload) return undefined;
+  // #159：单聊会话键要用登录顾问自己的企微 userid，会话令牌里没有，
+  // 从顾问名册按 id 补齐；查不到时保持原行为（群可用，单聊按未接入返回）
+  return options.resolveAdvisorById?.(payload.advisorId) ?? {
+    id: payload.advisorId,
+    permissions: payload.permissions,
+  };
 }
 
 export function registerSidebarHttp(webServer: SidebarWebServer, options: SidebarHttpOptions): unknown {

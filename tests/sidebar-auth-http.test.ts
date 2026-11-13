@@ -87,6 +87,9 @@ function boot(
   overrides: {
     oauth?: SidebarOAuthPort;
     resolveAdvisor?: (wecomUserId: string) => { id: string; permissions: string[] } | undefined;
+    resolveAdvisorById?: (advisorId: string) =>
+      | { id: string; permissions: string[]; wecomUserId?: string }
+      | undefined;
   } = {},
 ): Booted {
   const routes: Array<{ handler: (req: never, res: never) => unknown }> = [];
@@ -122,10 +125,14 @@ function boot(
       oauth,
       resolveAdvisor: overrides.resolveAdvisor ?? ((userid) =>
         userid === 'zhang.guwen' ? { id: 'adv_1', permissions: ['patient.read'] } : undefined),
+      ...(overrides.resolveAdvisorById ? { resolveAdvisorById: overrides.resolveAdvisorById } : {}),
       log: (line) => logs.push(line),
       buildContext: (advisor, query) =>
         buildSidebarContext(viewDeps, advisor, {
           ...(query.get('chatId') ? { chatId: query.get('chatId')! } : {}),
+          ...(query.get('externalUserId')
+            ? { externalUserId: query.get('externalUserId')! }
+            : {}),
         }),
     },
   );
@@ -206,6 +213,54 @@ test('回调成功签发 HttpOnly 会话，随后能取首屏数据', async () =
   });
   assert.equal(context.status, 200);
   assert.equal(context.json().conv.name, '高血压管理 1 群');
+});
+
+test('#159 会话路径按 advisorId 回名册补齐 wecomUserId，单聊会话键按登录顾问构造', async () => {
+  const h = boot({
+    resolveAdvisorById: (advisorId) =>
+      advisorId === 'adv_1'
+        ? { id: 'adv_1', permissions: ['patient.read'], wecomUserId: 'zhang.guwen' }
+        : undefined,
+  });
+  const state = signState(NOW, SECRET);
+  const callback = await h.call({
+    url: `/zhiban/sidebar/auth/callback?code=good&state=${encodeURIComponent(state)}`,
+  });
+  const token = sessionFromCookie(String(callback.headers['Set-Cookie']));
+  const context = await h.call({
+    url: '/zhiban/sidebar/context?externalUserId=wm_star',
+    headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(token!)}` },
+  });
+  assert.equal(context.status, 200);
+  assert.equal(context.json().conv.kind, 'dm');
+  assert.equal(context.json().conv.key, 'dm:zhang.guwen:wm_star');
+  assert.equal(context.json().conv.served, true);
+});
+
+test('#159 未提供 resolveAdvisorById（或名册查不到）时单聊按未接入返回，群视图不受影响', async () => {
+  const h = boot({
+    resolveAdvisorById: () => undefined,
+  });
+  const state = signState(NOW, SECRET);
+  const callback = await h.call({
+    url: `/zhiban/sidebar/auth/callback?code=good&state=${encodeURIComponent(state)}`,
+  });
+  const token = sessionFromCookie(String(callback.headers['Set-Cookie']));
+  const dm = await h.call({
+    url: '/zhiban/sidebar/context?externalUserId=wm_star',
+    headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(token!)}` },
+  });
+  assert.equal(dm.status, 200);
+  assert.equal(dm.json().conv.kind, 'dm');
+  assert.equal(dm.json().conv.served, false);
+  assert.equal(dm.json().conv.reason, 'DM_NOT_SUPPORTED');
+
+  const group = await h.call({
+    url: '/zhiban/sidebar/context?chatId=chat_1',
+    headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(token!)}` },
+  });
+  assert.equal(group.status, 200);
+  assert.equal(group.json().conv.kind, 'group');
 });
 
 test('state 过期或不合法时拒绝回调', async () => {
