@@ -10,8 +10,8 @@ import { createHash, randomBytes } from 'node:crypto';
 
 const TOKEN_URL = 'https://qyapi.weixin.qq.com/cgi-bin/gettoken';
 const USERINFO_URL = 'https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo';
-/** 企业身份 ticket：wx.config 用 */
-const TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket';
+/** 企业身份 ticket：wx.config 用。__TOKEN__ 由 loadTicket 填，漏了企微回 41022 */
+const TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket?access_token=__TOKEN__';
 /** 应用身份 ticket：wx.agentConfig 用 */
 const AGENT_TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/ticket/get';
 const AUTHORIZE_URL = 'https://open.weixin.qq.com/connect/oauth2/authorize';
@@ -203,6 +203,10 @@ export class WecomOAuthClient {
 
   /** urlTemplate 里的 __TOKEN__ 会替换成 access_token，其余参数原样保留 */
   private async loadTicket(urlTemplate: string): Promise<string> {
+    // 模板漏占位符时不能静默发无 token 请求：企微只会回 41022，排查成本极高
+    if (!urlTemplate.includes('__TOKEN__')) {
+      throw new WecomOAuthError('TICKET_FAILED', 'ticket 地址缺少 access_token');
+    }
     const token = await this.accessToken();
     const data = await this.getJson(
       urlTemplate.replace('__TOKEN__', encodeURIComponent(token)),
