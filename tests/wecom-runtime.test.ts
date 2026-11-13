@@ -727,6 +727,50 @@ test('#159 存档单聊进待回复索引：键按登录顾问构造，非客户
   }
 });
 
+test('#160 重启后把窗口内历史消息补进待回复索引，顾问回复按员工身份入索引，且只补建一次', async () => {
+  interface ObservedInput {
+    msgid?: string;
+    senderKind?: string;
+    convKey?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      // 同一批里顾问已经回复过：补建时按员工身份入索引，用来关掉已回复的条目
+      {
+        msgid: 'msg_hist_staff',
+        action: 'send',
+        from: ADV,
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 4_000,
+        msgtype: 'text',
+        text: { content: '顾问回复' },
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+
+    // 客户提问与顾问回复都进索引：按时间顺序才能把已回复的条目关掉
+    assert.ok(observed.some((input) => input.msgid === 'msg_customer_1' && input.senderKind === 'external'));
+    assert.ok(observed.some((input) => input.msgid === 'msg_hist_staff' && input.senderKind === 'staff'));
+    assert.ok(observed.some((input) => input.convKey === 'room:wrGROUP1'));
+
+    await h.runtime.pollOnce();
+    const backfills = h.logs.filter((line) => line.includes('待回复索引补建完成'));
+    assert.equal(backfills.length, 1, '每次启动只补建一次');
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
 test('#159 每轮轮询前都会对齐服务群白名单', async () => {
   let calls = 0;
   const h = harness({

@@ -49,6 +49,27 @@ export interface ArchivePort {
     until: number;
     includeMedia?: boolean;
   }): Promise<ArchivedInbound[]>;
+
+  /**
+   * #160：重启后补建待回复索引。返回时间窗内的服务群与受服务单聊记录
+   * （含员工发言，用于把已回复的条目按时间顺序关掉）。
+   * 只读：不触发草稿、不下载媒体、不推进主游标。未实现时跳过补建。
+   */
+  listSidebarHistory?(params: {
+    since: number;
+    until: number;
+  }): Promise<ArchiveHistoryRecord[]>;
+}
+
+/** #160 补建待回复索引用的最小记录：群聊 roomId 非空，单聊为空串 */
+export interface ArchiveHistoryRecord {
+  msgid: string;
+  roomId: string;
+  from: string;
+  tolist?: string[];
+  text?: string;
+  msgtime: number;
+  msgtype?: string;
 }
 
 export interface Clock {

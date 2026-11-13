@@ -13,7 +13,7 @@
  */
 import { execFile } from 'node:child_process';
 
-import type { ArchivePort } from '../ports.ts';
+import type { ArchiveHistoryRecord, ArchivePort } from '../ports.ts';
 import { describeMessageMeta, tailId } from '../redact.ts';
 import type { ArchivedInbound, SentMessage } from '../types.ts';
 import {
@@ -504,6 +504,92 @@ export class WeComArchiveAdapter implements ArchivePort {
   /** 缓存里的全部消息，调试用 */
   listCached(): ArchiveRecord[] {
     return [...this.cache];
+  }
+
+  /**
+   * #160 重启后补建待回复索引：把 [since, until] 内的服务群与受服务单聊
+   * 记录（含员工发言）读出来，按时间升序返回。
+   *
+   * 只读：不写共享缓存（否则 trigger 会把停机前已处理的客户消息再触发一遍
+   * 草稿）、不下载媒体、不推进主游标。重启后缓存只覆盖本进程启动之后的
+   * 增量，更早的记录走一次有界回读（与 Verifier 回读共用恢复点）。
+   */
+  async listSidebarHistory(params: {
+    since: number;
+    until: number;
+  }): Promise<ArchiveHistoryRecord[]> {
+    const seen = new Set<string>();
+    const collected: ArchiveRecord[] = [];
+    const take = (record: ArchiveRecord): void => {
+      if (!record?.msgid || seen.has(record.msgid)) return;
+      seen.add(record.msgid);
+      collected.push(record);
+    };
+    for (const record of this.cache) take(record);
+    if (!this.cacheCovers(params.since)) {
+      for (const record of await this.replayForSidebar(params.since, params.until)) {
+        take(record);
+      }
+    }
+    return collected
+      .filter((record) => {
+        if (record.msgtime < params.since || record.msgtime > params.until) return false;
+        // switch 是会话切换事件（没有正文），不进待回复
+        if ((record.action as string | undefined) === 'switch') return false;
+        if (record.msgtype !== 'text' && record.msgtype !== 'image') return false;
+        if (record.roomid) return this.isServiceGroup(record.roomid);
+        return this.isServedDm?.(record) === true;
+      })
+      .sort((a, b) => a.msgtime - b.msgtime)
+      .map((record) => ({
+        msgid: record.msgid,
+        roomId: record.roomid ?? '',
+        from: record.from,
+        tolist: record.tolist,
+        text: record.text?.content,
+        msgtime: record.msgtime,
+        msgtype: record.msgtype,
+      }));
+  }
+
+  /**
+   * 从恢复点有界回退，向前拉到覆盖窗口；只收集、不入缓存。
+   * 首次成功后清掉恢复点——与 Verifier 的回读共享这一次回退机会。
+   */
+  private async replayForSidebar(since: number, until: number): Promise<ArchiveRecord[]> {
+    const anchor = this.restoredSeq;
+    if (anchor === undefined) return [];
+
+    const collected: ArchiveRecord[] = [];
+    let rewind = Math.max(1, this.historyReplayRecords);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const start = Math.max(0, anchor - rewind);
+      let cursor = start;
+      let oldest = Number.POSITIVE_INFINITY;
+      let newest = Number.NEGATIVE_INFINITY;
+      for (let i = 0; i < this.historyReplayBatches; i += 1) {
+        const out = await this.fetch(cursor);
+        if (out.messages.length === 0) break;
+        for (const message of out.messages) {
+          oldest = Math.min(oldest, message.msgtime);
+          newest = Math.max(newest, message.msgtime);
+          if (message.msgtime >= since && message.msgtime <= until) {
+            collected.push(message);
+          }
+        }
+        if (newest >= until) break;
+        if (out.messages.length < this.batchSize) break;
+        if (out.nextSeq <= cursor) break;
+        cursor = out.nextSeq;
+      }
+      this.restoredSeq = undefined;
+      this.log(`待回复补建回读：seq ${anchor} 回退到 ${start}，窗口 ${since}..${until}`);
+      // 回退点已早于窗口下界，或已到存档起点：补拉到此为止
+      if (oldest <= since || start === 0) return collected;
+      // 窗口内记录比预估多，回退范围翻倍再试一次
+      rewind *= 2;
+    }
+    return collected;
   }
 
   private async fetch(seq: number): Promise<ArchiveDumpOutput> {

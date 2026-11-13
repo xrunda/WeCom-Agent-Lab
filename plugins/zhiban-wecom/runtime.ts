@@ -14,6 +14,7 @@ import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
 import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import { isExternalCustomerId } from '../../src/c2/adapters/wecom-archive.ts';
 import { dmConvKey, groupConvKey } from '../../src/p1/sidebar.ts';
 import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type {
@@ -193,6 +194,8 @@ export class WecomRuntime {
   private polling = false;
   private ticking = false;
   private lastRunPersistAt = 0;
+  /** #160：每次启动只补建一次待回复索引 */
+  private sidebarBackfilled = false;
 
   constructor(deps: WecomRuntimeDeps) {
     this.store = deps.store;
@@ -291,6 +294,19 @@ export class WecomRuntime {
       }
       const result = await this.trigger.pollWithContext();
       this.patient?.observeRooms(await this.enrichRooms(result.rooms));
+
+      // #160：重启后先把窗口内的历史消息补进待回复索引，再处理本轮新消息，
+      // 保证「客户提问 → 顾问已回复」按时间顺序落到同一条目上
+      if (!this.sidebarBackfilled) {
+        this.sidebarBackfilled = true;
+        try {
+          await this.backfillSidebarHistory();
+        } catch (error) {
+          this.log(
+            `待回复索引补建失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
+        }
+      }
 
       // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
       const ordered: Array<{ message: ArchivedInbound; event?: (typeof result.events)[number] }> = [
@@ -399,6 +415,67 @@ export class WecomRuntime {
     } finally {
       this.polling = false;
     }
+  }
+
+  /**
+   * #160 重启后补建待回复索引：把窗口内的服务群与受服务单聊记录按时间顺序
+   * 交给侧边栏。外部消息开条目、员工消息关条目，顺序对了重建结果才和群里的
+   * 真实状态一致。只读存档，不生成草稿；索引按 msgid 幂等，重复补建无副作用。
+   */
+  private async backfillSidebarHistory(): Promise<void> {
+    const sink = this.sidebar?.();
+    const listHistory = this.archive.listSidebarHistory;
+    if (!sink || !listHistory) return;
+
+    const until = this.clock.now();
+    const since = until - this.config.sidebarBackfillHours * 60 * 60_000;
+    const records = await listHistory.call(this.archive, { since, until });
+    const staffUserIds = [this.config.advisorChatId];
+    let observed = 0;
+    for (const record of records) {
+      const senderKind = isExternalCustomerId(record.from) ? 'external' : 'staff';
+      try {
+        if (record.roomId !== '') {
+          sink.observe({
+            msgid: record.msgid,
+            convKey: groupConvKey(record.roomId),
+            kind: 'group',
+            roomId: record.roomId,
+            senderId: record.from,
+            senderKind,
+            msgtype: record.msgtype ?? 'text',
+            text: record.text,
+            at: record.msgtime,
+          });
+        } else {
+          const fromStaff = staffUserIds.includes(record.from);
+          const externalId = fromStaff ? (record.tolist?.[0] ?? '') : record.from;
+          // 补建只覆盖顾问 ↔ 客户单聊；AI 助手/应用会话不进待回复
+          if (externalId === '' || !isExternalCustomerId(externalId)) continue;
+          sink.observe({
+            msgid: record.msgid,
+            convKey: dmConvKey(staffUserIds[0]!, externalId),
+            kind: 'dm',
+            senderId: record.from,
+            senderKind: fromStaff ? 'staff' : 'external',
+            msgtype: record.msgtype ?? 'text',
+            text: record.text,
+            at: record.msgtime,
+          });
+        }
+        observed += 1;
+      } catch (error) {
+        // 单条失败不影响整体补建；日志只带 msgid
+        this.log(
+          `待回复补建索引失败 msgid=${tailId(record.msgid)}：` +
+            `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
+      }
+    }
+    this.log(
+      `待回复索引补建完成：窗口 ${this.config.sidebarBackfillHours}h，` +
+        `候选 ${records.length} 条，入索引 ${observed} 条`,
+    );
   }
 
   /**

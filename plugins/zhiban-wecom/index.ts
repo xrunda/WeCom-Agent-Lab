@@ -775,8 +775,14 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
 
       // #159：患者域的服务状态是白名单源头。控制台切换状态会实时同步白名单，
       // 但沙盒预置或企微域离线期间的状态变更不走那条路径——每轮轮询前对齐兜底
-      const reconcileFromPatient = () =>
-        reconcileServiceGroups(registry, patientApi()?.listGroups?.() ?? [], log);
+      const reconcileFromPatient = () => {
+        const groups = patientApi()?.listGroups?.() ?? [];
+        const active = groups.filter(
+          (group) => group.status === 'serving' || group.status === 'collect_only',
+        ).length;
+        log(`服务群白名单对齐：患者域 ${groups.length} 群（活跃 ${active}）`);
+        reconcileServiceGroups(registry, groups, log);
+      };
 
       runtime = new WecomRuntime({
         store,

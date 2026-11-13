@@ -80,7 +80,45 @@ test('按时间窗过滤（msgtime 毫秒）', async () => {
   );
 });
 
+test('#160 补建待回复索引：窗口内的服务群与受服务单聊都返回，含员工发言', async () => {
+  const { adapter, calls } = adapterWith(
+    [
+      dump(120, [
+        record({ msgid: 'g1', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 1_000 }),
+        record({ msgid: 'g2', from: 'LiGuang', roomid: 'wrGROUP1', msgtime: 2_000 }),
+        record({
+          msgid: 'd1', from: 'wmCust1', roomid: '', tolist: ['LiGuang'], msgtime: 1_500,
+        }),
+        record({
+          msgid: 'd2', from: 'LiGuang', roomid: '', tolist: ['wmCust1'], msgtime: 2_500,
+        }),
+        // 非服务群、窗口外、AI 助手会话都不进补建
+        record({ msgid: 'x1', from: 'wmOther', roomid: 'wrOTHER', msgtime: 1_200 }),
+        record({ msgid: 'x2', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 99_000 }),
+        record({ msgid: 'x3', from: 'LiGuang', roomid: '', tolist: ['aiAssistant1'], msgtime: 1_600 }),
+      ]),
+    ],
+    {
+      initialSeq: 100,
+      historyReplayRecords: 10,
+      isServiceGroup: (roomId: string) => roomId === 'wrGROUP1',
+      // 与线上判定一致：员工发出的、或对端是外部客户的单聊才算受服务单聊
+      isServedDm: (r: ArchiveRecord) =>
+        r.from.startsWith('wm') || (r.tolist ?? []).some((id) => id.startsWith('wm')),
+    },
+  );
+
+  const records = await adapter.listSidebarHistory({ since: 0, until: 10_000 });
+
+  assert.deepEqual(records.map((r) => r.msgid), ['g1', 'd1', 'g2', 'd2']);
+  // 从持久化 seq 回退补拉，主游标不推进、共享缓存不写入
+  assert.equal(calls[0][1], '90');
+  assert.equal(adapter.getSeq(), 100);
+  assert.equal(adapter.listCached().length, 0);
+});
+
 test('seq 游标推进，第二次拉取从新起点开始', async () => {
+
   const { adapter, calls } = adapterWith([dump(21, [record({ msgid: 'm1' })])]);
 
   await adapter.listSentMessages({ fromUser: 'LiGuang', since: 0, until: 10_000 });
