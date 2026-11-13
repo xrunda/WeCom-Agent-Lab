@@ -92,8 +92,9 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
         fail: (result: WxConfigResult) =>
           finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),
       });
-    } catch {
-      finish(new WxConfigError('JS-SDK 不可用'));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '调用异常';
+      finish(new WxConfigError(`JS-SDK 不可用：${detail}`));
     }
   });
 }

@@ -20,33 +20,52 @@ declare global {
 }
 
 const POLL_MS = 30_000;
-/** 企微客户端不保证预置 wx；没预置时自己加载官方 JS-SDK */
-const WX_SDK_URL = 'https://res.wx.qq.com/open/js/jweixin-1.2.0.js';
+/**
+ * 企微客户端不保证预置可用的 wx：桌面端注入的对象可能没有 agentConfig。
+ * 按版本顺序兜底加载官方 JS-SDK，后者会覆盖 window.wx。
+ */
+const WX_SDK_URLS = [
+  'https://res.wx.qq.com/open/js/jweixin-1.2.0.js',
+  'https://res.wx.qq.com/open/js/jweixin-1.6.0.js',
+];
 const WX_SDK_TIMEOUT_MS = 5_000;
 const AUTH_TRIED_KEY = 'zb_sidebar_auth_tried';
 const CONSOLE_URL: string | undefined = import.meta.env.VITE_CONSOLE_URL;
 
 const root = document.getElementById('root');
 
-/** 拿到可用的 wx：客户端已注入就直接用，否则加载官方 JS-SDK */
-function loadWxSdk(): Promise<WxLike | undefined> {
-  if (window.wx) return Promise.resolve(window.wx);
+/** 注入的 wx 未必带 agentConfig，只认带了的那一份 */
+function sdkReady(): boolean {
+  return typeof window.wx?.agentConfig === 'function';
+}
+
+function injectScript(src: string): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (): void => {
       if (settled) return;
       settled = true;
       script.remove();
-      resolve(window.wx);
+      resolve();
     };
     const script = document.createElement('script');
-    script.src = WX_SDK_URL;
+    script.src = src;
     script.async = true;
     script.onload = finish;
     script.onerror = finish;
     setTimeout(finish, WX_SDK_TIMEOUT_MS);
     document.head.appendChild(script);
   });
+}
+
+/** 拿到可用的 wx：客户端注入的能用就用，否则按版本兜底加载官方 JS-SDK */
+async function loadWxSdk(): Promise<WxLike | undefined> {
+  if (sdkReady()) return window.wx;
+  for (const url of WX_SDK_URLS) {
+    await injectScript(url);
+    if (sdkReady()) return window.wx;
+  }
+  return window.wx;
 }
 
 function consoleUrl(): string | undefined {
@@ -112,12 +131,12 @@ async function start(rootEl: HTMLElement): Promise<void> {
   render(rootEl, { kind: 'loading' });
 
   const wx = await loadWxSdk();
-  if (!wx) {
+  if (!wx || typeof wx.agentConfig !== 'function') {
     render(
       rootEl,
       {
         kind: 'error',
-        message: '企微 JS-SDK 没加载出来，请检查网络后重试；如果一直这样，请在企微聊天窗口里重新打开侧边栏。',
+        message: '企微客户端没有提供可用的 JS-SDK（缺少 agentConfig），请升级企业微信后重试。',
         retryable: true,
       },
       handlers(rootEl, () => void start(rootEl)),
