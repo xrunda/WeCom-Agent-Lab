@@ -9,7 +9,7 @@ import './sidebar.css';
 import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext, postClose, postEvent } from './api.ts';
 import { render } from './view.ts';
 import type { ViewHandlers } from './view.ts';
-import { configureAgent, contextQuery, resolveConversation } from './wecom.ts';
+import { WxConfigError, configureAgent, contextQuery, resolveConversation } from './wecom.ts';
 import type { ConversationRef, WxLike } from './wecom.ts';
 import type { SidebarState } from './types.ts';
 
@@ -265,6 +265,8 @@ async function refresh(rootEl: HTMLElement): Promise<void> {
 
 function friendlyMessage(error: unknown): string {
   if (error instanceof SidebarApiError) return error.message;
+  // 企微 errMsg 只有接口名和原因，不含凭据；显示出来便于现场排查
+  if (error instanceof WxConfigError) return error.message;
   return '网络或企微授权出现问题，请稍后重试。';
 }
 

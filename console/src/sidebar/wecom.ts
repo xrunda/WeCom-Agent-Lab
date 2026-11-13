@@ -13,8 +13,13 @@ export interface WxInvokeResult {
   userId?: string;
 }
 
+export interface WxConfigResult {
+  errMsg?: string;
+}
+
 export interface WxLike {
   agentConfig(options: Record<string, unknown>): void;
+  config?(options: Record<string, unknown>): void;
   invoke(
     name: string,
     args: Record<string, unknown>,
@@ -38,7 +43,18 @@ export class WxConfigError extends Error {
   }
 }
 
-/** 自建应用必须走 agentConfig；失败时上层显示可读错误，不继续调 invoke */
+/** 企微 errMsg 只有「接口名:fail 原因」，不含凭据，可以给用户看 */
+function describeWxFailure(result: unknown): string {
+  const errMsg = (result as WxConfigResult | undefined)?.errMsg;
+  return typeof errMsg === 'string' && errMsg !== '' ? errMsg : '未知原因';
+}
+
+/**
+ * 自建应用必须走 agentConfig。
+ *
+ * 企微桌面端会注入 wx 但与页面未建立联系，官方流程是先 config 再 agentConfig；
+ * config 失败不阻塞 agentConfig，两者任一成功都算可用。
+ */
 export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -53,16 +69,28 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
       () => finish(new WxConfigError('JS-SDK 鉴权超时')),
       AGENT_CONFIG_TIMEOUT_MS,
     );
+    const signature = {
+      timestamp: config.timestamp,
+      nonceStr: config.nonceStr,
+      signature: config.signature,
+      jsApiList: config.jsApiList,
+    };
     try {
+      wx.config?.({
+        beta: true,
+        debug: false,
+        appId: config.corpId,
+        ...signature,
+        success: () => {},
+        fail: () => {},
+      });
       wx.agentConfig({
         corpId: config.corpId,
         agentId: config.agentId,
-        timestamp: config.timestamp,
-        nonceStr: config.nonceStr,
-        signature: config.signature,
-        jsApiList: config.jsApiList,
+        ...signature,
         success: () => finish(),
-        fail: () => finish(new WxConfigError('JS-SDK 鉴权失败')),
+        fail: (result: WxConfigResult) =>
+          finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),
       });
     } catch {
       finish(new WxConfigError('JS-SDK 不可用'));

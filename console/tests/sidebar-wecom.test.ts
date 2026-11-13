@@ -37,6 +37,33 @@ describe('JS-SDK 封装（#145）', () => {
     await expect(configureAgent(wx, CONFIG)).rejects.toThrow(WxConfigError);
   });
 
+  it('失败时把企微 errMsg 带出来，便于现场排查', async () => {
+    const wx: WxLike = {
+      agentConfig: (options) =>
+        (options.fail as (result: { errMsg: string }) => void)({
+          errMsg: 'agentConfig:fail invalid signature',
+        }),
+      invoke: () => {},
+    };
+    await expect(configureAgent(wx, CONFIG)).rejects.toThrow('invalid signature');
+  });
+
+  it('先 config 再 agentConfig，config 失败不阻塞', async () => {
+    const calls: string[] = [];
+    const wx: WxLike = {
+      config: (options) => {
+        calls.push('config');
+        (options.fail as (result: { errMsg: string }) => void)({ errMsg: 'config:fail' });
+      },
+      agentConfig: () => calls.push('agentConfig'),
+      invoke: () => {},
+    };
+    const assertion = expect(configureAgent(wx, CONFIG)).rejects.toThrow('JS-SDK 鉴权超时');
+    await vi.advanceTimersByTimeAsync(6_000);
+    await assertion;
+    expect(calls).toEqual(['config', 'agentConfig']);
+  });
+
   it('回调一直不来时超时失败，不会永远停在骨架', async () => {
     const wx: WxLike = {
       agentConfig: () => {
