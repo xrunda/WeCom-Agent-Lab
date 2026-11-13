@@ -64,27 +64,23 @@ describe('JS-SDK 封装（#145）', () => {
     expect(received['jsApiList']).toEqual(['getCurExternalChat']);
   });
 
-  it('首次 agentConfig 失败时补发 wx.config 后重试', async () => {
+  it('先 config 再 agentConfig，且 config 带 beta（wx.invoke 靠它挂上）', async () => {
     const calls: string[] = [];
-    let attempt = 0;
     const wx: WxLike = {
       config: (options) => {
         calls.push('config');
-        (options.success as () => void)();
+        // jweixin 只在 beta:true 时才定义 wx.invoke
+        expect(options['beta']).toBe(true);
+        (options.fail as (result: { errMsg: string }) => void)({ errMsg: 'config:fail' });
       },
       agentConfig: (options) => {
-        attempt += 1;
-        calls.push(`agentConfig${attempt}`);
-        if (attempt === 1) {
-          (options.fail as (result: { errMsg: string }) => void)({ errMsg: 'agentConfig:fail' });
-        } else {
-          (options.success as () => void)();
-        }
+        calls.push('agentConfig');
+        (options.success as () => void)();
       },
       invoke: () => {},
     };
     await expect(configureAgent(wx, CONFIG)).resolves.toBeUndefined();
-    expect(calls).toEqual(['agentConfig1', 'config', 'agentConfig2']);
+    expect(calls).toEqual(['config', 'agentConfig']);
   });
 
   it('回调一直不来时超时失败，不会永远停在骨架', async () => {

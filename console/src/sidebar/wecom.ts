@@ -52,22 +52,20 @@ function describeWxFailure(result: unknown): string {
   return `${errMsg}${hint}`;
 }
 
-/** config 有时不回调，给它一秒，超时也照样重试 */
-const CONFIG_CALLBACK_WAIT_MS = 1_000;
-
 /**
- * 自建应用必须走 agentConfig。
+ * 自建应用必须走 config + agentConfig 两条。
  *
- * 参数名是企微的固定写法：`corpid` / `agentid` 全小写，`nonceStr` / `jsApiList` 驼峰。
- * 写成 corpId 时 SDK 读不到，会当成没传；个别客户端注入的对象认驼峰，两套都给。
+ * 参数名是企微的固定写法：agentConfig 的 `corpid` / `agentid` 全小写，
+ * `nonceStr` / `jsApiList` 驼峰；写成 corpId 时 SDK 读不到，会当成没传。
+ * 个别客户端注入的对象认驼峰，两套都给。
  *
- * 新版客户端允许 agentConfig 独立调用，所以先直接调；失败再补一次 wx.config
- * （企业票签名）后重试，兼顾需要 config 建立企业上下文的客户端。
+ * wx.config 少不得：jweixin 只在 `beta: true` 时才把 wx.invoke 挂到 wx 上，
+ * 而取当前会话（getCurExternalChat / getCurExternalContact）全靠 wx.invoke。
+ * config 失败不阻塞 agentConfig，最终以 agentConfig 结果为准。
  */
 export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let retried = false;
     const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
@@ -80,68 +78,46 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
       AGENT_CONFIG_TIMEOUT_MS,
     );
 
-    const callAgentConfig = (onFail: (result: WxConfigResult) => void): void => {
-      try {
-        wx.agentConfig({
-          // 官方写法：小写 corpid / agentid
-          corpid: config.corpId,
-          agentid: config.agentId,
-          // 兼容按驼峰读参数的客户端
-          corpId: config.corpId,
-          agentId: config.agentId,
-          timestamp: config.timestamp,
-          nonceStr: config.nonceStr,
-          signature: config.signature,
-          jsApiList: config.jsApiList,
-          success: () => finish(),
-          fail: onFail,
-        });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : '调用异常';
-        finish(new WxConfigError(`JS-SDK 不可用：${detail}`));
-      }
+    // config 用企业 ticket 的签名，agentConfig 用应用 ticket 的签名
+    const configSignature = config.config ?? {
+      timestamp: config.timestamp,
+      nonceStr: config.nonceStr,
+      signature: config.signature,
     };
+    try {
+      wx.config?.({
+        beta: true,
+        debug: false,
+        appId: config.corpId,
+        ...configSignature,
+        jsApiList: config.jsApiList,
+        success: () => {},
+        fail: () => {},
+      });
+    } catch {
+      // config 异常不阻塞 agentConfig
+    }
 
-    const retryAfterConfig = (): void => {
-      if (settled) return;
-      retried = true;
-      let called = false;
-      const retry = (): void => {
-        if (called || settled) return;
-        called = true;
-        callAgentConfig((result) =>
-          finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),
-        );
-      };
-      const signature = config.config ?? {
+    try {
+      wx.agentConfig({
+        // 官方写法：小写 corpid / agentid
+        corpid: config.corpId,
+        agentid: config.agentId,
+        // 兼容按驼峰读参数的客户端
+        corpId: config.corpId,
+        agentId: config.agentId,
         timestamp: config.timestamp,
         nonceStr: config.nonceStr,
         signature: config.signature,
-      };
-      try {
-        wx.config?.({
-          beta: true,
-          debug: false,
-          appId: config.corpId,
-          ...signature,
-          jsApiList: config.jsApiList,
-          success: retry,
-          fail: retry,
-        });
-      } catch {
-        // config 异常也照样重试 agentConfig
-      }
-      if (typeof wx.config === 'function') setTimeout(retry, CONFIG_CALLBACK_WAIT_MS);
-      else retry();
-    };
-
-    callAgentConfig((result) => {
-      if (retried) {
-        finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`));
-        return;
-      }
-      retryAfterConfig();
-    });
+        jsApiList: config.jsApiList,
+        success: () => finish(),
+        fail: (result: WxConfigResult) =>
+          finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '调用异常';
+      finish(new WxConfigError(`JS-SDK 不可用：${detail}`));
+    }
   });
 }
 
