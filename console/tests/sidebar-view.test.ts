@@ -276,10 +276,12 @@ describe('待回复卡片（#148）', () => {
     vi.useRealTimers();
   });
 
-  it('空态只说「暂无待回复」，不重复解释', () => {
+  it('空态只有一句「暂无待回复」，不再出现「待回复」标题', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
-    expect(root.textContent).toContain('暂无待回复');
+    const card = root.querySelectorAll('.card')[0]!;
+    expect(card.textContent).toContain('暂无待回复');
+    expect(card.querySelector('.card-head')).toBeNull();
     expect(root.textContent).not.toContain('有客户提问时');
   });
 

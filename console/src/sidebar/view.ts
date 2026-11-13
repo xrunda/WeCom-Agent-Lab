@@ -167,12 +167,9 @@ function pendingCard(data: SidebarContextData): string {
     : ` · 更新于 ${relativeLabel(Math.max(0, Math.floor((data.generatedAt - syncedAt) / 1000)))}`;
 
   if (pending.openCount === 0) {
-    // 空态只说一句：卡片标题已经写了「待回复」，再解释一遍反而绕
+    // 空态不写标题：「待回复」和「暂无待回复」并排看是自相矛盾，只说结论
     return `
       <section class="card">
-        <div class="card-head">
-          <h2>待回复</h2>
-        </div>
         <p class="empty">暂无待回复</p>
       </section>`;
   }
