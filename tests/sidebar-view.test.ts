@@ -134,3 +134,49 @@ test('机器人已回应只做标记，不计入关闭', () => {
   assert.equal(view.pending.open[0]!.aiReplied, true);
   assert.equal(view.pending.openCount, 1);
 });
+
+test('#149 草稿只挂在最新一条上，旧条目不再重复展示', () => {
+  const older = item({ id: 'pend_old', lastAt: NOW - 30 * 60_000, firstAt: NOW - 30 * 60_000 });
+  const newer = item({ id: 'pend_new', lastAt: NOW - 60_000, firstAt: NOW - 60_000 });
+  const seen: Array<{ roomId: string; since: number }> = [];
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [older, newer],
+      latestDraft: (roomId, since) => {
+        seen.push({ roomId, since });
+        return {
+          id: 'draft_1',
+          body: '先别停药，今天下午来门诊看一下。',
+          riskLevel: 'medium',
+          ruleNames: ['用药安全'],
+          createdAt: NOW - 30_000,
+          status: 'PUSHED',
+        };
+      },
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+
+  assert.deepEqual(seen, [{ roomId: ROOM, since: newer.firstAt }]);
+  const old = view.pending.open.find((row) => row.id === 'pend_old')!;
+  const fresh = view.pending.open.find((row) => row.id === 'pend_new')!;
+  assert.equal(old.hasDraft, false);
+  assert.equal(old.draft, null);
+  assert.equal(fresh.hasDraft, true);
+  assert.equal(fresh.draft?.id, 'draft_1');
+  assert.deepEqual(fresh.draft?.ruleNames, ['用药安全']);
+});
+
+test('#149 没有草稿或未接入草稿源时字段为空，不假装有草稿', () => {
+  const none = buildSidebarContext(deps(), ADVISOR, { chatId: 'chat_1' });
+  assert.equal(none.pending.open[0]!.hasDraft, false);
+  assert.equal(none.pending.open[0]!.draft, null);
+
+  const empty = buildSidebarContext(
+    deps({ latestDraft: () => undefined }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  assert.equal(empty.pending.open[0]!.draft, null);
+});

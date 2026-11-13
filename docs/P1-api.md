@@ -1425,7 +1425,14 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
         "messageCount": 2,
         "waitSeconds": 7200,
         "aiReplied": false,
-        "hasDraft": false
+        "hasDraft": true,
+        "draft": {
+          "id": "draft_...",
+          "body": "先别停药，今天下午来门诊看一下。",
+          "riskLevel": "medium",
+          "ruleNames": ["用药安全"],
+          "createdAt": 1700000000000
+        }
       }
     ]
   },
@@ -1446,17 +1453,28 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
 - `conv.served=false` 表示当前会话不在服务范围，`conv.reason` 取 `DM_NOT_SUPPORTED`（单聊，存档链路暂不投递）或 `GROUP_NOT_FOUND`；此时 `pending` 为空、`profile` 为 `null`，HTTP 仍是 `200`。
 - **昵称门控**：令牌 `permissions` 不含 `patient.read` 时，`conv.name`、`customerName`、`profile.name`、`profile.advisorName` 为 `null`，`profile.tags` 为 `[]`；`excerpt` 与等待时长照常返回——顾问本身就在这个会话里，看得见原始聊天。
 - `aiReplied`：机器人已在该会话回应过，仅作提示，**不改变待回复状态**。
+- `draft`：该群**已生成、还没发出**的草稿（`status=PUSHED` 且 `createdAt >= 最新条目的 firstAt`）；只挂在会话里最新的一条上，其余条目为 `null`。侧边栏只读，不触发生成；顾问标注已发送后不再返回。
 - `chronic` / `carePlan` 为 P1 预留位，当前恒为 `null`。
 - 错误：`401` / `403`，格式同 §1.4。
 
 ### `POST /zhiban/sidebar/pending/{id}/close`
 
-请求：`{ "reason": "dismissed" | "transferred" }`，请求体上限 4 KB。`reason` 只允许这两个值，否则 `400 VALIDATION_FAILED`。
+请求：`{ "reason": "handled" | "dismissed" | "transferred" }`，请求体上限 4 KB。`reason` 只允许这三个值，否则 `400 VALIDATION_FAILED`。分别对应侧边栏上的「已处理」「无需回复」「转交」。
 
-响应 `200`：`{ "ok": true, "id": "pend_..." }`。
+响应 `200`：`{ "ok": true, "id": "pend_...", "status": "handled" }`。
 
 - 权限判断与 `GET /context` 完全一致：按条目所属群重新校验，不是负责人返回 `403`，条目不存在返回 `404`。
 - 写审计 `sidebar.pending.close`，字段只含条目 id、操作人、结果，**不含消息正文**。
+
+### `POST /zhiban/sidebar/events`
+
+前端埋点，只收白名单事件：`sidebar.open`、`pending.view`、`pending.copy_excerpt`、`draft.copy`。
+
+请求：`{ "event": "draft.copy", "itemId": "pend_..." }`（`itemId` 可选，超过 64 字符截断；其余字段全部丢弃）。白名单外返回 `400 VALIDATION_FAILED`。
+
+响应 `200`：`{ "ok": true }`。事件以宿主事件 `sidebar.metric` 发出，只含事件名与条目 id，**不含正文、昵称**；上报失败不影响使用。
+
+自动关闭（同事在群里回复）与手动关闭（已处理 / 无需回复 / 转交）另由服务端上报 `pending.auto_closed` / `pending.close_manual`，带客户等待秒数。
 
 ### 存储
 

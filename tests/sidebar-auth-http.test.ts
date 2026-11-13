@@ -39,6 +39,7 @@ function api(): SidebarRuntimeApi {
     get: (id) => (id === item.id ? item : undefined),
     lastObservedAt: () => NOW,
     close: () => item,
+    reportEvent: () => {},
     allItems: () => [item],
     prune: () => {},
     flush: async () => {},

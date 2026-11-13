@@ -34,6 +34,16 @@ export interface SidebarPatientRef {
   advisorId?: string;
 }
 
+/** 已生成、尚未发出的草稿（只读引用，来自 zhiban-wecom 的草稿存储） */
+export interface SidebarDraftRef {
+  id: string;
+  body: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  ruleNames?: string[];
+  createdAt: number;
+  status: string;
+}
+
 export interface SidebarViewDeps {
   openItems(convKey: string): PendingItem[];
   recentlyClosed(convKey: string, limit?: number): PendingItem[];
@@ -45,6 +55,8 @@ export interface SidebarViewDeps {
   /** 按外部成员 userid 找患者名；昵称门控在视图层做 */
   patientNameFor?(externalUserId: string): string | undefined;
   getAdvisorName?(advisorId: string): string | undefined;
+  /** 该群在 since 之后生成、还没发出的草稿；没有则空 */
+  latestDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
   now?: () => number;
 }
 
@@ -54,6 +66,14 @@ export interface SidebarQuery {
   externalUserId?: string;
   /** 仅供服务端内部与测试使用，不接受前端直接传 */
   roomId?: string;
+}
+
+export interface SidebarDraftView {
+  id: string;
+  body: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  ruleNames: string[];
+  createdAt: number;
 }
 
 export interface SidebarPendingView {
@@ -68,6 +88,8 @@ export interface SidebarPendingView {
   reason: string;
   aiReplied: boolean;
   hasDraft: boolean;
+  /** 已生成、未发出的草稿；只挂在会话里最新的一条上，避免同一份草稿重复出现 */
+  draft: SidebarDraftView | null;
 }
 
 export interface SidebarClosedView {
@@ -176,6 +198,25 @@ export function buildSidebarContext(
   const canRead = advisor.permissions.includes('patient.read');
   const items = deps.openItems(convKey);
 
+  // 草稿只挂一次：放在会话里最新的一条上。较早的条目只是还没清理，
+  // 同一份草稿在每个条目下重复出现反而干扰判断。
+  const newest = items.reduce<PendingItem | undefined>(
+    (latest, item) => (!latest || item.lastAt > latest.lastAt ? item : latest),
+    undefined,
+  );
+  const draftRef = newest && deps.latestDraft
+    ? deps.latestDraft(group.roomId, newest.firstAt)
+    : undefined;
+  const draft: SidebarDraftView | null = draftRef
+    ? {
+        id: draftRef.id,
+        body: draftRef.body,
+        riskLevel: draftRef.riskLevel,
+        ruleNames: [...(draftRef.ruleNames ?? [])],
+        createdAt: draftRef.createdAt,
+      }
+    : null;
+
   const open: SidebarPendingView[] = items.map((item) => ({
     id: item.id,
     customerId: item.customerId,
@@ -187,7 +228,8 @@ export function buildSidebarContext(
     waitSeconds: Math.max(0, Math.floor((now - item.lastAt) / 1000)),
     reason: item.reason,
     aiReplied: item.botRepliedAt !== undefined,
-    hasDraft: false,
+    hasDraft: item.id === newest?.id && draft !== null,
+    draft: item.id === newest?.id ? draft : null,
   }));
 
   const oldest = open.reduce<number | null>(

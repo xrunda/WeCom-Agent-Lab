@@ -14,6 +14,14 @@ export interface AgentConfig {
   jsApiList: string[];
 }
 
+export interface SidebarDraftView {
+  id: string;
+  body: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  ruleNames: string[];
+  createdAt: number;
+}
+
 export interface SidebarPendingView {
   id: string;
   customerId: string;
@@ -26,6 +34,8 @@ export interface SidebarPendingView {
   reason: string;
   aiReplied: boolean;
   hasDraft: boolean;
+  /** 已生成、未发出的草稿；只挂在最新一条上 */
+  draft: SidebarDraftView | null;
 }
 
 export interface SidebarProfileView {

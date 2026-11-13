@@ -48,9 +48,26 @@ export interface SidebarMessageInput {
 
 export type PendingReason = 'question' | 'request' | 'mention' | 'ambiguous';
 
-export type PendingStatus = 'open' | 'replied' | 'dismissed' | 'transferred';
+export type PendingStatus = 'open' | 'replied' | 'handled' | 'dismissed' | 'transferred';
+
+/** 顾问手动关闭的三种动作：已处理 / 无需回复 / 转交 */
+export type PendingManualAction = 'handled' | 'dismissed' | 'transferred';
 
 export type PendingCloseReason = 'staff_reply' | 'manual' | 'transferred';
+
+/**
+ * 埋点：只带 id 与时长，不带正文与昵称。
+ * 先作为宿主事件发出，后续接统计时不必改判定逻辑。
+ */
+export type SidebarMetricType = 'pending.auto_closed' | 'pending.close_manual';
+
+export interface SidebarMetric {
+  type: SidebarMetricType;
+  itemId: string;
+  /** 客户从首条消息等到关闭的秒数 */
+  waitSeconds: number;
+  reason?: string;
+}
 
 export interface PendingItem {
   id: string;
@@ -93,6 +110,8 @@ export interface SidebarServiceOptions {
   /** 机器人 / 自建应用的 userid；这些发言不算「顾问已回复」 */
   botUserIds?: string[];
   onAudit?: (event: AuditEvent) => void;
+  /** 埋点事件；只带 id、时长与原因，不带正文 */
+  onMetric?: (metric: SidebarMetric) => void;
   onPersistError?: (error: Error) => void;
 }
 
@@ -163,6 +182,7 @@ export class SidebarService {
   private readonly closedRetentionMs: number;
   private readonly botUserIds: Set<string>;
   private readonly onAudit?: (event: AuditEvent) => void;
+  private readonly onMetric?: (metric: SidebarMetric) => void;
   private readonly onPersistError?: (error: Error) => void;
 
   private items = new Map<string, PendingItem>();
@@ -179,6 +199,7 @@ export class SidebarService {
     this.closedRetentionMs = options.closedRetentionMs ?? DEFAULT_CLOSED_RETENTION_MS;
     this.botUserIds = new Set(options.botUserIds ?? []);
     this.onAudit = options.onAudit;
+    this.onMetric = options.onMetric;
     this.onPersistError = options.onPersistError;
 
     for (const item of this.backend.loadItems()) this.items.set(item.id, item);
@@ -238,7 +259,7 @@ export class SidebarService {
   }
 
   /** 顾问手动关闭：已处理 / 无需回复 / 转交 */
-  close(id: string, reason: 'dismissed' | 'transferred', actor: string): PendingItem | undefined {
+  close(id: string, reason: PendingManualAction, actor: string): PendingItem | undefined {
     const item = this.items.get(id);
     if (!item || item.status !== 'open') return undefined;
     const at = this.now();
@@ -253,6 +274,12 @@ export class SidebarService {
       action: 'sidebar.pending.close',
       target: item.id,
       result: `${reason} ${tailId(item.convKey)}`,
+    });
+    this.metric({
+      type: 'pending.close_manual',
+      itemId: item.id,
+      waitSeconds: Math.max(0, Math.floor((at - item.firstAt) / 1000)),
+      reason,
     });
     return item;
   }
@@ -341,6 +368,12 @@ export class SidebarService {
         item.closedBy = input.senderId;
         item.closedReason = 'staff_reply';
         this.persist(item);
+        this.metric({
+          type: 'pending.auto_closed',
+          itemId: item.id,
+          waitSeconds: Math.max(0, Math.floor((input.at - item.firstAt) / 1000)),
+          reason: 'staff_reply',
+        });
         closed.push(item);
       }
     }
@@ -380,6 +413,15 @@ export class SidebarService {
   private audit(event: AuditEvent): void {
     this.write(this.backend.appendAudit(event));
     this.onAudit?.(event);
+  }
+
+  /** 埋点失败不能影响关闭本身 */
+  private metric(metric: SidebarMetric): void {
+    try {
+      this.onMetric?.(metric);
+    } catch {
+      // 统计是旁路，忽略
+    }
   }
 }
 

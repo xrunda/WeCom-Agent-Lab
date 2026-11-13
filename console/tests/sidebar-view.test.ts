@@ -1,7 +1,7 @@
 /**
  * #145 侧边栏前端：会话解析、转义与首屏状态。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   configureAgent,
@@ -139,44 +139,46 @@ describe('首屏渲染', () => {
 });
 
 
-describe('待回复卡片（#148）', () => {
-  const pendingData: SidebarContextData = {
-    ...data,
-    pending: {
-      open: [
-        {
-          id: 'p1',
-          customerId: 'wm_a',
-          customerName: '王阿姨',
-          firstAt: 1_700_000_000_000,
-          lastAt: 1_700_000_000_000,
-          messageCount: 2,
-          excerpt: '早上吃完药有点头晕，要不要停？',
-          waitSeconds: 7_500,
-          reason: 'question',
-          aiReplied: false,
-          hasDraft: false,
-        },
-        {
-          id: 'p2',
-          customerId: 'wm_b',
-          customerName: null,
-          firstAt: 1_700_000_100_000,
-          lastAt: 1_700_000_100_000,
-          messageCount: 1,
-          excerpt: '明天的复诊是几点？',
-          waitSeconds: 600,
-          reason: 'question',
-          aiReplied: true,
-          hasDraft: false,
-        },
-      ],
-      recentlyClosed: [{ id: 'p0', closedAt: 1_700_000_000_000, closedBy: null }],
-      openCount: 2,
-      oldestWaitSeconds: 7_500,
-    },
-  };
+const pendingData: SidebarContextData = {
+  ...data,
+  pending: {
+    open: [
+      {
+        id: 'p1',
+        customerId: 'wm_a',
+        customerName: '王阿姨',
+        firstAt: 1_700_000_000_000,
+        lastAt: 1_700_000_000_000,
+        messageCount: 2,
+        excerpt: '早上吃完药有点头晕，要不要停？',
+        waitSeconds: 7_500,
+        reason: 'question',
+        aiReplied: false,
+        hasDraft: false,
+        draft: null,
+      },
+      {
+        id: 'p2',
+        customerId: 'wm_b',
+        customerName: null,
+        firstAt: 1_700_000_100_000,
+        lastAt: 1_700_000_100_000,
+        messageCount: 1,
+        excerpt: '明天的复诊是几点？',
+        waitSeconds: 600,
+        reason: 'question',
+        aiReplied: true,
+        hasDraft: false,
+        draft: null,
+      },
+    ],
+    recentlyClosed: [{ id: 'p0', closedAt: 1_700_000_000_000, closedBy: null }],
+    openCount: 2,
+    oldestWaitSeconds: 7_500,
+  },
+};
 
+describe('待回复卡片（#148）', () => {
   it('等待时长分档：30 分钟、2 小时', () => {
     expect(waitTier(60)).toBe('calm');
     expect(waitTier(30 * 60)).toBe('warn');
@@ -196,7 +198,11 @@ describe('待回复卡片（#148）', () => {
     );
     expect(items[1]!.textContent).toContain('客户');
     expect(items[1]!.textContent).toContain('机器人已回应');
-    expect((items[1]!.querySelectorAll('.op')[1] as HTMLButtonElement).disabled).toBe(true);
+    const ops = [...items[1]!.querySelectorAll('.op')].map((element) => element.textContent);
+    expect(ops).toEqual(['复制原话', '已处理', '无需回复', '转交']);
+    expect(
+      [...items[1]!.querySelectorAll<HTMLButtonElement>('.op')].every((op) => !op.disabled),
+    ).toBe(true);
     expect(root.textContent).toContain('已回复 1 条');
   });
 
@@ -256,5 +262,113 @@ describe('待回复卡片（#148）', () => {
 
     render(root, { kind: 'ready', data });
     expect(root.textContent).not.toContain('打开控制台详情');
+  });
+});
+
+describe('草稿与手动处理（#149）', () => {
+  const draft = {
+    id: 'draft_1',
+    body: '先别停药，今天下午来门诊看一下。',
+    riskLevel: 'medium' as const,
+    ruleNames: ['用药安全', '复诊安排'],
+    createdAt: Date.now() - 60_000,
+  };
+
+  function draftData(riskLevel: 'low' | 'medium' | 'high' = 'medium'): SidebarContextData {
+    return {
+      ...pendingData,
+      pending: {
+        ...pendingData.pending,
+        open: [
+          {
+            ...pendingData.pending.open[0]!,
+            hasDraft: true,
+            draft: { ...draft, riskLevel },
+          },
+          ...pendingData.pending.open.slice(1),
+        ],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  it('草稿展示正文、风险、依据与生成时间', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: draftData() });
+    const block = root.querySelector('.draft');
+    expect(block).not.toBeNull();
+    expect(block!.querySelector('.draft-body')!.textContent).toBe(draft.body);
+    expect(block!.querySelector('.risk-medium')!.textContent).toBe('需核对');
+    expect(block!.textContent).toContain('依据：用药安全、复诊安排');
+    expect(block!.textContent).toContain('生成');
+    expect(block!.querySelector('[data-copy-draft]')!.textContent).toBe('复制草稿');
+  });
+
+  it('没有草稿的条目不出草稿块，也不留假按钮', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: pendingData });
+    expect(root.querySelector('.draft')).toBeNull();
+    expect(root.textContent).not.toContain('生成回复');
+  });
+
+  it('高风险草稿先展开核对，再点一次才复制并上报', async () => {
+    const events: Array<{ event: string }> = [];
+    const root = document.createElement('div');
+    render(
+      root,
+      { kind: 'ready', data: draftData('high') },
+      { onEvent: (event) => events.push({ event }) },
+    );
+    const button = root.querySelector('[data-copy-draft]') as HTMLButtonElement;
+    expect(button.textContent).toBe('展开核对');
+
+    button.click();
+    expect(button.textContent).toBe('确认并复制');
+    expect((root.querySelector('.draft-confirm') as HTMLElement).hidden).toBe(false);
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(draft.body);
+    expect(events).toEqual([{ event: 'draft.copy' }]);
+  });
+
+  it('复制原话上报事件并带上条目 id', async () => {
+    const events: Array<{ event: string; id?: string }> = [];
+    const root = document.createElement('div');
+    render(
+      root,
+      { kind: 'ready', data: pendingData },
+      { onEvent: (event, id) => events.push({ event, id }) },
+    );
+    (root.querySelector('[data-copy]') as HTMLButtonElement).click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual([{ event: 'pending.copy_excerpt', id: 'p1' }]);
+  });
+
+  it('三个手动动作分别回调 handled / dismissed / transferred，并置灰防重复', () => {
+    const closes: Array<{ id: string; reason: string }> = [];
+    const root = document.createElement('div');
+    render(
+      root,
+      { kind: 'ready', data: pendingData },
+      { onClose: (id, reason) => closes.push({ id, reason }) },
+    );
+    const itemRoot = root.querySelectorAll('.item')[0]!;
+    const buttons = [...itemRoot.querySelectorAll<HTMLButtonElement>('[data-close]')];
+    expect(buttons.map((button) => button.textContent)).toEqual(['已处理', '无需回复', '转交']);
+
+    buttons[0]!.click();
+    expect(closes).toEqual([{ id: 'p1', reason: 'handled' }]);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    expect(itemRoot.querySelector('[data-copy]')!.hasAttribute('disabled')).toBe(true);
   });
 });

@@ -15,15 +15,20 @@ import { SidebarService } from '../../src/p1/sidebar.ts';
 import type {
   ObserveResult,
   PendingItem,
+  PendingManualAction,
   SidebarMessageInput,
 } from '../../src/p1/sidebar.ts';
 import { buildSidebarContext } from '../../src/p1/sidebar-view.ts';
-import type { SidebarAdvisor, SidebarPatientRef } from '../../src/p1/sidebar-view.ts';
+import type {
+  SidebarAdvisor,
+  SidebarDraftRef,
+  SidebarPatientRef,
+} from '../../src/p1/sidebar-view.ts';
 
 import { parseSidebarConfig, retentionMs } from './config.ts';
 import { DomainSidebarBackend, sidebarDomain } from './domain.ts';
 import { registerSidebarHttp } from './http.ts';
-import type { SidebarHttpResponse, SidebarWebServer } from './http.ts';
+import type { SidebarClientEvent, SidebarHttpResponse, SidebarWebServer } from './http.ts';
 import { WecomOAuthClient } from './wecom-oauth.ts';
 
 export const name = 'zhiban-sidebar';
@@ -56,7 +61,9 @@ export interface SidebarRuntimeApi {
   recentlyClosed(convKey: string, limit?: number): PendingItem[];
   get(id: string): PendingItem | undefined;
   lastObservedAt(convKey: string): number | undefined;
-  close(id: string, reason: 'dismissed' | 'transferred', actor: string): PendingItem | undefined;
+  close(id: string, reason: PendingManualAction, actor: string): PendingItem | undefined;
+  /** 埋点：只上报事件名与 id，不带正文 */
+  reportEvent(type: SidebarClientEvent, itemId?: string): void;
   allItems(): PendingItem[];
   prune(now?: number): void;
   flush(): Promise<void>;
@@ -71,6 +78,8 @@ interface WecomAdminLike {
     advisorId?: string;
     status?: string;
   }>;
+  /** #149：已生成、未发出的草稿；群服务未就绪时返回空 */
+  latestSidebarDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
 }
 
 /** zhiban-patient 暴露给控制台的只读视图 */
@@ -132,6 +141,10 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
         onAudit: (event: AuditEvent) => {
           ctx.emit('audit', event);
         },
+        // 埋点与审计分开：埋点用于产品统计，允许丢失，绝不带正文
+        onMetric: (metric) => {
+          ctx.emit('sidebar.metric', metric);
+        },
         onPersistError: (error) => {
           // 存储失败不影响判定：内存里仍然是正确的，重启后可能少一条
           log(`待回复存储写入失败：${error.message}`);
@@ -150,6 +163,13 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
         get: (id) => service.get(id),
         lastObservedAt: (convKey) => service.lastObservedAt(convKey),
         close: (id, reason, actor) => service.close(id, reason, actor),
+        reportEvent: (type, itemId) => {
+          ctx.emit('sidebar.metric', {
+            type,
+            ...(itemId ? { itemId } : {}),
+            at: Date.now(),
+          });
+        },
         allItems: () => service.allItems(),
         prune: (now) => service.prune(now),
         flush: () => service.flush(),
@@ -208,6 +228,13 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
                   .find((item) => item.externalUserId === externalUserId)?.displayName,
               getAdvisorName: (advisorId) =>
                 patient?.listAdvisors().find((item) => item.id === advisorId)?.name,
+              // 只读：草稿由患者运行时生成，侧边栏不触发模型调用
+              ...(admin?.latestSidebarDraft
+                ? {
+                    latestDraft: (roomId: string, since: number) =>
+                      admin.latestSidebarDraft?.(roomId, since),
+                  }
+                : {}),
             },
             advisor,
             {

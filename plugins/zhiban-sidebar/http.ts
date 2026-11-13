@@ -79,6 +79,27 @@ const SIDEBAR_PAGE = '/sidebar/';
 const JSAPI_LIST = ['getCurExternalContact', 'getCurExternalChat'];
 const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60_000;
 
+/** 前端可上报的事件；白名单外的一律丢弃。事件只带 id，不带正文 */
+export type SidebarClientEvent =
+  | 'sidebar.open'
+  | 'pending.view'
+  | 'pending.copy_excerpt'
+  | 'draft.copy';
+
+export const SIDEBAR_CLIENT_EVENTS: readonly SidebarClientEvent[] = [
+  'sidebar.open',
+  'pending.view',
+  'pending.copy_excerpt',
+  'draft.copy',
+];
+
+function isClientEvent(value: unknown): value is SidebarClientEvent {
+  return (
+    typeof value === 'string' &&
+    (SIDEBAR_CLIENT_EVENTS as readonly string[]).includes(value)
+  );
+}
+
 function sendJson(
   res: SidebarHttpResponse,
   status: number,
@@ -322,8 +343,11 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         return;
       }
       const reason = (body as { reason?: unknown })?.reason;
-      if (reason !== 'dismissed' && reason !== 'transferred') {
-        sendJson(res, 400, { code: 'VALIDATION_FAILED', message: 'reason 只能是 dismissed 或 transferred' });
+      if (reason !== 'handled' && reason !== 'dismissed' && reason !== 'transferred') {
+        sendJson(res, 400, {
+          code: 'VALIDATION_FAILED',
+          message: 'reason 只能是 handled、dismissed 或 transferred',
+        });
         return;
       }
       const id = decodeURIComponent(closeMatch[1]!);
@@ -342,7 +366,29 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         throw error;
       }
       options.api.close(id, reason, advisor.id);
-      sendJson(res, 200, { ok: true, id });
+      sendJson(res, 200, { ok: true, id, status: reason });
+      return;
+    }
+
+    // 埋点：只收白名单事件与条目 id；正文一律不进上报
+    if (path === '/events' && method === 'POST') {
+      let body: unknown;
+      try {
+        const raw = await readBody(req);
+        body = raw === '' ? {} : JSON.parse(raw);
+      } catch {
+        sendJson(res, 400, { code: 'BAD_REQUEST', message: '请求体不是合法 JSON' });
+        return;
+      }
+      const event = (body as { event?: unknown })?.event;
+      if (!isClientEvent(event)) {
+        sendJson(res, 400, { code: 'VALIDATION_FAILED', message: '不支持的事件' });
+        return;
+      }
+      const rawId = (body as { itemId?: unknown })?.itemId;
+      const itemId = typeof rawId === 'string' && rawId !== '' ? rawId.slice(0, 64) : undefined;
+      options.api.reportEvent(event, itemId);
+      sendJson(res, 200, { ok: true });
       return;
     }
 

@@ -34,6 +34,7 @@ function item(overrides: Partial<PendingItem> = {}): PendingItem {
 
 function makeApi(items: PendingItem[]) {
   const closed: Array<{ id: string; actor: string }> = [];
+  const events: Array<{ type: string; itemId?: string }> = [];
   const api: SidebarRuntimeApi = {
     observe: () => ({ closed: [] }),
     openItems: (convKey) => items.filter((i) => i.convKey === convKey && i.status === 'open'),
@@ -45,11 +46,14 @@ function makeApi(items: PendingItem[]) {
       if (found) closed.push({ id, actor });
       return found;
     },
+    reportEvent: (type, itemId) => {
+      events.push({ type, ...(itemId ? { itemId } : {}) });
+    },
     allItems: () => items,
     prune: () => {},
     flush: async () => {},
   };
-  return { api, closed };
+  return { api, closed, events };
 }
 
 const viewDeps: SidebarViewDeps = {
@@ -83,7 +87,7 @@ interface Captured {
 
 function boot(items = [item()]) {
   const captured: Captured[] = [];
-  const { api, closed } = makeApi(items);
+  const { api, closed, events } = makeApi(items);
   registerSidebarHttp(
     {
       register: (route) => {
@@ -109,7 +113,7 @@ function boot(items = [item()]) {
         ),
     },
   );
-  return { route: captured[0]!, closed };
+  return { route: captured[0]!, closed, events };
 }
 
 function cookie(advisorId: string, exp = NOW + 60_000): string {
@@ -233,4 +237,51 @@ test('非法 reason 返回 400', async () => {
     body: JSON.stringify({ reason: 'delete' }),
   });
   assert.equal(result.status, 400);
+});
+
+test('#149 已处理与转交都能关闭', async () => {
+  for (const reason of ['handled', 'transferred']) {
+    const { route, closed } = boot();
+    const result = await call(route, {
+      method: 'POST',
+      url: '/zhiban/sidebar/pending/pend_1/close',
+      headers: { cookie: cookie('adv_1') },
+      body: JSON.stringify({ reason }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, reason);
+    assert.deepEqual(closed, [{ id: 'pend_1', actor: 'adv_1' }]);
+  }
+});
+
+test('#149 埋点只收白名单事件，id 截断且不带正文', async () => {
+  const { route, events } = boot();
+  const result = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/events',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ event: 'draft.copy', itemId: 'pend_1', body: '不该带上来的正文' }),
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(events, [{ type: 'draft.copy', itemId: 'pend_1' }]);
+
+  const denied = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/events',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ event: 'message.body', itemId: 'pend_1' }),
+  });
+  assert.equal(denied.status, 400);
+  assert.equal(events.length, 1);
+});
+
+test('#149 埋点接口同样需要登录', async () => {
+  const { route, events } = boot();
+  const result = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/events',
+    body: JSON.stringify({ event: 'sidebar.open' }),
+  });
+  assert.equal(result.status, 401);
+  assert.equal(events.length, 0);
 });
