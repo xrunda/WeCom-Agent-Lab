@@ -61,6 +61,9 @@ export function isExternalCustomerId(id: string): boolean {
   return id.startsWith('wm') || id.startsWith('wo');
 }
 
+/** #160 待回复索引接受的存档消息类型：文字 + 媒体（媒体没有正文，但同样欠回应） */
+const SIDEBAR_MSGTYPES = new Set(['text', 'image', 'voice', 'video', 'file']);
+
 export interface WeComArchiveMediaConfig {
   /** 媒体落盘根目录：<root>/<roomid>/<msgid>.<ext> */
   rootDir: string;
@@ -536,7 +539,8 @@ export class WeComArchiveAdapter implements ArchivePort {
         if (record.msgtime < params.since || record.msgtime > params.until) return false;
         // switch 是会话切换事件（没有正文），不进待回复
         if ((record.action as string | undefined) === 'switch') return false;
-        if (record.msgtype !== 'text' && record.msgtype !== 'image') return false;
+        // 文字与媒体都要进索引：客户发语音/图片同样是「欠一个回应」
+        if (!SIDEBAR_MSGTYPES.has(record.msgtype ?? '')) return false;
         if (record.roomid) return this.isServiceGroup(record.roomid);
         return this.isServedDm?.(record) === true;
       })

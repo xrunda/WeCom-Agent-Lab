@@ -88,7 +88,28 @@ test('需要回应的判定：疑问、请求、@ 命中；寒暄不建档', () 
   assert.equal(replyExpectation('收到，谢谢！', 'text'), undefined);
   assert.equal(replyExpectation('好的，那我明天还吃这个药吗', 'text'), 'question');
   assert.equal(replyExpectation('', 'text'), undefined);
-  assert.equal(replyExpectation('图片', 'image'), undefined);
+  // 媒体没有正文，但客户发东西就是欠一个回应
+  assert.equal(replyExpectation('图片', 'image'), 'media');
+  assert.equal(replyExpectation('', 'voice'), 'media');
+  assert.equal(replyExpectation('', 'file'), 'media');
+});
+
+test('媒体消息建待回复条目，摘要显示类型占位；后到的图片不覆盖文字摘要', () => {
+  const svc = service();
+  svc.observe(message(ROOM, 'wm_a', '', T0, { msgtype: 'voice' }));
+  let open = svc.openItems(ROOM);
+  assert.equal(open.length, 1);
+  assert.equal(open[0]!.reason, 'media');
+  assert.equal(open[0]!.excerpt, '[语音]');
+
+  // 客户补一句文字，再补一张图：摘要保留文字，原因升级为 question
+  svc.observe(message(ROOM, 'wm_a', '这个能吃吗？', T0 + MIN));
+  svc.observe(message(ROOM, 'wm_a', '', T0 + 2 * MIN, { msgtype: 'image' }));
+  open = svc.openItems(ROOM);
+  assert.equal(open.length, 1);
+  assert.equal(open[0]!.messageCount, 3);
+  assert.equal(open[0]!.excerpt, '这个能吃吗？');
+  assert.equal(open[0]!.reason, 'question');
 });
 
 test('客户连发多条合并成一条，原文取最新，条数累计', () => {

@@ -92,6 +92,10 @@ test('#160 补建待回复索引：窗口内的服务群与受服务单聊都返
         record({
           msgid: 'd2', from: 'LiGuang', roomid: '', tolist: ['wmCust1'], msgtime: 2_500,
         }),
+        // 语音/图片没有正文，同样要进待回复；链接等其它类型不进
+        record({ msgid: 'g3', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 2_200, msgtype: 'voice', text: undefined }),
+        record({ msgid: 'g4', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 2_400, msgtype: 'image', text: undefined }),
+        record({ msgid: 'x4', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 2_600, msgtype: 'link', text: undefined }),
         // 非服务群、窗口外、AI 助手会话都不进补建
         record({ msgid: 'x1', from: 'wmOther', roomid: 'wrOTHER', msgtime: 1_200 }),
         record({ msgid: 'x2', from: 'wmCUSTOMER', roomid: 'wrGROUP1', msgtime: 99_000 }),
@@ -110,7 +114,7 @@ test('#160 补建待回复索引：窗口内的服务群与受服务单聊都返
 
   const records = await adapter.listSidebarHistory({ since: 0, until: 10_000 });
 
-  assert.deepEqual(records.map((r) => r.msgid), ['g1', 'd1', 'g2', 'd2']);
+  assert.deepEqual(records.map((r) => r.msgid), ['g1', 'd1', 'g2', 'g3', 'g4', 'd2']);
   // 从持久化 seq 回退补拉，主游标不推进、共享缓存不写入
   assert.equal(calls[0][1], '90');
   assert.equal(adapter.getSeq(), 100);

@@ -760,7 +760,10 @@ test('#160 重启后把窗口内历史消息补进待回复索引，顾问回复
 
     // 客户提问与顾问回复都进索引：按时间顺序才能把已回复的条目关掉
     assert.ok(observed.some((input) => input.msgid === 'msg_customer_1' && input.senderKind === 'external'));
-    assert.ok(observed.some((input) => input.msgid === 'msg_hist_staff' && input.senderKind === 'staff'));
+    // 员工/机器人身份由索引自己判定（botUserIds + 前缀），同步层不越权标记
+    const staffObserved = observed.find((input) => input.msgid === 'msg_hist_staff');
+    assert.ok(staffObserved);
+    assert.notEqual(staffObserved.senderKind, 'external');
     assert.ok(observed.some((input) => input.convKey === 'room:wrGROUP1'));
 
     await h.runtime.pollOnce();
@@ -769,6 +772,59 @@ test('#160 重启后把窗口内历史消息补进待回复索引，顾问回复
   } finally {
     await h.runtime.stop();
   }
+});
+
+test('#160 客户发语音/图片没有草稿，也要进待回复索引', async () => {
+  interface ObservedInput {
+    msgid?: string;
+    senderKind?: string;
+    msgtype?: string;
+    text?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      {
+        msgid: 'msg_voice_1',
+        action: 'recv',
+        from: 'wmCUSTOMER',
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 3_000,
+        msgtype: 'voice',
+      },
+      {
+        msgid: 'msg_image_1',
+        action: 'recv',
+        from: 'wmCUSTOMER',
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 2_000,
+        msgtype: 'image',
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  // 语音不被触发层取用（没有正文、没有草稿），但存档同步必须把它带进索引
+  assert.ok(
+    observed.some(
+      (input) =>
+        input.msgid === 'msg_voice_1' && input.senderKind === 'external' && input.msgtype === 'voice',
+    ),
+  );
+  assert.ok(
+    observed.some((input) => input.msgid === 'msg_image_1' && input.senderKind === 'external'),
+  );
 });
 
 test('#159 每轮轮询前都会对齐服务群白名单', async () => {

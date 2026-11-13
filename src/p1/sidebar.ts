@@ -46,7 +46,7 @@ export interface SidebarMessageInput {
   at: number;
 }
 
-export type PendingReason = 'question' | 'request' | 'mention' | 'ambiguous';
+export type PendingReason = 'question' | 'request' | 'mention' | 'ambiguous' | 'media';
 
 export type PendingStatus = 'open' | 'replied' | 'handled' | 'dismissed' | 'transferred';
 
@@ -146,12 +146,40 @@ const REQUEST_WORDS = /(帮我|麻烦|请|问一下|咨询|想问|想问下|看�
 
 const MENTION = /@/;
 
-/** 文本是否需要回应；返回分类，不需要时返回 undefined */
+/**
+ * 客户发来的媒体消息：存档里没有正文（语音也是原音文件，不是转写），
+ * 但客户发了东西就是欠一个回应，不能因为「没有文字」就从待回复里消失。
+ */
+const MEDIA_MSGTYPES = new Set(['image', 'voice', 'video', 'file']);
+
+const MEDIA_EXCERPT: Record<string, string> = {
+  image: '[图片]',
+  voice: '[语音]',
+  video: '[视频]',
+  file: '[文件]',
+};
+
+/** 媒体消息没有正文时用占位说明，避免条目摘要为空 */
+export function mediaExcerpt(msgtype: string, text?: string): string {
+  const value = (text ?? '').trim();
+  if (value !== '') return value;
+  return MEDIA_EXCERPT[msgtype] ?? '';
+}
+
+/** 合并同一客户连发消息时，原因只升不降 */
+const REASON_RANK: Record<PendingReason, number> = {
+  mention: 4,
+  question: 3,
+  request: 2,
+  ambiguous: 1,
+  media: 0,
+};
+
+/** 消息是否需要回应；返回分类，不需要时返回 undefined */
 export function replyExpectation(text: string | undefined, msgtype: string): PendingReason | undefined {
   const value = (text ?? '').trim();
+  if (MEDIA_MSGTYPES.has(msgtype)) return 'media';
   if (value === '') return undefined;
-  // 图片没有文本可判；语音若已转写则按文本判，未转写时由 UI 提示，不建档
-  if (msgtype === 'image') return undefined;
 
   if (ACK_WORDS.test(value)) return undefined;
   if (ACK_PREFIX.test(value) && value.length <= 10) return undefined;
@@ -316,6 +344,7 @@ export class SidebarService {
   }
 
   private upsertExternal(input: SidebarMessageInput, reason: PendingReason): PendingItem {
+    const excerpt = trimExcerpt(mediaExcerpt(input.msgtype, input.text));
     const existing = [...this.items.values()].find(
       (item) =>
         item.convKey === input.convKey &&
@@ -327,11 +356,10 @@ export class SidebarService {
     if (existing) {
       existing.lastAt = Math.max(existing.lastAt, input.at);
       existing.messageCount += 1;
-      existing.excerpt = trimExcerpt(input.text);
-      // 疑问优先于模糊陈述，便于 UI 排序与提示
-      if (reason === 'question' || reason === 'request' || reason === 'mention') {
-        existing.reason = reason;
-      }
+      // 客户先发了文字又补一张图时，保留文字摘要：文字的回应价值更高
+      const textExcerpt = trimExcerpt(input.text);
+      if (textExcerpt !== '') existing.excerpt = textExcerpt;
+      if (REASON_RANK[reason] > REASON_RANK[existing.reason]) existing.reason = reason;
       this.persist(existing);
       return existing;
     }
@@ -345,7 +373,7 @@ export class SidebarService {
       firstAt: input.at,
       lastAt: input.at,
       messageCount: 1,
-      excerpt: trimExcerpt(input.text),
+      excerpt: excerpt || '[新消息]',
       reason,
       status: 'open',
     };

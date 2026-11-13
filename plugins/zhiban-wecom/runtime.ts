@@ -33,6 +33,9 @@ import type { RoomAgreeClient } from './room-agree.ts';
  */
 const DM_INGEST_LOOKBACK_MS = 24 * 60 * 60_000;
 
+/** #160 待回复索引增量同步的重叠窗口：归档回放可能晚于轮询到达 */
+const SIDEBAR_SYNC_OVERLAP_MS = 5 * 60_000;
+
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
  * wecom 只负责把存档消息转交过去，不依赖患者域实现。
@@ -194,8 +197,11 @@ export class WecomRuntime {
   private polling = false;
   private ticking = false;
   private lastRunPersistAt = 0;
-  /** #160：每次启动只补建一次待回复索引 */
-  private sidebarBackfilled = false;
+  /**
+   * #160：待回复索引上次同步到哪个时刻。undefined 表示本进程还没同步过，
+   * 第一次同步按 sidebarBackfillHours 回看补建；之后每轮只扫增量。
+   */
+  private sidebarSyncedAt?: number;
 
   constructor(deps: WecomRuntimeDeps) {
     this.store = deps.store;
@@ -295,17 +301,15 @@ export class WecomRuntime {
       const result = await this.trigger.pollWithContext();
       this.patient?.observeRooms(await this.enrichRooms(result.rooms));
 
-      // #160：重启后先把窗口内的历史消息补进待回复索引，再处理本轮新消息，
-      // 保证「客户提问 → 顾问已回复」按时间顺序落到同一条目上
-      if (!this.sidebarBackfilled) {
-        this.sidebarBackfilled = true;
-        try {
-          await this.backfillSidebarHistory();
-        } catch (error) {
-          this.log(
-            `待回复索引补建失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
-          );
-        }
+      // #160：每轮先按时间顺序把存档消息同步进待回复索引，再处理本轮草稿，
+      // 保证「客户提问 → 顾问已回复」按真实先后落到同一条目上；
+      // 重启后第一次同步回看 sidebarBackfillHours 补建停机期间漏掉的条目
+      try {
+        await this.syncSidebarHistory();
+      } catch (error) {
+        this.log(
+          `待回复索引同步失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
       }
 
       // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
@@ -422,18 +426,35 @@ export class WecomRuntime {
    * 交给侧边栏。外部消息开条目、员工消息关条目，顺序对了重建结果才和群里的
    * 真实状态一致。只读存档，不生成草稿；索引按 msgid 幂等，重复补建无副作用。
    */
-  private async backfillSidebarHistory(): Promise<void> {
+  /**
+   * #160：把存档里的群消息与受服务单聊按时间顺序同步进待回复索引。
+   *
+   * 为什么每轮都做、而不是只用本轮触发结果：语音/文件等消息没有正文，
+   * 触发层不会给它们生成草稿，但客户发了东西就是欠一个回应；另外顾问
+   * 在存档里回复后，条目必须按真实时间关闭，而不是按本轮处理顺序。
+   * 索引按 msgid 幂等，重复同步没有副作用。
+   */
+  private async syncSidebarHistory(): Promise<void> {
     const sink = this.sidebar?.();
-    const listHistory = this.archive.listSidebarHistory;
-    if (!sink || !listHistory) return;
+    if (!sink || !this.archive.listSidebarHistory) {
+      this.sidebarSyncedAt = this.clock.now();
+      return;
+    }
 
     const until = this.clock.now();
-    const since = until - this.config.sidebarBackfillHours * 60 * 60_000;
-    const records = await listHistory.call(this.archive, { since, until });
+    const first = this.sidebarSyncedAt === undefined;
+    // 增量同步带一段重叠：归档回放可能比轮询晚到，重叠部分靠 msgid 去重
+    const since = first
+      ? until - this.config.sidebarBackfillHours * 60 * 60_000
+      : Math.max(0, this.sidebarSyncedAt! - SIDEBAR_SYNC_OVERLAP_MS);
+    // 先记窗口：即使本次失败也不重复回看同一段历史，下一轮的重叠会补上
+    this.sidebarSyncedAt = until;
+
+    const records = await this.archive.listSidebarHistory({ since, until });
     const staffUserIds = [this.config.advisorChatId];
     let observed = 0;
     for (const record of records) {
-      const senderKind = isExternalCustomerId(record.from) ? 'external' : 'staff';
+      const external = isExternalCustomerId(record.from);
       try {
         if (record.roomId !== '') {
           sink.observe({
@@ -442,7 +463,8 @@ export class WecomRuntime {
             kind: 'group',
             roomId: record.roomId,
             senderId: record.from,
-            senderKind,
+            // 只显式标记外部客户；其余交给索引按 botUserIds / 前缀区分员工与机器人
+            ...(external ? { senderKind: 'external' as const } : {}),
             msgtype: record.msgtype ?? 'text',
             text: record.text,
             at: record.msgtime,
@@ -450,14 +472,14 @@ export class WecomRuntime {
         } else {
           const fromStaff = staffUserIds.includes(record.from);
           const externalId = fromStaff ? (record.tolist?.[0] ?? '') : record.from;
-          // 补建只覆盖顾问 ↔ 客户单聊；AI 助手/应用会话不进待回复
+          // 只覆盖顾问 ↔ 客户单聊；AI 助手/应用会话不进待回复
           if (externalId === '' || !isExternalCustomerId(externalId)) continue;
           sink.observe({
             msgid: record.msgid,
             convKey: dmConvKey(staffUserIds[0]!, externalId),
             kind: 'dm',
             senderId: record.from,
-            senderKind: fromStaff ? 'staff' : 'external',
+            ...(external ? { senderKind: 'external' as const } : {}),
             msgtype: record.msgtype ?? 'text',
             text: record.text,
             at: record.msgtime,
@@ -465,17 +487,19 @@ export class WecomRuntime {
         }
         observed += 1;
       } catch (error) {
-        // 单条失败不影响整体补建；日志只带 msgid
+        // 单条失败不影响整体同步；日志只带 msgid
         this.log(
-          `待回复补建索引失败 msgid=${tailId(record.msgid)}：` +
+          `待回复索引同步失败 msgid=${tailId(record.msgid)}：` +
             `${error instanceof Error ? error.message : 'UNKNOWN'}`,
         );
       }
     }
-    this.log(
-      `待回复索引补建完成：窗口 ${this.config.sidebarBackfillHours}h，` +
-        `候选 ${records.length} 条，入索引 ${observed} 条`,
-    );
+    if (first) {
+      this.log(
+        `待回复索引补建完成：窗口 ${this.config.sidebarBackfillHours}h，` +
+          `候选 ${records.length} 条，入索引 ${observed} 条`,
+      );
+    }
   }
 
   /**
