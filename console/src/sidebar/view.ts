@@ -256,11 +256,10 @@ function ready(data: SidebarContextData, handlers: ViewHandlers, notice?: { mess
   const title = data.conv.name ? escapeHtml(data.conv.name) : '当前会话';
   return `
     <header class="top">
-      <div class="brand-row">
-        <span class="brand">知伴健康</span>
+      <div class="title-row">
+        <h1>${title}</h1>
         ${refreshButton()}
       </div>
-      <h1>${title}</h1>
     </header>
     ${notice ? noticeBanner(notice) : ''}
     ${pendingCard(data)}

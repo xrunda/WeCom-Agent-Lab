@@ -39,17 +39,17 @@ body {
   padding: 2px 4px 10px;
 }
 
-.brand {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+/* 会话名与刷新同一行：不再单独占一行「知伴健康」品牌字 */
+.title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.brand-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.title-row h1 {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 刷新做成带文字的胶囊：图标单独一个圈太抽象，看不出能点 */
@@ -58,9 +58,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex: none;
   height: 30px;
   padding: 0 10px;
-  margin: -6px -6px -6px 0;
+  margin: 0 -6px 0 0;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
