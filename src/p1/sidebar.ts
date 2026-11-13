@@ -167,6 +167,8 @@ export class SidebarService {
 
   private items = new Map<string, PendingItem>();
   private seen = new Map<string, number>();
+  /** 每个会话最近一次观察到消息的时刻；重启后为空，仅用于界面提示新鲜度 */
+  private convSeenAt = new Map<string, number>();
   private writes: Promise<void>[] = [];
 
   constructor(options: SidebarServiceOptions) {
@@ -188,6 +190,10 @@ export class SidebarService {
   observe(input: SidebarMessageInput): ObserveResult {
     if (this.seen.has(input.msgid)) return { closed: [] };
     this.seen.set(input.msgid, input.at);
+    this.convSeenAt.set(
+      input.convKey,
+      Math.max(this.convSeenAt.get(input.convKey) ?? 0, input.at),
+    );
     this.write(this.backend.putSeen(input.msgid, input.at));
 
     const senderKind = input.senderKind ?? this.classify(input.senderId);
@@ -224,6 +230,11 @@ export class SidebarService {
 
   get(id: string): PendingItem | undefined {
     return this.items.get(id);
+  }
+
+  /** 该会话最近一次观察到消息的时刻；没有记录时为空 */
+  lastObservedAt(convKey: string): number | undefined {
+    return this.convSeenAt.get(convKey);
   }
 
   /** 顾问手动关闭：已处理 / 无需回复 / 转交 */
