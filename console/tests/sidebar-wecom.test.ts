@@ -125,6 +125,6 @@ describe('JS-SDK 封装（#145）', () => {
     };
     const pending = resolveConversation(wx);
     await vi.advanceTimersByTimeAsync(3_000);
-    await expect(pending).resolves.toEqual({ kind: 'unsupported' });
+    await expect(pending).resolves.toMatchObject({ kind: 'unsupported' });
   });
 });

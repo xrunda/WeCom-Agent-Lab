@@ -7,7 +7,10 @@
 import type { AgentConfig } from './types.ts';
 
 export interface WxInvokeResult {
+  /** jweixin 的 invoke 回调用下划线写法 */
   err_msg?: string;
+  /** 部分客户端回驼峰 */
+  errMsg?: string;
   chatId?: string;
   /** getCurExternalContact 返回的是外部联系人 userid */
   userId?: string;
@@ -31,7 +34,8 @@ export interface WxLike {
 export type ConversationRef =
   | { kind: 'group'; chatId: string }
   | { kind: 'dm'; externalUserId: string }
-  | { kind: 'unsupported' };
+  /** detail 只用于现场排查（企微返回的 err_msg），不展示给用户 */
+  | { kind: 'unsupported'; detail?: string };
 
 const INVOKE_TIMEOUT_MS = 3_000;
 /** 签名不对或可信域名没生效时 agentConfig 可能永不回调，超时按失败处理 */
@@ -121,10 +125,16 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
   });
 }
 
+function errText(result: WxInvokeResult | undefined): string | undefined {
+  if (!result) return undefined;
+  return result.err_msg ?? result.errMsg;
+}
+
 function isOk(result: WxInvokeResult | undefined): boolean {
   if (!result) return false;
-  if (result.err_msg === undefined) return true;
-  return result.err_msg.endsWith(':ok');
+  const message = errText(result);
+  if (message === undefined) return true;
+  return message.endsWith(':ok');
 }
 
 /** 企微在非企微浏览器里不会回调，超时按「取不到」处理 */
@@ -158,7 +168,10 @@ export async function resolveConversation(wx: WxLike): Promise<ConversationRef> 
   if (isOk(contact) && contact?.userId) {
     return { kind: 'dm', externalUserId: contact.userId };
   }
-  return { kind: 'unsupported' };
+  return {
+    kind: 'unsupported',
+    detail: `chat=${errText(chat) ?? 'none'},dm=${errText(contact) ?? 'none'},fn=${typeof wx.invoke}`,
+  };
 }
 
 export function contextQuery(ref: ConversationRef): string {

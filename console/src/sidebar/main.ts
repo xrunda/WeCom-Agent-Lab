@@ -199,6 +199,8 @@ async function start(rootEl: HTMLElement): Promise<void> {
 
     conversation = await resolveConversation(wx);
     if (conversation.kind === 'unsupported') {
+      // 取不到会话时把企微的 err_msg 带进访问日志，否则线上只能看到「未接入服务」
+      reportSdkDiag(`inv=${conversation.detail ?? 'none'}`);
       render(
         rootEl,
         { kind: 'unsupported', reason: 'NO_CONVERSATION' },
