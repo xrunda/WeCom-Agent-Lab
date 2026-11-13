@@ -75,11 +75,39 @@ body {
   flex: none;
 }
 
-.refresh-btn:hover,
-.refresh-btn:active {
+.refresh-btn:not(:disabled):hover,
+.refresh-btn:not(:disabled):active {
   border-color: var(--accent-soft);
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* 刷新中：图标转圈；刷新完成：短暂变成「已刷新」的浅绿提示 */
+.refresh-btn.is-busy svg {
+  animation: zb-spin 0.8s linear infinite;
+}
+
+.refresh-btn.is-done {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+@keyframes zb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-btn.is-busy svg {
+    animation: none;
+  }
 }
 
 .refresh-btn:focus-visible {

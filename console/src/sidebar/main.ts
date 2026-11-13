@@ -7,7 +7,7 @@
  */
 import './sidebar.css';
 import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext, postClose, postEvent } from './api.ts';
-import { render } from './view.ts';
+import { flashRefreshed, markRefreshBusy, render } from './view.ts';
 import type { ViewHandlers } from './view.ts';
 import { WxConfigError, configureAgent, contextQuery, resolveConversation } from './wecom.ts';
 import type { ConversationRef, WxLike } from './wecom.ts';
@@ -273,9 +273,19 @@ function handlers(rootEl: HTMLElement, redraw: () => void): ViewHandlers {
   };
 }
 
-async function refresh(rootEl: HTMLElement): Promise<void> {
+/** 手动刷新的「刷新中」至少亮一小会儿：接口回得太快，一闪而过等于没反馈 */
+function pauseAtLeast(startedAt: number, minMs: number): Promise<void> {
+  const rest = minMs - (Date.now() - startedAt);
+  if (rest <= 0) return Promise.resolve();
+  return new Promise((resolve) => window.setTimeout(resolve, rest));
+}
+
+async function refresh(rootEl: HTMLElement, manual = false): Promise<void> {
   if (!conversation || conversation.kind === 'unsupported') return;
-  const redraw = (): void => void refresh(rootEl);
+  const redraw = (): void => void refresh(rootEl, true);
+  // 手动刷新要给反馈：请求期间转圈，数据没变时按钮也闪一下「已刷新」
+  const startedAt = Date.now();
+  if (manual) markRefreshBusy(rootEl, true);
   try {
     const data = await fetchContext(contextQuery(conversation));
     if (!data.conv.served) {
@@ -296,6 +306,10 @@ async function refresh(rootEl: HTMLElement): Promise<void> {
     writeAuthTried(false);
     lastData = { kind: 'ready', data };
     render(rootEl, lastData, handlers(rootEl, redraw));
+    if (manual) {
+      await pauseAtLeast(startedAt, 350);
+      flashRefreshed(rootEl);
+    }
     if (!reportedOpen) {
       reportedOpen = true;
       void postEvent('sidebar.open');

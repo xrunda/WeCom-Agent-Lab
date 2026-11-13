@@ -61,7 +61,7 @@ function clockLabel(at: number): string {
 export interface ViewHandlers {
   onRetry?: () => void;
   onRefresh?: () => void;
-  /** 手动关闭：已处理 / 无需回复 / 转交 */
+  /** 手动关闭：已处理 / 无需回复（「转交」按钮先隐藏，暂时没有分派流程） */
   onClose?: (id: string, reason: 'handled' | 'dismissed' | 'transferred') => void;
   /** 埋点：复制、查看等；失败由 api 层吞掉 */
   onEvent?: (event: 'sidebar.open' | 'pending.view' | 'pending.copy_excerpt' | 'draft.copy', itemId?: string) => void;
@@ -153,7 +153,6 @@ function itemHtml(item: SidebarPendingView): string {
         <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}" data-item="${id}">复制原话</button>
         <button type="button" class="op" data-close="handled" data-item="${id}">已处理</button>
         <button type="button" class="op" data-close="dismissed" data-item="${id}">无需回复</button>
-        <button type="button" class="op" data-close="transferred" data-item="${id}">转交</button>
       </div>
       <p class="copy-hint" hidden>复制失败，已选中原文，请手动复制</p>
       ${item.aiReplied ? '<p class="note">机器人已回应</p>' : ''}
@@ -351,6 +350,30 @@ function flashCopied(button: HTMLButtonElement, restore: string): void {
     button.textContent = restore;
     button.classList.remove('copied');
   }, 2_000);
+}
+
+/** 手动刷新：请求期间图标转圈并禁用，避免连点；渲染后节点会被替换，无需还原 */
+export function markRefreshBusy(root: HTMLElement, busy: boolean): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-refresh].refresh-btn');
+  if (!button) return;
+  button.classList.toggle('is-busy', busy);
+  button.disabled = busy;
+  button.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+/** 手动刷新完成：按钮短暂显示「已刷新」，否则数据没变时看不出点过 */
+export function flashRefreshed(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-refresh].refresh-btn');
+  const label = button?.querySelector('span');
+  if (!button || !label) return;
+  button.classList.add('is-done');
+  button.setAttribute('aria-label', '已刷新');
+  label.textContent = '已刷新';
+  window.setTimeout(() => {
+    button.classList.remove('is-done');
+    button.setAttribute('aria-label', '刷新');
+    label.textContent = '刷新';
+  }, 1_500);
 }
 
 export function render(
