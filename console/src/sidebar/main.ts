@@ -25,8 +25,9 @@ const POLL_MS = 30_000;
  * 按版本顺序兜底加载官方 JS-SDK，后者会覆盖 window.wx。
  */
 const WX_SDK_URLS = [
+  // 基础 wx.config 与 wx.invoke 在 jweixin；wx.agentConfig 由企业微信 SDK 提供
   'https://res.wx.qq.com/open/js/jweixin-1.2.0.js',
-  'https://res.wx.qq.com/open/js/jweixin-1.6.0.js',
+  'https://open.work.weixin.qq.com/wwopen/js/jwxwork-1.0.0.js',
 ];
 const WX_SDK_TIMEOUT_MS = 5_000;
 const AUTH_TRIED_KEY = 'zb_sidebar_auth_tried';

@@ -2,14 +2,18 @@
  * 企微自建应用 OAuth 与 JS-SDK 签名（#145）。
  *
  * - 授权换 userid：`snsapi_base` 静默授权，只拿成员身份；
- * - `wx.agentConfig` 签名：jsapi_ticket 缓存在进程内，失效前复用；
+ * - `wx.config` 用企业 jsapi_ticket，`wx.agentConfig` 用应用 ticket（type=agent_config），
+ *   两者不是同一张票，混用会导致 agentConfig:fail；
  * - access_token / ticket / Secret 只存在服务端，不打印、不返回给前端。
  */
 import { createHash, randomBytes } from 'node:crypto';
 
 const TOKEN_URL = 'https://qyapi.weixin.qq.com/cgi-bin/gettoken';
 const USERINFO_URL = 'https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo';
+/** 企业身份 ticket：wx.config 用 */
 const TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket';
+/** 应用身份 ticket：wx.agentConfig 用 */
+const AGENT_TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/ticket/get';
 const AUTHORIZE_URL = 'https://open.weixin.qq.com/connect/oauth2/authorize';
 
 /** 提前 5 分钟过期，避免边界上拿到刚失效的 token / ticket */
@@ -73,8 +77,10 @@ export class WecomOAuthClient {
 
   private token?: CachedValue;
   private ticket?: CachedValue;
+  private appTicket?: CachedValue;
   private tokenInFlight?: Promise<string>;
   private ticketInFlight?: Promise<string>;
+  private appTicketInFlight?: Promise<string>;
 
   constructor(options: WecomOAuthOptions) {
     this.corpId = options.corpId;
@@ -116,24 +122,31 @@ export class WecomOAuthClient {
     return { ...(userid ? { userid } : {}), ...(openid ? { openid } : {}) };
   }
 
-  /** wx.agentConfig 所需签名；url 必须是侧边栏自己的地址 */
+  /** wx.agentConfig 所需签名：用应用 ticket（type=agent_config） */
   async signAgentConfig(url: string): Promise<AgentSignature> {
+    const signed = await this.sign(url, () => this.agentTicket());
+    return { corpId: this.corpId!, agentId: this.agentId!, ...signed };
+  }
+
+  /** wx.config 所需签名：用企业 jsapi_ticket，和 agentConfig 不是同一张票 */
+  async signConfig(url: string): Promise<Omit<AgentSignature, 'corpId' | 'agentId'>> {
+    return this.sign(url, () => this.jsapiTicket());
+  }
+
+  private async sign(
+    url: string,
+    ticketOf: () => Promise<string>,
+  ): Promise<{ timestamp: string; nonceStr: string; signature: string }> {
     if (!this.configured) throw new WecomOAuthError('OAUTH_UNAVAILABLE', 'JS-SDK 未配置');
     if (!isSameOrigin(url, this.publicBaseUrl!)) {
       throw new WecomOAuthError('URL_NOT_ALLOWED', '只能为侧边栏自己的页面签名');
     }
-    const ticket = await this.jsapiTicket();
+    const ticket = await ticketOf();
     const timestamp = String(Math.floor(this.now() / 1000));
     const nonceStr = randomBytes(8).toString('hex');
     const plain = `jsapi_ticket=${ticket}&noncestr=${nonceStr}&timestamp=${timestamp}&url=${url}`;
     const signature = createHash('sha1').update(plain).digest('hex');
-    return {
-      corpId: this.corpId!,
-      agentId: this.agentId!,
-      timestamp,
-      nonceStr,
-      signature,
-    };
+    return { timestamp, nonceStr, signature };
   }
 
   private async accessToken(): Promise<string> {
@@ -169,27 +182,42 @@ export class WecomOAuthClient {
   private async jsapiTicket(): Promise<string> {
     if (this.ticket && this.ticket.expiresAt > this.now()) return this.ticket.value;
     if (!this.ticketInFlight) {
-      this.ticketInFlight = this.loadTicket().finally(() => {
+      this.ticketInFlight = this.loadTicket(TICKET_URL).finally(() => {
         this.ticketInFlight = undefined;
       });
     }
     return this.ticketInFlight;
   }
 
-  private async loadTicket(): Promise<string> {
+  private async agentTicket(): Promise<string> {
+    if (this.appTicket && this.appTicket.expiresAt > this.now()) return this.appTicket.value;
+    if (!this.appTicketInFlight) {
+      this.appTicketInFlight = this.loadTicket(
+        `${AGENT_TICKET_URL}?access_token=__TOKEN__&type=agent_config`,
+      ).finally(() => {
+        this.appTicketInFlight = undefined;
+      });
+    }
+    return this.appTicketInFlight;
+  }
+
+  /** urlTemplate 里的 __TOKEN__ 会替换成 access_token，其余参数原样保留 */
+  private async loadTicket(urlTemplate: string): Promise<string> {
     const token = await this.accessToken();
     const data = await this.getJson(
-      `${TICKET_URL}?access_token=${encodeURIComponent(token)}`,
+      urlTemplate.replace('__TOKEN__', encodeURIComponent(token)),
     );
     this.assertOk(data, 'TICKET_FAILED', '获取 jsapi_ticket 失败');
     if (typeof data.ticket !== 'string' || data.ticket === '') {
       throw new WecomOAuthError('TICKET_FAILED', '获取 jsapi_ticket 失败');
     }
     const ttl = typeof data.expires_in === 'number' ? data.expires_in * 1000 : 7_200_000;
-    this.ticket = {
+    const cached = {
       value: data.ticket,
       expiresAt: this.now() + Math.max(MIN_CACHE_MS, ttl - EARLY_EXPIRY_MS),
     };
+    if (urlTemplate.includes('type=agent_config')) this.appTicket = cached;
+    else this.ticket = cached;
     return data.ticket;
   }
 

@@ -69,7 +69,13 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
       () => finish(new WxConfigError('JS-SDK 鉴权超时')),
       AGENT_CONFIG_TIMEOUT_MS,
     );
-    const signature = {
+    // config 用企业 ticket 的签名，agentConfig 用应用 ticket 的签名
+    const configSignature = config.config ?? {
+      timestamp: config.timestamp,
+      nonceStr: config.nonceStr,
+      signature: config.signature,
+    };
+    const agentSignature = {
       timestamp: config.timestamp,
       nonceStr: config.nonceStr,
       signature: config.signature,
@@ -80,14 +86,15 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
         beta: true,
         debug: false,
         appId: config.corpId,
-        ...signature,
+        ...configSignature,
+        jsApiList: config.jsApiList,
         success: () => {},
         fail: () => {},
       });
       wx.agentConfig({
         corpId: config.corpId,
         agentId: config.agentId,
-        ...signature,
+        ...agentSignature,
         success: () => finish(),
         fail: (result: WxConfigResult) =>
           finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),

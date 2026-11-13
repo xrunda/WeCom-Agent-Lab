@@ -53,6 +53,12 @@ export interface SidebarOAuthPort {
     nonceStr: string;
     signature: string;
   }>;
+  /** wx.config 签名；企业 ticket 与应用 ticket 不是同一张，旧实现可以省略 */
+  signConfig?(url: string): Promise<{
+    timestamp: string;
+    nonceStr: string;
+    signature: string;
+  }>;
 }
 
 export interface SidebarHttpOptions {
@@ -299,7 +305,8 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
       }
       try {
         const signed = await options.oauth.signAgentConfig(target);
-        sendJson(res, 200, { ...signed, jsApiList: JSAPI_LIST });
+        const config = options.oauth.signConfig ? await options.oauth.signConfig(target) : undefined;
+        sendJson(res, 200, { ...signed, ...(config ? { config } : {}), jsApiList: JSAPI_LIST });
       } catch (error) {
         if (isOAuthError(error)) {
           sendJson(res, error.code === 'URL_NOT_ALLOWED' ? 400 : 503, {
