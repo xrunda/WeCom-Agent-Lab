@@ -21,15 +21,17 @@ declare global {
 
 const POLL_MS = 30_000;
 /**
- * 企微客户端不保证预置可用的 wx：桌面端注入的对象可能没有 agentConfig。
- * 按版本顺序兜底加载官方 JS-SDK，后者会覆盖 window.wx。
+ * 企微客户端不保证预置可用的 wx：注入的对象可能没有 agentConfig。
+ * index.html 已静态引入官方 SDK；仍拿不到时按顺序兜底注入。
+ * 顺序不能反：jweixin 先定义 window.wx，jwxwork 再往上挂 agentConfig。
  */
 const WX_SDK_URLS = [
-  // 基础 wx.config 与 wx.invoke 在 jweixin；wx.agentConfig 由企业微信 SDK 提供
   'https://res.wx.qq.com/open/js/jweixin-1.2.0.js',
   'https://open.work.weixin.qq.com/wwopen/js/jwxwork-1.0.0.js',
 ];
-const WX_SDK_TIMEOUT_MS = 5_000;
+/** 静态 <script defer> 通常 1 秒内就绪，留一点首屏余量 */
+const WX_SDK_WAIT_MS = 2_500;
+const WX_SDK_TIMEOUT_MS = 6_000;
 const AUTH_TRIED_KEY = 'zb_sidebar_auth_tried';
 const CONSOLE_URL: string | undefined = import.meta.env.VITE_CONSOLE_URL;
 
@@ -40,32 +42,76 @@ function sdkReady(): boolean {
   return typeof window.wx?.agentConfig === 'function';
 }
 
-function injectScript(src: string): Promise<void> {
+function injectScript(src: string): Promise<'load' | 'error' | 'timeout'> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (): void => {
+    let timer: number | undefined;
+    const finish = (status: 'load' | 'error' | 'timeout'): void => {
       if (settled) return;
       settled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
       script.remove();
-      resolve();
+      resolve(status);
     };
     const script = document.createElement('script');
     script.src = src;
-    script.async = true;
-    script.onload = finish;
-    script.onerror = finish;
-    setTimeout(finish, WX_SDK_TIMEOUT_MS);
+    script.onload = () => finish('load');
+    script.onerror = () => finish('error');
+    timer = window.setTimeout(() => finish('timeout'), WX_SDK_TIMEOUT_MS);
     document.head.appendChild(script);
   });
 }
 
-/** 拿到可用的 wx：客户端注入的能用就用，否则按版本兜底加载官方 JS-SDK */
-async function loadWxSdk(): Promise<WxLike | undefined> {
-  if (sdkReady()) return window.wx;
-  for (const url of WX_SDK_URLS) {
-    await injectScript(url);
-    if (sdkReady()) return window.wx;
+/** 等静态引入的 SDK 就绪；到点没等到就走兜底注入 */
+function waitForSdk(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + ms;
+    const tick = (): void => {
+      if (sdkReady() || Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      window.setTimeout(tick, 100);
+    };
+    tick();
+  });
+}
+
+/**
+ * 现场排查用：把 SDK 加载结果打到访问日志（query 里只有状态位，没有凭据与会话）。
+ * 手机端看不到控制台，这是唯一能拿到真机信息的方式。
+ */
+function reportSdkDiag(detail: string): void {
+  try {
+    void fetch(`/zhiban/sidebar/health?dx=${encodeURIComponent(detail)}`, {
+      cache: 'no-store',
+      credentials: 'omit',
+    }).catch(() => undefined);
+  } catch {
+    // 诊断失败不影响主流程
   }
+}
+
+/** 拿到可用的 wx：客户端注入的能用就用，否则用静态引入 / 兜底注入的官方 SDK */
+async function loadWxSdk(): Promise<WxLike | undefined> {
+  const marks = [
+    `wx=${window.wx ? 1 : 0}`,
+    `ag=${sdkReady() ? 1 : 0}`,
+    `sb=${'WeixinSandBox' in window ? 1 : 0}`,
+  ];
+  if (!sdkReady()) {
+    await waitForSdk(WX_SDK_WAIT_MS);
+    marks.push(`wait=${sdkReady() ? 1 : 0}`);
+  }
+  if (!sdkReady()) {
+    const results: string[] = [];
+    for (const url of WX_SDK_URLS) {
+      results.push(await injectScript(url));
+      if (sdkReady()) break;
+    }
+    marks.push(`inject=${results.join('/')}`, `ag2=${sdkReady() ? 1 : 0}`);
+  }
+  reportSdkDiag(marks.join(','));
   return window.wx;
 }
 
