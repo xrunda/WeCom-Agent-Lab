@@ -14,6 +14,8 @@ import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
 import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import { groupConvKey } from '../../src/p1/sidebar.ts';
+import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type {
   ConsentStatus,
   InboundMessage as PatientInboundMessage,
@@ -88,6 +90,12 @@ export interface WecomRuntimeDeps {
    * 只把原文交给质检方做关键词匹配；本运行时日志不会打正文。
    */
   staffQuality?: (message: StaffQualityMessage) => void;
+  /**
+   * #146：顾问侧边栏的待回复索引。
+   * 用 getter 而不是实例：插件装载顺序不同，zhiban-sidebar 可能晚于本插件就绪。
+   * 未安装时静默跳过，不影响草稿链路。
+   */
+  sidebar?: () => SidebarSink | undefined;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
   /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
@@ -159,6 +167,7 @@ export class WecomRuntime {
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
   private readonly staffQuality?: (message: StaffQualityMessage) => void;
+  private readonly sidebar?: () => SidebarSink | undefined;
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
@@ -183,6 +192,7 @@ export class WecomRuntime {
     this.emit = deps.emit;
     this.logger = deps.logger;
     this.staffQuality = deps.staffQuality;
+    this.sidebar = deps.sidebar;
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
@@ -289,6 +299,27 @@ export class WecomRuntime {
               );
             }
           }
+        }
+        // #146：每条存档消息都进待回复索引。单聊目前被存档适配器过滤
+        // （roomid 为空直接丢弃），因此这里只有群会话；单聊支持见 #146 的说明。
+        try {
+          this.sidebar?.()?.observe({
+            msgid: message.msgid,
+            convKey: groupConvKey(message.roomid),
+            kind: 'group',
+            roomId: message.roomid,
+            senderId: message.from,
+            ...(event ? { senderKind: 'external' as const } : {}),
+            msgtype: message.msgtype ?? 'text',
+            text: message.text,
+            at: message.msgtime,
+          });
+        } catch (error) {
+          // 索引失败不影响主链路；日志只带 msgid
+          this.log(
+            `待回复索引失败 msgid=${tailId(message.msgid)}：` +
+              `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
         }
         if (this.patient) {
           const routed = this.patient.routeInbound({
