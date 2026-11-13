@@ -52,26 +52,37 @@ body {
   gap: 8px;
 }
 
-.icon-btn {
+/* 刷新做成带文字的胶囊：图标单独一个圈太抽象，看不出能点 */
+.refresh-btn {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin: -8px -8px -8px 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  margin: -6px -6px -6px 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.icon-btn:active {
-  background: var(--border);
+.refresh-btn svg {
+  flex: none;
 }
 
-.icon-btn:focus-visible {
+.refresh-btn:hover,
+.refresh-btn:active {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.refresh-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

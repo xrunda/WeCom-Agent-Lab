@@ -69,11 +69,15 @@ export interface ViewHandlers {
   consoleUrl?: string;
 }
 
-function refreshIcon(): string {
-  return `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false">
-    <path d="M10 3a7 7 0 1 1-6.65 9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-    <path d="M3 4.5V9h4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>`;
+/** 刷新：圆环箭头 + 文字，图标单独放太小，容易被当成装饰而不是按钮 */
+function refreshButton(): string {
+  return `<button type="button" class="refresh-btn" data-refresh aria-label="刷新">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
+    <span>刷新</span>
+  </button>`;
 }
 
 function skeleton(): string {
@@ -255,7 +259,7 @@ function ready(data: SidebarContextData, handlers: ViewHandlers, notice?: { mess
     <header class="top">
       <div class="brand-row">
         <span class="brand">知伴健康</span>
-        <button type="button" class="icon-btn" data-refresh aria-label="刷新">${refreshIcon()}</button>
+        ${refreshButton()}
       </div>
       <h1>${title}</h1>
     </header>
