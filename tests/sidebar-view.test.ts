@@ -136,8 +136,100 @@ test('#150 反向同理：拿 roomId 查询能匹配只有 chatId 的档案', ()
   assert.equal(view.conv.served, true);
 });
 
-test('单聊在当前存档链路下明确返回未接入', () => {
-  const view = buildSidebarContext(deps(), ADVISOR, { externalUserId: 'wm_a' });
+test('#159 顾问自己的客户单聊返回待回复与速览', () => {
+  const advisor = { id: 'adv_1', wecomUserId: 'LiGuang', permissions: ['patient.read'] };
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [
+        item({
+          convKey: 'dm:LiGuang:wm_star',
+          kind: 'dm',
+          roomId: undefined,
+          customerId: 'wm_star',
+          excerpt: '化学为什么老学不明白？',
+        }),
+      ],
+      patientNameFor: (id) => (id === 'wm_star' ? '汪星' : undefined),
+      patientForExternal: (id) =>
+        id === 'wm_star'
+          ? {
+              id: 'pat_star',
+              displayName: '汪星',
+              tags: ['化学'],
+              consent: 'agreed',
+              identityStatus: 'confirmed',
+              lastActiveAt: NOW - 2 * 60 * 60_000,
+              advisorId: 'adv_1',
+            }
+          : undefined,
+      getPatient: () => undefined,
+    }),
+    advisor,
+    { externalUserId: 'wm_star' },
+  );
+  assert.equal(view.conv.kind, 'dm');
+  assert.equal(view.conv.served, true);
+  assert.equal(view.conv.key, 'dm:LiGuang:wm_star');
+  assert.equal(view.conv.name, '汪星');
+  assert.equal(view.pending.openCount, 1);
+  assert.equal(view.pending.open[0]!.customerName, '汪星');
+  assert.equal(view.pending.open[0]!.excerpt, '化学为什么老学不明白？');
+  assert.equal(view.pending.open[0]!.hasDraft, false);
+  assert.equal(view.pending.open[0]!.draft, null);
+  assert.equal(view.profile?.bound, true);
+  assert.equal(view.profile?.name, '汪星');
+  assert.equal(view.profile?.confirmed, true);
+  assert.equal(view.profile?.advisorName, '李医生');
+});
+
+test('#159 没有 patient.read 时单聊昵称与速览为空，条目仍可见', () => {
+  const advisor = { id: 'adv_1', wecomUserId: 'LiGuang', permissions: [] };
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [
+        item({ convKey: 'dm:LiGuang:wm_star', kind: 'dm', roomId: undefined, customerId: 'wm_star' }),
+      ],
+      patientNameFor: () => '汪星',
+      patientForExternal: () => ({
+        id: 'pat_star',
+        displayName: '汪星',
+        tags: [],
+        consent: 'agreed',
+      }),
+      getPatient: () => undefined,
+    }),
+    advisor,
+    { externalUserId: 'wm_star' },
+  );
+  assert.equal(view.conv.served, true);
+  assert.equal(view.conv.name, null);
+  assert.equal(view.pending.openCount, 1);
+  assert.equal(view.pending.open[0]!.customerName, null);
+  assert.equal(view.profile?.bound, true);
+  assert.equal(view.profile?.name, null);
+  assert.equal(view.profile?.advisorName, null);
+});
+
+test('#159 单聊会话键只按登录顾问自己的 userid 构造，换人查不到', () => {
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [],
+    }),
+    { id: 'adv_1', wecomUserId: 'OtherStaff', permissions: ['patient.read'] },
+    { externalUserId: 'wm_star' },
+  );
+  // 其他员工的单聊键没有条目，速览也未绑定——但会话本身照常返回
+  assert.equal(view.conv.served, true);
+  assert.equal(view.conv.key, 'dm:OtherStaff:wm_star');
+  assert.equal(view.pending.openCount, 0);
+});
+
+test('#159 顾问没有企微 userid 时单聊按未接入返回', () => {
+  const view = buildSidebarContext(
+    deps(),
+    { id: 'adv_1', permissions: ['patient.read'] },
+    { externalUserId: 'wm_star' },
+  );
   assert.equal(view.conv.served, false);
   assert.equal(view.conv.reason, 'DM_NOT_SUPPORTED');
 });

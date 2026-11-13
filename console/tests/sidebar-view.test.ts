@@ -55,7 +55,9 @@ describe('会话解析', () => {
 
   it('内部群或非企微环境返回 unsupported', async () => {
     const ref = await resolveConversation(wxWith({}));
-    expect(ref).toEqual({ kind: 'unsupported' });
+    // 99e5357 起 unsupported 带上企微 err_msg 明细，便于真机排错
+    expect(ref).toMatchObject({ kind: 'unsupported' });
+    expect((ref as { detail?: string }).detail).toContain('getCurExternalChat:fail');
     expect(contextQuery(ref)).toBe('');
   });
 

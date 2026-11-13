@@ -207,10 +207,11 @@ function pendingCard(data: SidebarContextData): string {
 function profileCard(data: SidebarContextData, consoleUrl?: string): string {
   const profile = data.profile;
   if (!profile || !profile.bound) {
+    const unbound = data.conv.kind === 'dm' ? '本会话还没有绑定客户档案' : '本群还没有绑定客户档案';
     return `
       <section class="card">
         <div class="card-head"><h2>客户速览</h2></div>
-        <p class="sub">本群还没有绑定客户档案</p>
+        <p class="sub">${unbound}</p>
         ${consoleLink(consoleUrl)}
       </section>`;
   }

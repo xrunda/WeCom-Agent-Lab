@@ -48,6 +48,19 @@ export interface ArchiveMediaFields {
   mediaFailed?: boolean;
 }
 
+/** #159 单聊消息：比群消息多一个 tolist（接收方数组），roomid 恒为空串 */
+export interface ArchivedDmMessage extends ArchivedInbound {
+  tolist?: string[];
+}
+
+/**
+ * 外部成员 id 判定：企微外部联系人（wo）与外部群成员（wm）前缀。
+ * 员工、内部应用与 AI 助手 id 都不在这两个前缀里。
+ */
+export function isExternalCustomerId(id: string): boolean {
+  return id.startsWith('wm') || id.startsWith('wo');
+}
+
 export interface WeComArchiveMediaConfig {
   /** 媒体落盘根目录：<root>/<roomid>/<msgid>.<ext> */
   rootDir: string;
@@ -88,6 +101,11 @@ export interface WeComArchiveConfig {
    * 真实判定（外部成员）由 #33 注入。
    */
   isServiceGroup?: (roomId: string) => boolean;
+  /**
+   * 受服务单聊判定（#159）：顾问与客户之间的单聊正文入缓存（供待回复索引），
+   * 其余单聊只留元数据。媒体下载仍只对服务群生效。
+   */
+  isServedDm?: (record: ArchiveRecord) => boolean;
   /** #54：图片拉取配置；缺省只登记图片类型，不下载 */
   media?: WeComArchiveMediaConfig;
   logger?: (message: string) => void;
@@ -158,6 +176,7 @@ export class WeComArchiveAdapter implements ArchivePort {
   private readonly historyReplayBatches: number;
   private readonly run: (args: string[]) => Promise<string>;
   private readonly isServiceGroup: (roomId: string) => boolean;
+  private readonly isServedDm?: (record: ArchiveRecord) => boolean;
   private readonly media?: MediaDownloader;
 
   private seq: number;
@@ -178,6 +197,7 @@ export class WeComArchiveAdapter implements ArchivePort {
     this.historyReplayBatches =
       config.historyReplayBatches ?? DEFAULT_ARCHIVE_CONFIG.historyReplayBatches;
     this.isServiceGroup = config.isServiceGroup ?? (() => false);
+    this.isServedDm = config.isServedDm;
     this.seq = config.initialSeq ?? 0;
     if (this.seq > 0) this.restoredSeq = this.seq;
     this.run = config.run ?? ((args) => this.exec(args));
@@ -423,6 +443,64 @@ export class WeComArchiveAdapter implements ArchivePort {
     return result;
   }
 
+  /**
+   * #159 单聊存档：返回员工与外部客户之间的单聊消息。
+   *
+   * 真实样本结论（2026-11-13）：单聊 `roomid` 为空串，`from` 是发送方、
+   * `tolist` 是接收方数组；`action` 全为 `send`，方向只能按「from 是否员工」
+   * 判断。`action=switch` 是会话切换事件，没有 `msgtime`，直接跳过。
+   * 对端只接受 wm/wo 前缀的外部成员：AI 助手与应用会话不是客户单聊。
+   *
+   * 只扫缓存，不主动 pull：runtime 每轮先由 trigger 拉增量再调用本方法，
+   * 缓存即最新；绕过 runtime 单独调用时请先 `await pull()`。
+   */
+  async listDmMessages(params: {
+    staffUserIds: string[];
+    since: number;
+    until: number;
+    includeMedia?: boolean;
+  }): Promise<ArchivedDmMessage[]> {
+    const staff = new Set(params.staffUserIds);
+    const result: ArchivedDmMessage[] = [];
+    for (const record of this.cache) {
+      if (record.roomid !== undefined && record.roomid !== '') continue;
+      if (typeof record.msgtime !== 'number') continue;
+      if (record.msgtype !== 'text' && !(params.includeMedia && record.msgtype === 'image')) {
+        continue;
+      }
+      if (record.msgtime < params.since || record.msgtime > params.until) continue;
+
+      const from = record.from;
+      const to = (record.tolist ?? []).filter(
+        (id): id is string => typeof id === 'string' && id !== '',
+      );
+      const fromStaff = staff.has(from);
+      // 员工发出：对端是 tolist[0]；外部发出：to 里必须有员工
+      const matched = fromStaff
+        ? isExternalCustomerId(to[0] ?? '')
+        : to.some((id) => staff.has(id)) && isExternalCustomerId(from);
+      if (!matched) continue;
+      const counterpart = fromStaff ? (to[0] ?? '') : from;
+
+      const media = record as ArchiveRecord & ArchiveMediaFields;
+      result.push({
+        msgid: record.msgid,
+        roomid: '',
+        from,
+        text: record.text?.content ?? '',
+        msgtime: record.msgtime,
+        action: record.action,
+        msgtype: record.msgtype,
+        ...(media.mediaPath ? { mediaPath: media.mediaPath } : {}),
+        ...(media.mediaMd5 ? { mediaMd5: media.mediaMd5 } : {}),
+        ...(media.mediaSize !== undefined ? { mediaSize: media.mediaSize } : {}),
+        ...(media.mediaFailed !== undefined ? { mediaFailed: media.mediaFailed } : {}),
+        tolist: to,
+      });
+    }
+    return result;
+  }
+
   /** 缓存里的全部消息，调试用 */
   listCached(): ArchiveRecord[] {
     return [...this.cache];
@@ -462,16 +540,17 @@ export class WeComArchiveAdapter implements ArchivePort {
     for (const message of messages) {
       if (!message?.msgid || this.known.has(message.msgid)) continue;
       this.known.add(message.msgid);
-      const service = this.isServiceGroup(message.roomid ?? '');
-      // 非服务群的正文不写入任何存储：缓存里只留元数据，正文置空；
-      // 图片也不下载（#54 隐私规则）。
-      const record = service ? message : { ...message, text: undefined };
+      const inRoom = this.isServiceGroup(message.roomid ?? '');
+      // 受服务单聊（顾问↔客户）正文入缓存；其余单聊与正文不进任何存储，
+      // 只留元数据；媒体下载仍只对服务群生效（#31 / #54 / #159）。
+      const served = inRoom || this.isServedDm?.(message) === true;
+      const record = served ? message : { ...message, text: undefined };
       this.cache.push(record);
       added += 1;
-      if (service) {
+      if (inRoom) {
         if (!quiet) this.log(`  记录 ${describeRecord(message)}`);
         if (withMedia && message.msgtype === 'image') await this.fetchMedia(record);
-      } else if (!quiet) {
+      } else if (!served && !quiet) {
         this.nonServiceCount += 1;
       }
     }

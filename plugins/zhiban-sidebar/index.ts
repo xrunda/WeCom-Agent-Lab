@@ -82,27 +82,42 @@ interface WecomAdminLike {
   latestSidebarDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
 }
 
+/** zhiban-patient 暴露给控制台的只读患者记录 */
+type PatientRecordLike = {
+  id: string;
+  displayName: string;
+  tags: string[];
+  consent: string;
+  identityStatus?: 'pending' | 'confirmed';
+  lastActiveAt?: number;
+  advisorId?: string;
+};
+
 /** zhiban-patient 暴露给控制台的只读视图 */
 interface PatientApiLike {
   listGroups(): Array<{ roomId: string; patientIds: string[] }>;
-  getPatientAdmin(id: string):
-    | {
-        id: string;
-        displayName: string;
-        tags: string[];
-        consent: string;
-        identityStatus?: 'pending' | 'confirmed';
-        lastActiveAt?: number;
-        advisorId?: string;
-      }
-    | undefined;
-  listPatients(): Array<{ externalUserId?: string; displayName: string }>;
+  getPatientAdmin(id: string): PatientRecordLike | undefined;
+  listPatients(): Array<{ id: string; externalUserId?: string; displayName: string }>;
   listAdvisors(): Array<{
     id: string;
     name: string;
     wecomUserId?: string;
     status?: string;
   }>;
+}
+
+/** 患者记录 → 侧边栏速览引用；群（按 id）与单聊（按外部 id）共用一份映射 */
+function toPatientRef(record: PatientRecordLike | undefined): SidebarPatientRef | undefined {
+  if (!record) return undefined;
+  return {
+    id: record.id,
+    displayName: record.displayName,
+    tags: record.tags,
+    consent: record.consent,
+    ...(record.identityStatus ? { identityStatus: record.identityStatus } : {}),
+    ...(record.lastActiveAt !== undefined ? { lastActiveAt: record.lastActiveAt } : {}),
+    ...(record.advisorId ? { advisorId: record.advisorId } : {}),
+  };
 }
 
 function tailId(id: string): string {
@@ -194,7 +209,8 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
             .find((item) => item.wecomUserId === wecomUserId);
           if (!record) return undefined;
           if (record.status !== undefined && record.status !== 'active') return undefined;
-          return { id: record.id, permissions: ['patient.read'] };
+          // wecomUserId 带给视图：单聊会话键用登录顾问自己的 userid 构造
+          return { id: record.id, permissions: ['patient.read'], wecomUserId };
         },
         buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => {
           const admin = ctx.get<WecomAdminLike>('zhibanWecomAdmin');
@@ -207,25 +223,18 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
               listGroups: () => admin?.listGroups() ?? [],
               patientIdsForRoom: (roomId) =>
                 patient?.listGroups().find((group) => group.roomId === roomId)?.patientIds ?? [],
-              getPatient: (id): SidebarPatientRef | undefined => {
-                const record = patient?.getPatientAdmin(id);
-                if (!record) return undefined;
-                return {
-                  id: record.id,
-                  displayName: record.displayName,
-                  tags: record.tags,
-                  consent: record.consent,
-                  ...(record.identityStatus ? { identityStatus: record.identityStatus } : {}),
-                  ...(record.lastActiveAt !== undefined
-                    ? { lastActiveAt: record.lastActiveAt }
-                    : {}),
-                  ...(record.advisorId ? { advisorId: record.advisorId } : {}),
-                };
-              },
+              getPatient: (id) => toPatientRef(patient?.getPatientAdmin(id)),
               patientNameFor: (externalUserId) =>
                 patient
                   ?.listPatients()
                   .find((item) => item.externalUserId === externalUserId)?.displayName,
+              // #159 单聊速览：按外部联系人 id 找患者档案
+              patientForExternal: (externalUserId) => {
+                const record = patient
+                  ?.listPatients()
+                  .find((item) => item.externalUserId === externalUserId);
+                return record ? toPatientRef(patient?.getPatientAdmin(record.id)) : undefined;
+              },
               getAdvisorName: (advisorId) =>
                 patient?.listAdvisors().find((item) => item.id === advisorId)?.name,
               // 只读：草稿由患者运行时生成，侧边栏不触发模型调用

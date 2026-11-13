@@ -8,11 +8,13 @@
  * `patient.read` 时返回，否则为 null，不降级成「外部成员 xxx」。
  */
 import type { PendingItem } from './sidebar.ts';
-import { groupConvKey } from './sidebar.ts';
+import { dmConvKey, groupConvKey } from './sidebar.ts';
 
 export interface SidebarAdvisor {
   id: string;
   name?: string;
+  /** 企微 userid；单聊会话键需要，缺失时单聊按未接入返回 */
+  wecomUserId?: string;
   permissions: string[];
 }
 
@@ -54,6 +56,8 @@ export interface SidebarViewDeps {
   getPatient(id: string): SidebarPatientRef | undefined;
   /** 按外部成员 userid 找患者名；昵称门控在视图层做 */
   patientNameFor?(externalUserId: string): string | undefined;
+  /** #159 按外部成员 userid 找患者档案；单聊速览用 */
+  patientForExternal?(externalUserId: string): SidebarPatientRef | undefined;
   getAdvisorName?(advisorId: string): string | undefined;
   /** 该群在 since 之后生成、还没发出的草稿；没有则空 */
   latestDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
@@ -62,7 +66,7 @@ export interface SidebarViewDeps {
 
 export interface SidebarQuery {
   chatId?: string;
-  /** 单聊使用；当前存档链路未覆盖，返回未接入 */
+  /** 单聊使用：企微 JS-SDK getCurExternalContact 拿到的外部联系人 id */
   externalUserId?: string;
   /** 仅供服务端内部与测试使用，不接受前端直接传 */
   roomId?: string;
@@ -153,17 +157,37 @@ export function buildSidebarContext(
   const now = deps.now?.() ?? Date.now();
 
   if (!query.chatId && !query.roomId) {
+    const externalUserId = query.externalUserId;
+    const staffUserId = advisor.wecomUserId;
+    // 单聊会话键用登录顾问自己的企微 userid 构造：天然只能查到自己的会话。
+    // 任一标识缺失就按未接入返回，不猜键。
+    if (!externalUserId || !staffUserId) {
+      return dmNotSupported(now);
+    }
+    const convKey = dmConvKey(staffUserId, externalUserId);
+    const canRead = advisor.permissions.includes('patient.read');
+    const patient = deps.patientForExternal?.(externalUserId);
+    const open = pendingViews(deps.openItems(convKey), canRead, now, deps, undefined, null);
     return {
       conv: {
         kind: 'dm',
-        key: null,
-        name: null,
-        served: false,
-        reason: 'DM_NOT_SUPPORTED',
-        lastObservedAt: null,
+        key: convKey,
+        name: canRead ? (patient?.displayName ?? null) : null,
+        served: true,
+        lastObservedAt: deps.lastObservedAt(convKey) ?? null,
       },
-      pending: { open: [], recentlyClosed: [], openCount: 0, oldestWaitSeconds: null },
-      profile: null,
+      pending: {
+        open,
+        recentlyClosed: deps.recentlyClosed(convKey, 5).map(toClosedView),
+        openCount: open.length,
+        oldestWaitSeconds: maxWaitSeconds(open),
+      },
+      profile: profileView(
+        patient,
+        canRead,
+        now,
+        canRead ? (deps.getAdvisorName?.(advisor.id) ?? null) : null,
+      ),
       generatedAt: now,
     };
   }
@@ -221,61 +245,21 @@ export function buildSidebarContext(
       }
     : null;
 
-  const open: SidebarPendingView[] = items.map((item) => ({
-    id: item.id,
-    customerId: item.customerId,
-    customerName: canRead ? deps.patientNameFor?.(item.customerId) ?? null : null,
-    firstAt: item.firstAt,
-    lastAt: item.lastAt,
-    messageCount: item.messageCount,
-    excerpt: item.excerpt,
-    waitSeconds: Math.max(0, Math.floor((now - item.lastAt) / 1000)),
-    reason: item.reason,
-    aiReplied: item.botRepliedAt !== undefined,
-    hasDraft: item.id === newest?.id && draft !== null,
-    draft: item.id === newest?.id ? draft : null,
-  }));
+  const open: SidebarPendingView[] = pendingViews(items, canRead, now, deps, newest?.id, draft);
 
-  const oldest = open.reduce<number | null>(
-    (max, item) => (max === null ? item.waitSeconds : Math.max(max, item.waitSeconds)),
-    null,
-  );
+  const oldest = maxWaitSeconds(open);
 
-  const closed: SidebarClosedView[] = deps.recentlyClosed(convKey, 5).map((item) => ({
-    id: item.id,
-    closedAt: item.closedAt ?? item.lastAt,
-    closedBy: item.closedBy ?? null,
-  }));
+  const closed: SidebarClosedView[] = deps.recentlyClosed(convKey, 5).map(toClosedView);
 
   const patientId = deps.patientIdsForRoom?.(group.roomId)?.[0];
   const patient = patientId ? deps.getPatient(patientId) : undefined;
 
-  const profile: SidebarProfileView | null = patient
-    ? {
-        bound: true,
-        name: canRead ? patient.displayName : null,
-        confirmed: patient.identityStatus === 'confirmed',
-        tags: canRead ? [...(patient.tags ?? [])] : [],
-        chronic: null,
-        carePlan: null,
-        silentDays:
-          patient.lastActiveAt === undefined
-            ? null
-            : Math.max(0, Math.floor((now - patient.lastActiveAt) / DAY_MS)),
-        advisorName: canRead
-          ? (group.advisorId ? deps.getAdvisorName?.(group.advisorId) ?? null : null)
-          : null,
-      }
-    : {
-        bound: false,
-        name: null,
-        confirmed: false,
-        tags: [],
-        chronic: null,
-        carePlan: null,
-        silentDays: null,
-        advisorName: null,
-      };
+  const profile: SidebarProfileView | null = profileView(
+    patient,
+    canRead,
+    now,
+    canRead ? (group.advisorId ? (deps.getAdvisorName?.(group.advisorId) ?? null) : null) : null,
+  );
 
   return {
     conv: {
@@ -293,5 +277,100 @@ export function buildSidebarContext(
     },
     profile,
     generatedAt: now,
+  };
+}
+
+/** 单聊链路不可用（缺外部 id 或顾问没有企微 userid）时的兜底返回 */
+function dmNotSupported(now: number): SidebarContextView {
+  return {
+    conv: {
+      kind: 'dm',
+      key: null,
+      name: null,
+      served: false,
+      reason: 'DM_NOT_SUPPORTED',
+      lastObservedAt: null,
+    },
+    pending: { open: [], recentlyClosed: [], openCount: 0, oldestWaitSeconds: null },
+    profile: null,
+    generatedAt: now,
+  };
+}
+
+function waitSeconds(item: PendingItem, now: number): number {
+  return Math.max(0, Math.floor((now - item.lastAt) / 1000));
+}
+
+function toClosedView(item: PendingItem): SidebarClosedView {
+  return {
+    id: item.id,
+    closedAt: item.closedAt ?? item.lastAt,
+    closedBy: item.closedBy ?? null,
+  };
+}
+
+function maxWaitSeconds(open: SidebarPendingView[]): number | null {
+  return open.reduce<number | null>(
+    (max, item) => (max === null ? item.waitSeconds : Math.max(max, item.waitSeconds)),
+    null,
+  );
+}
+
+/** 群与单聊共用的待回复视图映射；单聊没有草稿，draft 传 null */
+function pendingViews(
+  items: PendingItem[],
+  canRead: boolean,
+  now: number,
+  deps: SidebarViewDeps,
+  newestId: string | undefined,
+  draft: SidebarDraftView | null,
+): SidebarPendingView[] {
+  return items.map((item) => ({
+    id: item.id,
+    customerId: item.customerId,
+    customerName: canRead ? (deps.patientNameFor?.(item.customerId) ?? null) : null,
+    firstAt: item.firstAt,
+    lastAt: item.lastAt,
+    messageCount: item.messageCount,
+    excerpt: item.excerpt,
+    waitSeconds: waitSeconds(item, now),
+    reason: item.reason,
+    aiReplied: item.botRepliedAt !== undefined,
+    hasDraft: item.id === newestId && draft !== null,
+    draft: item.id === newestId ? draft : null,
+  }));
+}
+
+/** 群与单聊共用的速览视图；patient 缺省时返回「未绑定」形状 */
+function profileView(
+  patient: SidebarPatientRef | undefined,
+  canRead: boolean,
+  now: number,
+  advisorName: string | null,
+): SidebarProfileView {
+  if (!patient) {
+    return {
+      bound: false,
+      name: null,
+      confirmed: false,
+      tags: [],
+      chronic: null,
+      carePlan: null,
+      silentDays: null,
+      advisorName: null,
+    };
+  }
+  return {
+    bound: true,
+    name: canRead ? patient.displayName : null,
+    confirmed: patient.identityStatus === 'confirmed',
+    tags: canRead ? [...(patient.tags ?? [])] : [],
+    chronic: null,
+    carePlan: null,
+    silentDays:
+      patient.lastActiveAt === undefined
+        ? null
+        : Math.max(0, Math.floor((now - patient.lastActiveAt) / DAY_MS)),
+    advisorName: canRead ? advisorName : null,
   };
 }

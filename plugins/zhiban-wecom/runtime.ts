@@ -14,7 +14,7 @@ import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
 import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
-import { groupConvKey } from '../../src/p1/sidebar.ts';
+import { dmConvKey, groupConvKey } from '../../src/p1/sidebar.ts';
 import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type {
   ConsentStatus,
@@ -25,6 +25,12 @@ import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
 import type { GroupInfoClient, RoomInfo } from './group-info.ts';
 import type { RoomAgreeClient } from './room-agree.ts';
+
+/**
+ * #159 单聊摄取的回看窗口：每轮都拉最近 24h 的存档单聊，
+ * 靠待回复索引的 msgid 幂等去重。回看窗口大于轮询间隔即可。
+ */
+const DM_INGEST_LOOKBACK_MS = 24 * 60 * 60_000;
 
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
@@ -367,6 +373,7 @@ export class WecomRuntime {
           status: draft.status,
         });
       }
+      await this.observeDmMessages();
       this.persistProgress();
       await this.tickOnce();
     } catch (error) {
@@ -375,6 +382,49 @@ export class WecomRuntime {
       );
     } finally {
       this.polling = false;
+    }
+  }
+
+  /**
+   * #159 单聊接入：顾问与客户之间的存档单聊进待回复索引。
+   * 只读展示——不生成草稿、不进患者域；待回复索引按 msgid 幂等。
+   * 重启后存档缓存清空，停机期间到达的单聊不回补（P1 已知限制）。
+   */
+  private async observeDmMessages(): Promise<void> {
+    const staffUserIds = [this.config.advisorChatId];
+    try {
+      const until = this.clock.now();
+      const dms = await this.archive.listDmMessages({
+        staffUserIds,
+        since: until - DM_INGEST_LOOKBACK_MS,
+        until,
+        includeMedia: true,
+      });
+      for (const message of dms) {
+        const fromStaff = staffUserIds.includes(message.from);
+        const externalId = fromStaff ? (message.tolist?.[0] ?? '') : message.from;
+        if (externalId === '') continue;
+        try {
+          this.sidebar?.()?.observe({
+            msgid: message.msgid,
+            convKey: dmConvKey(staffUserIds[0]!, externalId),
+            kind: 'dm',
+            senderId: message.from,
+            // 方向显式给出：classify 的 wm 前缀推断会把 wo 开头的客户误判成员工
+            senderKind: fromStaff ? 'staff' : 'external',
+            msgtype: message.msgtype ?? 'text',
+            text: message.text,
+            at: message.msgtime,
+          });
+        } catch (error) {
+          this.log(
+            `单聊待回复索引失败 msgid=${tailId(message.msgid)}：` +
+              `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.log(`单聊索引拉取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

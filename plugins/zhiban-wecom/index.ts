@@ -10,7 +10,10 @@
  */
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
-import { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import {
+  WeComArchiveAdapter,
+  isExternalCustomerId,
+} from '../../src/c2/adapters/wecom-archive.ts';
 import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import { C2Service } from '../../src/c2/service.ts';
@@ -609,6 +612,18 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         cacheLimit: config.archive.cacheLimit,
         // 每轮轮询都会调用；名单在控制台「开始服务 / 移出服务」后即时生效
         isServiceGroup: (roomId) => registry.isAllowed(roomId),
+        // #159：顾问与外部客户之间的单聊保留正文（供待回复索引展示）；
+        // 与 AI 助手、内部应用的会话以及对端不是客户的单聊仍只留元数据
+        isServedDm: (record) => {
+          if (record.roomid) return false;
+          const staff = config.advisorChatId;
+          const from = typeof record.from === 'string' ? record.from : '';
+          const to = (record.tolist ?? []).filter(
+            (id): id is string => typeof id === 'string' && id !== '',
+          );
+          if (from === staff) return isExternalCustomerId(to[0] ?? '');
+          return to.includes(staff) && isExternalCustomerId(from);
+        },
         media: {
           rootDir: config.mediaRootDir,
           binaryPath: config.archive.binaryPath,

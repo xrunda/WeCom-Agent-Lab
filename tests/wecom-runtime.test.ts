@@ -56,6 +56,14 @@ function harness(
     roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
     patient?: PatientSink;
     staffQuality?: (message: StaffQualityMessage) => void;
+    /** #159：注入侧边栏索引 sink，验证单聊/群消息的 observe 输入 */
+    sidebar?: () =>
+      | {
+          observe: (input: unknown) => unknown;
+        }
+      | undefined;
+    /** #159：追加到首轮存档批里的额外记录（如单聊消息） */
+    extraMessages?: Array<Record<string, unknown>>;
   } = {},
 ): Harness {
   const clock = new FakeClock(1_000_000);
@@ -83,6 +91,7 @@ function harness(
               msgtype: 'text',
               text: { content: CUSTOMER_TEXT },
             },
+            ...(options.extraMessages ?? []),
           ],
         });
       }
@@ -134,6 +143,7 @@ function harness(
     roomAgree: options.roomAgree,
     patient: options.patient,
     staffQuality: options.staffQuality,
+    ...(options.sidebar ? { sidebar: options.sidebar as never } : {}),
   });
 
   return { clock, store, bot, service, runtime, events, logs };
@@ -643,6 +653,70 @@ test('内部员工发言送质检，外部客户发言不进质检；质检异�
     assert.ok(h.logs.some((line) => line.includes('员工发言质检失败')));
     const failedLog = h.logs.find((line) => line.includes('员工发言质检失败'))!;
     assert.equal(failedLog.includes(calls[0]!.text), false);
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
+test('#159 存档单聊进待回复索引：键按登录顾问构造，非客户对端不进索引', async () => {
+  interface ObservedInput {
+    kind?: string;
+    convKey?: string;
+    msgid?: string;
+    senderKind?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      // 客户发给顾问的单聊
+      {
+        msgid: 'msg_dm_1',
+        action: 'send',
+        from: 'wmDMCUST',
+        tolist: [ADV],
+        roomid: '',
+        msgtime: 1_000_000 - 2_000,
+        msgtype: 'text',
+        text: { content: '单聊正文' },
+      },
+      // 顾问与 AI 助手的会话：不是客户单聊，不进索引
+      {
+        msgid: 'msg_dm_ai',
+        action: 'send',
+        from: ADV,
+        tolist: ['aiAssistant1'],
+        roomid: '',
+        msgtime: 1_000_000 - 1_500,
+        msgtype: 'text',
+        text: { content: 'AI 正文' },
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+
+    const dm = observed.find((input) => input.msgid === 'msg_dm_1');
+    assert.ok(dm, '客户单聊应进入待回复索引');
+    assert.equal(dm.kind, 'dm');
+    assert.equal(dm.convKey, `dm:${ADV}:wmDMCUST`);
+    // 方向显式给出：外部成员是客户，不是按 wm 前缀推断
+    assert.equal(dm.senderKind, 'external');
+
+    assert.equal(
+      observed.some((input) => input.msgid === 'msg_dm_ai'),
+      false,
+      'AI 助手会话不进索引',
+    );
+    // 群消息链路照旧
+    assert.ok(observed.some((input) => input.convKey === 'room:wrGROUP1'));
+    assert.equal(observed.some((input) => input.msgid === 'msg_dm_1' && input.kind !== 'dm'), false);
   } finally {
     await h.runtime.stop();
   }

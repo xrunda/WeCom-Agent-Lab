@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { WeComArchiveAdapter, type ArchiveRecord } from '../src/c2/adapters/wecom-archive.ts';
+import {
+  WeComArchiveAdapter,
+  isExternalCustomerId,
+  type ArchiveRecord,
+} from '../src/c2/adapters/wecom-archive.ts';
 
 function record(overrides: Partial<ArchiveRecord> = {}): ArchiveRecord {
   return {
@@ -428,4 +432,105 @@ test('补拉失败不丢恢复点，下一次回读会重试', async () => {
   const messages = await adapter.listSentMessages({ fromUser: 'LiGuang', since: 500, until: 5_000 });
   assert.equal(messages.length, 1);
   assert.equal(messages[0].msgid, 'm_before_restart');
+});
+
+// ---- #159 单聊存档接入 ----
+
+/** 与插件注入的 isServedDm 同构：顾问与外部客户之间的单聊 */
+function servedDm(record: ArchiveRecord): boolean {
+  if (record.roomid !== undefined && record.roomid !== '') return false;
+  const to = (record.tolist ?? []).filter((id) => typeof id === 'string' && id !== '');
+  const from = typeof record.from === 'string' ? record.from : '';
+  if (from === 'LiGuang') return isExternalCustomerId(to[0] ?? '');
+  return to.includes('LiGuang') && isExternalCustomerId(from);
+}
+
+test('受服务单聊保留正文，AI 助手会话只留元数据', async () => {
+  const { adapter } = adapterWith(
+    [
+      dump(30, [
+        record({ msgid: 'd1', roomid: '', from: 'wmCust1', tolist: ['LiGuang'], msgtime: 1000 }),
+        record({ msgid: 'd2', roomid: '', from: 'LiGuang', tolist: ['wmCust1'], msgtime: 2000 }),
+        record({ msgid: 'd3', roomid: '', from: 'LiGuang', tolist: ['aiAssistant1'], msgtime: 3000 }),
+      ]),
+    ],
+    { isServiceGroup: () => false, isServedDm: servedDm },
+  );
+
+  await adapter.pull();
+  const cached = adapter.listCached();
+  assert.equal(cached.find((r) => r.msgid === 'd1')?.text?.content, '正文');
+  assert.equal(cached.find((r) => r.msgid === 'd2')?.text?.content, '正文');
+  // 与 AI 助手的单聊不属于客户会话：正文不落缓存（#31）
+  assert.equal(cached.find((r) => r.msgid === 'd3')?.text, undefined);
+});
+
+test('listDmMessages 按员工配对返回，方向按 from 判定，switch 与杂音跳过', async () => {
+  const { adapter } = adapterWith(
+    [
+      dump(40, [
+        record({ msgid: 'd1', roomid: '', from: 'wmCust1', tolist: ['LiGuang'], msgtime: 1000 }),
+        record({ msgid: 'd2', roomid: '', from: 'LiGuang', tolist: ['wmCust1'], msgtime: 2000 }),
+        // 对端不是员工：与别的同事的单聊
+        record({ msgid: 'd3', roomid: '', from: 'wmCust9', tolist: ['Colleague'], msgtime: 3000 }),
+        // 员工发出但对端是 AI 助手
+        record({ msgid: 'd4', roomid: '', from: 'LiGuang', tolist: ['aiAssistant1'], msgtime: 4000 }),
+        // 空接收方
+        record({ msgid: 'd5', roomid: '', from: 'LiGuang', tolist: [], msgtime: 5000 }),
+        // 会话切换事件：没有 msgtime
+        record({ msgid: 'd6', roomid: '', action: 'switch', from: 'LiGuang', tolist: [], time: 6000 } as unknown as ArchiveRecord),
+        // 窗口外
+        record({ msgid: 'd7', roomid: '', from: 'wmCust1', tolist: ['LiGuang'], msgtime: 99999 }),
+      ]),
+    ],
+    { isServiceGroup: () => false, isServedDm: servedDm },
+  );
+  await adapter.pull();
+
+  const messages = await adapter.listDmMessages({
+    staffUserIds: ['LiGuang'],
+    since: 0,
+    until: 10000,
+    includeMedia: true,
+  });
+
+  assert.deepEqual(
+    messages.map((m) => m.msgid).sort(),
+    ['d1', 'd2'],
+  );
+  const inbound = messages.find((m) => m.msgid === 'd1');
+  assert.equal(inbound?.from, 'wmCust1');
+  assert.deepEqual(inbound?.tolist, ['LiGuang']);
+  assert.equal(inbound?.roomid, '');
+  const outbound = messages.find((m) => m.msgid === 'd2');
+  assert.equal(outbound?.from, 'LiGuang');
+  assert.deepEqual(outbound?.tolist, ['wmCust1']);
+});
+
+test('listDmMessages 按时间窗过滤', async () => {
+  const { adapter } = adapterWith(
+    [
+      dump(20, [
+        record({ msgid: 'd1', roomid: '', from: 'wmCust1', tolist: ['LiGuang'], msgtime: 1000 }),
+        record({ msgid: 'd2', roomid: '', from: 'wmCust1', tolist: ['LiGuang'], msgtime: 5000 }),
+      ]),
+    ],
+    { isServiceGroup: () => false, isServedDm: servedDm },
+  );
+  await adapter.pull();
+
+  const messages = await adapter.listDmMessages({
+    staffUserIds: ['LiGuang'],
+    since: 2000,
+    until: 9000,
+  });
+  assert.deepEqual(messages.map((m) => m.msgid), ['d2']);
+});
+
+test('isExternalCustomerId 只认 wm/wo 前缀', () => {
+  assert.equal(isExternalCustomerId('wmCust1'), true);
+  assert.equal(isExternalCustomerId('woCn3iEQAA'), true);
+  assert.equal(isExternalCustomerId('LiGuang'), false);
+  assert.equal(isExternalCustomerId('aiAssistant1'), false);
+  assert.equal(isExternalCustomerId(''), false);
 });
