@@ -39,7 +39,7 @@ import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
 import { ScriptQueryService, splitForWecom } from './script-query.ts';
 import type { QueryableScript } from './script-query.ts';
-import { ServiceGroupRegistry } from './service-groups.ts';
+import { ServiceGroupRegistry, reconcileServiceGroups } from './service-groups.ts';
 
 export const name = 'zhiban-wecom';
 
@@ -538,6 +538,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
     handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
     handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+    /** #159：服务状态是存档白名单的源头；旧版本患者域可能没有该方法 */
+    listGroups?(): Array<{ roomId: string; status?: string }>;
   } | undefined => ctx.get('zhibanPatient');
   const patientSink: PatientSink = {
     observeRooms: (rooms) => patientApi()?.observeRooms(rooms),
@@ -771,6 +773,11 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         log('服务群自动发现未启用：缺少 contactSecret / corpId');
       }
 
+      // #159：患者域的服务状态是白名单源头。控制台切换状态会实时同步白名单，
+      // 但沙盒预置或企微域离线期间的状态变更不走那条路径——每轮轮询前对齐兜底
+      const reconcileFromPatient = () =>
+        reconcileServiceGroups(registry, patientApi()?.listGroups?.() ?? [], log);
+
       runtime = new WecomRuntime({
         store,
         service,
@@ -783,6 +790,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         staffQuality: checkStaffMessage,
         // #146：加载顺序不确定，getter 每条消息现取
         sidebar: () => ctx.get<SidebarSink>('zhibanSidebar'),
+        reconcileServiceGroups: reconcileFromPatient,
         groupInfo,
         roomAgree,
         discovery: discovery

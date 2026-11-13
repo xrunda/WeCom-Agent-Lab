@@ -102,6 +102,12 @@ export interface WecomRuntimeDeps {
    * 未安装时静默跳过，不影响草稿链路。
    */
   sidebar?: () => SidebarSink | undefined;
+  /**
+   * #159：每轮轮询前从患者域对齐存档白名单。控制台切状态会实时同步，
+   * 但沙盒预置 / 企微域离线期间的状态变更不走那条路径——由轮询兜底，
+   * 避免界面显示「服务中」而存档不拉取。
+   */
+  reconcileServiceGroups?: () => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
   /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
@@ -174,6 +180,7 @@ export class WecomRuntime {
   private readonly logger?: (line: string) => void;
   private readonly staffQuality?: (message: StaffQualityMessage) => void;
   private readonly sidebar?: () => SidebarSink | undefined;
+  private readonly reconcileServiceGroups?: () => void;
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
@@ -199,6 +206,7 @@ export class WecomRuntime {
     this.logger = deps.logger;
     this.staffQuality = deps.staffQuality;
     this.sidebar = deps.sidebar;
+    this.reconcileServiceGroups = deps.reconcileServiceGroups;
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
@@ -273,6 +281,14 @@ export class WecomRuntime {
     if (!this.running || this.polling) return;
     this.polling = true;
     try {
+      // #159：患者域的服务状态是白名单源头；每轮轮询前对齐（幂等）
+      try {
+        this.reconcileServiceGroups?.();
+      } catch (error) {
+        this.log(
+          `服务群白名单对齐失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
+      }
       const result = await this.trigger.pollWithContext();
       this.patient?.observeRooms(await this.enrichRooms(result.rooms));
 

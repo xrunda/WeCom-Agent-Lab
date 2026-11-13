@@ -64,6 +64,8 @@ function harness(
       | undefined;
     /** #159：追加到首轮存档批里的额外记录（如单聊消息） */
     extraMessages?: Array<Record<string, unknown>>;
+    /** #159：验证每轮轮询前都会对齐服务群白名单 */
+    reconcileServiceGroups?: () => void;
   } = {},
 ): Harness {
   const clock = new FakeClock(1_000_000);
@@ -144,6 +146,9 @@ function harness(
     patient: options.patient,
     staffQuality: options.staffQuality,
     ...(options.sidebar ? { sidebar: options.sidebar as never } : {}),
+    ...(options.reconcileServiceGroups
+      ? { reconcileServiceGroups: options.reconcileServiceGroups }
+      : {}),
   });
 
   return { clock, store, bot, service, runtime, events, logs };
@@ -720,4 +725,21 @@ test('#159 存档单聊进待回复索引：键按登录顾问构造，非客户
   } finally {
     await h.runtime.stop();
   }
+});
+
+test('#159 每轮轮询前都会对齐服务群白名单', async () => {
+  let calls = 0;
+  const h = harness({
+    reconcileServiceGroups: () => {
+      calls += 1;
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    await h.runtime.pollOnce();
+  } finally {
+    h.runtime.stop();
+  }
+  assert.equal(calls, 2);
 });
