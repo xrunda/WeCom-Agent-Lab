@@ -109,6 +109,33 @@ test('群不存在返回 served=false，不抛异常', () => {
   assert.equal(view.profile, null);
 });
 
+test('#150 企微客户群 roomId 与 chatId 同值：拿 chatId 能匹配只有 roomId 的档案', () => {
+  // 现网实况：档案按存档 roomId 绑定，chatId 字段留空，侧边栏却拿 JS-SDK 的
+  // chatId 查询，严格等值匹配会误报「群未接入」。两个键都参与匹配。
+  const view = buildSidebarContext(
+    deps({
+      listGroups: () => [{ roomId: 'wr_room_1', name: '客户_wb001', advisorId: 'adv_1' }],
+      openItems: () => [],
+    }),
+    ADVISOR,
+    { chatId: 'wr_room_1' },
+  );
+  assert.equal(view.conv.served, true);
+  assert.equal(view.conv.name, '客户_wb001');
+});
+
+test('#150 反向同理：拿 roomId 查询能匹配只有 chatId 的档案', () => {
+  const view = buildSidebarContext(
+    deps({
+      listGroups: () => [{ roomId: 'wr_room_2', chatId: 'wr_chat_2', name: '客户_wb002', advisorId: 'adv_1' }],
+      openItems: () => [],
+    }),
+    ADVISOR,
+    { roomId: 'wr_chat_2' },
+  );
+  assert.equal(view.conv.served, true);
+});
+
 test('单聊在当前存档链路下明确返回未接入', () => {
   const view = buildSidebarContext(deps(), ADVISOR, { externalUserId: 'wm_a' });
   assert.equal(view.conv.served, false);

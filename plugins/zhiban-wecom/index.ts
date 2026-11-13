@@ -438,7 +438,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       registry.activate(roomId);
       const existing = service.store.getGroup(roomId);
       const name = input.name?.trim() || existing?.name || `群 ${tailId(roomId)}`;
-      service.bindGroup({ roomId, name, advisorId: config.advisorId });
+      // 绑定时把 chatId 补上：侧边栏拿 JS-SDK 的 chatId 查档案，两者同值
+      service.bindGroup({ roomId, name, advisorId: config.advisorId, chatId: roomId });
       service.store.appendAudit({
         at: Date.now(),
         actor: input.actor ?? 'admin',
@@ -706,7 +707,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           roomId,
           name: config.groupName,
           advisorId: config.advisorId,
-          chatId: config.groupChatId,
+          // 客户群 chatId 与 roomId 同值；groupChatId 只在旧单群配置里出现
+          chatId: config.groupChatId ?? roomId,
         });
       }
 

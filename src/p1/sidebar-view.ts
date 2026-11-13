@@ -168,10 +168,14 @@ export function buildSidebarContext(
     };
   }
 
+  // 客户群的 roomId 与 chatId 是同一个 wr… ID；旧档案可能只填了其一，
+  // 两个键都参与匹配，避免侧边栏拿 chatId 查不到只有 roomId 的群档案。
   const group = deps
     .listGroups()
     .find((item) =>
-      query.roomId ? item.roomId === query.roomId : item.chatId === query.chatId,
+      query.roomId
+        ? item.roomId === query.roomId || item.chatId === query.roomId
+        : item.chatId === query.chatId || item.roomId === query.chatId,
     );
 
   if (!group) {
