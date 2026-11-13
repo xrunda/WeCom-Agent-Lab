@@ -104,11 +104,11 @@ describe('首屏渲染', () => {
     expect(root.innerHTML).toContain('&lt;script&gt;');
   });
 
-  it('有群名、待回复数与客户名', () => {
+  it('有群名与客户速览，没有待回复时不出现待回复区域', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
     expect(root.textContent).toContain('高血压管理 1 群');
-    expect(root.textContent).toContain('暂无待回复');
+    expect(root.textContent).not.toContain('待回复');
     expect(root.textContent).toContain('王阿姨');
     expect(root.textContent).toContain('高血压');
   });
@@ -276,13 +276,13 @@ describe('待回复卡片（#148）', () => {
     vi.useRealTimers();
   });
 
-  it('空态只有一句「暂无待回复」，不再出现「待回复」标题', () => {
+  it('没有待回复时整块隐藏，第一张卡就是客户速览', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
-    const card = root.querySelectorAll('.card')[0]!;
-    expect(card.textContent).toContain('暂无待回复');
-    expect(card.querySelector('.card-head')).toBeNull();
-    expect(root.textContent).not.toContain('有客户提问时');
+    const cards = root.querySelectorAll('.card');
+    expect(cards.length).toBe(1);
+    expect(cards[0]!.textContent).toContain('客户速览');
+    expect(root.textContent).not.toContain('暂无待回复');
   });
 
   it('同步时间按分钟/小时/天分档', () => {

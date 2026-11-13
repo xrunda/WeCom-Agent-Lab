@@ -161,18 +161,14 @@ function itemHtml(item: SidebarPendingView): string {
 
 function pendingCard(data: SidebarContextData): string {
   const { pending } = data;
+
+  // 没有待回复就整块不出现：既然没有要处理的事，就不要占着一块区域说明「没有」
+  if (pending.openCount === 0) return '';
+
   const syncedAt = data.conv.lastObservedAt;
   const sync = syncedAt === null
     ? ''
     : ` · 更新于 ${relativeLabel(Math.max(0, Math.floor((data.generatedAt - syncedAt) / 1000)))}`;
-
-  if (pending.openCount === 0) {
-    // 空态不写标题：「待回复」和「暂无待回复」并排看是自相矛盾，只说结论
-    return `
-      <section class="card">
-        <p class="empty">暂无待回复</p>
-      </section>`;
-  }
 
   const items = [...pending.open]
     .sort((a, b) => a.lastAt - b.lastAt)
