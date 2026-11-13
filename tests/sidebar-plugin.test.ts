@@ -48,6 +48,7 @@ function harness(): {
   const domain = new FakeDomain();
   const provided = new Map<string, unknown>();
   const events: Array<{ type: string; data: unknown }> = [];
+  const registeredRoutes: unknown[] = [];
   let cleanupFn: EffectCleanup = undefined;
 
   type EffectCleanup = void | (() => void | Promise<void>);
@@ -74,6 +75,12 @@ function harness(): {
     get: () => undefined,
     storageDomain: {
       open: async () => domain as never,
+    },
+    webServer: {
+      register: (route) => {
+        registeredRoutes.push(route);
+        return undefined;
+      },
     },
   };
 

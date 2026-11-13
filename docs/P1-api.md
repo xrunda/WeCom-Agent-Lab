@@ -1353,3 +1353,89 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 3. 后端实现与本契约不一致时，**以契约为准**；确认契约有误时按第 2 条走，不自行改实现。
 4. 任何 PR 的「契约变更」一节必须列出：接口/字段、兼容性、需要前端配合的点。
 5. P1 不引入 breaking change；确需 breaking 时新开 `/zhiban/api/v2`。
+
+---
+
+## 19. 企微侧边栏（顾问入口，不属于控制台）
+
+> 新增于 #147。侧边栏是企微聊天工具栏里的 H5，**不经过控制台路由、不复用控制台会话**，因此不参与 §16 页面数据覆盖表；控制台与本接口的权限模型各自独立。
+>
+> 前缀 `/zhiban/sidebar`，响应统一 `Content-Type: application/json`、`Cache-Control: no-store`。
+
+### 认证
+
+- 会话令牌为 HMAC-SHA256 签名的 `{ advisorId, permissions, exp }`，放在 HttpOnly Cookie `zb_sidebar`；也接受请求头 `x-sidebar-session`（联调用）。
+- 令牌由侧边栏自己的企微 OAuth 回调签发（#145），不走 `POST /auth/login`。
+- 未配置签名密钥时**所有**接口返回 `401`；`/health` 除外。
+- `401 UNAUTHENTICATED`：令牌缺失、过期或验签失败。
+- `403 FORBIDDEN`：令牌有效，但该顾问不是这个群的负责人。
+
+### `GET /zhiban/sidebar/health`
+
+无需认证。响应 `200`：`{ "ok": true, "at": 1762645800000 }`。用于 nginx 与部署探活。
+
+### `GET /zhiban/sidebar/context?chatId=&externalUserId=`
+
+首屏数据：会话信息 + 待回复 + 客户速览。只接受 `chatId`（群）与 `externalUserId`（单聊）两个参数；前端传 `roomId` 会被忽略，避免用内部群 id 绕过绑定校验。
+
+响应 `200`：
+
+```json
+{
+  "conv": { "served": true, "kind": "group", "name": "高血压管理 1 群" },
+  "pending": {
+    "openCount": 1,
+    "oldestWaitSeconds": 7200,
+    "open": [
+      {
+        "id": "pend_...",
+        "customerName": "王阿姨",
+        "excerpt": "明天几点复诊？",
+        "reason": "question",
+        "messageCount": 2,
+        "waitSeconds": 7200,
+        "aiReplied": false,
+        "hasDraft": false
+      }
+    ]
+  },
+  "profile": {
+    "bound": true,
+    "name": "王阿姨",
+    "tags": ["高血压"],
+    "consent": "agreed",
+    "identityStatus": "confirmed",
+    "silentDays": 3,
+    "advisorName": "李医生",
+    "chronic": null,
+    "carePlan": null
+  }
+}
+```
+
+- `conv.served=false` 表示当前会话不在服务范围，`conv.reason` 取 `DM_NOT_SUPPORTED`（单聊，存档链路暂不投递）或 `GROUP_NOT_FOUND`；此时 `pending` 为空、`profile` 为 `null`，HTTP 仍是 `200`。
+- **昵称门控**：令牌 `permissions` 不含 `patient.read` 时，`conv.name`、`customerName`、`profile.name`、`profile.advisorName` 为 `null`，`profile.tags` 为 `[]`；`excerpt` 与等待时长照常返回——顾问本身就在这个会话里，看得见原始聊天。
+- `aiReplied`：机器人已在该会话回应过，仅作提示，**不改变待回复状态**。
+- `chronic` / `carePlan` 为 P1 预留位，当前恒为 `null`。
+- 错误：`401` / `403`，格式同 §1.4。
+
+### `POST /zhiban/sidebar/pending/{id}/close`
+
+请求：`{ "reason": "dismissed" | "transferred" }`，请求体上限 4 KB。`reason` 只允许这两个值，否则 `400 VALIDATION_FAILED`。
+
+响应 `200`：`{ "ok": true, "id": "pend_..." }`。
+
+- 权限判断与 `GET /context` 完全一致：按条目所属群重新校验，不是负责人返回 `403`，条目不存在返回 `404`。
+- 写审计 `sidebar.pending.close`，字段只含条目 id、操作人、结果，**不含消息正文**。
+
+### 存储
+
+侧边栏自己的三张表，由 DSH 存储域 `zhiban_sidebar`（v1）管理，不进控制台的 `service_group` / `draft` 体系：
+
+| 表 | 主键 | 内容 |
+|---|---|---|
+| `pending` | `id` | 待回复条目：会话键、客户、首末时间、条数、原文摘录（≤200 字）、判定原因、状态、关闭原因与关闭人 |
+| `seen` | `msgid` | 已处理消息 id，用于存档重复投递去重 |
+| `audit` | `at` + `action` | 手动关闭留痕 |
+
+开放条目不过期；关闭条目与 `seen` 记录保留 7 天后由 `prune` 清理。

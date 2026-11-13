@@ -7,6 +7,8 @@ export interface SidebarPluginConfigInput {
   tenantId?: unknown;
   /** 机器人 / 自建应用的 userid；这些发言不算顾问已回复 */
   botUserIds?: unknown;
+  /** 侧边栏会话令牌签名密钥；不配置则接口一律 401 */
+  sessionSecret?: unknown;
   mergeWindowMs?: unknown;
   seenRetentionDays?: unknown;
   closedRetentionDays?: unknown;
@@ -15,6 +17,7 @@ export interface SidebarPluginConfigInput {
 export interface SidebarPluginConfig {
   tenantId: string;
   botUserIds: string[];
+  sessionSecret?: string;
   mergeWindowMs: number;
   seenRetentionDays: number;
   closedRetentionDays: number;
@@ -64,6 +67,9 @@ export function parseSidebarConfig(raw: unknown): SidebarPluginConfig {
   return {
     tenantId: optionalString(input.tenantId, 'tenantId', 'default'),
     botUserIds: stringList(input.botUserIds, 'botUserIds'),
+    ...(typeof input.sessionSecret === 'string' && input.sessionSecret.trim() !== ''
+      ? { sessionSecret: input.sessionSecret.trim() }
+      : {}),
     mergeWindowMs: positiveNumber(input.mergeWindowMs, 'mergeWindowMs', 10 * 60_000),
     seenRetentionDays: positiveNumber(input.seenRetentionDays, 'seenRetentionDays', 7),
     closedRetentionDays: positiveNumber(input.closedRetentionDays, 'closedRetentionDays', 7),
