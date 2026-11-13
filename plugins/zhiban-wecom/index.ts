@@ -24,6 +24,7 @@ import type {
   VerifyOutcome,
 } from '../../src/c2/types.ts';
 import type { PatientBridge } from '../../src/p1/session-port.ts';
+import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 
 import { parsePluginConfig } from './config.ts';
@@ -743,6 +744,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         clock,
         patient: patientSink,
         staffQuality: checkStaffMessage,
+        // #146：加载顺序不确定，getter 每条消息现取
+        sidebar: () => ctx.get<SidebarSink>('zhibanSidebar'),
         groupInfo,
         roomAgree,
         discovery: discovery
