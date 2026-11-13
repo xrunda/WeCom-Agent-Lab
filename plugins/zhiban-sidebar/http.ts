@@ -8,7 +8,15 @@
  * 未配置 Secret 时一律 401：宁可打不开，也不能裸奔。
  */
 import type { SidebarRuntimeApi } from './index.ts';
-import { SESSION_COOKIE, sessionFromCookie, verifySession } from './session.ts';
+import {
+  SESSION_COOKIE,
+  sessionCookie,
+  sessionFromCookie,
+  signSession,
+  signState,
+  verifySession,
+  verifyState,
+} from './session.ts';
 import type { SidebarAdvisor } from '../../src/p1/sidebar-view.ts';
 
 export interface SidebarHttpRequest {
@@ -33,6 +41,20 @@ export interface SidebarWebServer {
   }): unknown;
 }
 
+/** 企微 OAuth / JS-SDK 端口；由插件注入真实客户端，测试注入假实现 */
+export interface SidebarOAuthPort {
+  readonly configured: boolean;
+  authorizeUrl(state: string): string;
+  exchangeCode(code: string): Promise<{ userid?: string; openid?: string }>;
+  signAgentConfig(url: string): Promise<{
+    corpId: string;
+    agentId: string;
+    timestamp: string;
+    nonceStr: string;
+    signature: string;
+  }>;
+}
+
 export interface SidebarHttpOptions {
   api: SidebarRuntimeApi;
   /** 未配置时不放行任何请求 */
@@ -41,10 +63,21 @@ export interface SidebarHttpOptions {
   authenticate?: (req: SidebarHttpRequest) => SidebarAdvisor | undefined;
   /** 由插件在运行时组装：群绑定、患者档案、待回复 */
   buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => unknown;
+  oauth?: SidebarOAuthPort;
+  /** OAuth 换到 userid 后映射顾问；未开通返回 undefined */
+  resolveAdvisor?: (wecomUserId: string) => SidebarAdvisor | undefined;
+  /** 侧边栏公网地址；用于设置 Secure Cookie 与回调地址 */
+  publicBaseUrl?: string;
+  /** 会话有效期（毫秒），默认 8 小时 */
+  sessionTtlMs?: number;
+  log?: (line: string) => void;
   now?: () => number;
 }
 
 const MAX_BODY = 4096;
+const SIDEBAR_PAGE = '/sidebar/';
+const JSAPI_LIST = ['getCurExternalContact', 'getCurExternalChat'];
+const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60_000;
 
 function sendJson(
   res: SidebarHttpResponse,
@@ -61,6 +94,50 @@ function sendJson(
     ...extra,
   });
   res.end(payload);
+}
+
+function sendHtml(res: SidebarHttpResponse, status: number, html: string): void {
+  if (res.headersSent) return;
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Length': Buffer.byteLength(html),
+    // 侧边栏页面只应由 nginx 自己提供，错误页不允许被嵌入
+    'X-Frame-Options': 'DENY',
+  });
+  res.end(html);
+}
+
+function sendRedirect(
+  res: SidebarHttpResponse,
+  location: string,
+  cookie?: string,
+): void {
+  if (res.headersSent) return;
+  res.writeHead(302, {
+    Location: location,
+    'Cache-Control': 'no-store',
+    ...(cookie ? { 'Set-Cookie': cookie } : {}),
+  });
+  res.end();
+}
+
+/** 可读错误页：不出现 code、token、userid 等任何凭据或内部 id */
+function errorPage(title: string, detail: string): string {
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+  body { margin: 0; padding: 48px 20px; font: 15px/1.6 -apple-system, "PingFang SC", sans-serif;
+         color: #1f2933; background: #f7f8f8; }
+  main { max-width: 360px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  p { margin: 0 0 20px; color: #52606d; }
+  a { color: #0f766e; text-decoration: none; }
+</style></head>
+<body><main><h1>${title}</h1><p>${detail}</p>
+<p><a href="${SIDEBAR_PAGE}">重新加载</a></p></main></body></html>`;
 }
 
 function readBody(req: SidebarHttpRequest): Promise<string> {
@@ -122,9 +199,96 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
       return;
     }
 
+    // —— 企微 OAuth（#145）：登录前可达，只做跳转，不返回任何业务数据 ——
+    if (path === '/auth/start' && method === 'GET') {
+      if (!options.oauth?.configured || !options.sessionSecret || !options.publicBaseUrl) {
+        sendHtml(res, 503, errorPage('侧边栏未配置', '缺少企微应用凭据或公网地址，请联系管理员。'));
+        return;
+      }
+      sendRedirect(res, options.oauth.authorizeUrl(signState(now(), options.sessionSecret)));
+      return;
+    }
+
+    if (path === '/auth/callback' && method === 'GET') {
+      const secret = options.sessionSecret;
+      const oauth = options.oauth;
+      if (!oauth?.configured || !secret) {
+        sendHtml(res, 503, errorPage('侧边栏未配置', '缺少企微应用凭据或公网地址，请联系管理员。'));
+        return;
+      }
+      if (!verifyState(url.searchParams.get('state') ?? undefined, secret, now())) {
+        sendHtml(res, 400, errorPage('登录已失效', '请从企微聊天窗口重新打开侧边栏。'));
+        return;
+      }
+      const code = url.searchParams.get('code') ?? '';
+      if (code === '') {
+        sendHtml(res, 400, errorPage('未获得授权', '企微没有返回授权码，请重新打开侧边栏。'));
+        return;
+      }
+      let userid: string | undefined;
+      try {
+        userid = (await oauth.exchangeCode(code)).userid;
+      } catch (error) {
+        // 不记录 code / token / URL，只记录错误类型与企微 errcode
+        options.log?.(`OAuth 换取成员身份失败：${describeOAuthError(error)}`);
+        sendHtml(res, 502, errorPage('登录失败', '企微授权暂时不可用，请稍后重试。'));
+        return;
+      }
+      if (!userid) {
+        sendHtml(res, 403, errorPage('无法识别成员', '侧边栏只对企业成员开放，请用顾问的企业微信打开。'));
+        return;
+      }
+      const advisor = options.resolveAdvisor?.(userid);
+      if (!advisor) {
+        options.log?.('OAuth 通过但成员未开通侧边栏');
+        sendHtml(res, 403, errorPage('未开通侧边栏', '你的账号还没有侧边栏权限，请联系管理员开通。'));
+        return;
+      }
+      const ttl = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+      const token = signSession(
+        { advisorId: advisor.id, permissions: advisor.permissions, exp: now() + ttl },
+        secret,
+      );
+      sendRedirect(
+        res,
+        SIDEBAR_PAGE,
+        sessionCookie(token, {
+          maxAgeSeconds: Math.floor(ttl / 1000),
+          secure: (options.publicBaseUrl ?? '').startsWith('https://'),
+        }),
+      );
+      return;
+    }
+
     const advisor = resolveAdvisor(req, options);
     if (!advisor) {
       sendJson(res, 401, { code: 'UNAUTHENTICATED', message: '登录已失效，请从企微重新打开' });
+      return;
+    }
+
+    if (path === '/jsapi-config' && method === 'GET') {
+      if (!options.oauth?.configured) {
+        sendJson(res, 503, { code: 'OAUTH_UNAVAILABLE', message: '侧边栏登录未配置' });
+        return;
+      }
+      const target = url.searchParams.get('url') ?? '';
+      if (target === '') {
+        sendJson(res, 400, { code: 'VALIDATION_FAILED', message: '缺少 url' });
+        return;
+      }
+      try {
+        const signed = await options.oauth.signAgentConfig(target);
+        sendJson(res, 200, { ...signed, jsApiList: JSAPI_LIST });
+      } catch (error) {
+        if (isOAuthError(error)) {
+          sendJson(res, error.code === 'URL_NOT_ALLOWED' ? 400 : 503, {
+            code: error.code,
+            message: error.message,
+          });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -198,6 +362,20 @@ function isAccessError(error: unknown): error is { code: string; message: string
     error !== null &&
     (error as { name?: string }).name === 'SidebarAccessError'
   );
+}
+
+function isOAuthError(error: unknown): error is { code: string; message: string } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: string }).name === 'WecomOAuthError'
+  );
+}
+
+/** 只描述错误类型与企微 errcode，绝不拼接 URL 或 code */
+function describeOAuthError(error: unknown): string {
+  if (isOAuthError(error)) return `${error.code} ${error.message}`;
+  return error instanceof Error ? error.name : 'UNKNOWN';
 }
 
 export { SESSION_COOKIE };
