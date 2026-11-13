@@ -1374,6 +1374,36 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 
 无需认证。响应 `200`：`{ "ok": true, "at": 1762645800000 }`。用于 nginx 与部署探活。
 
+### `GET /zhiban/sidebar/auth/start`
+
+无需认证。302 到企微 OAuth 静默授权（`snsapi_base`），`state` 为带时间戳的 HMAC，10 分钟内有效。
+
+- 未配置 `corpId` / `agentId` / `agentSecret` / `publicBaseUrl` 时返回 `503` 的可读 HTML（「侧边栏未配置」），不做无意义跳转。
+
+### `GET /zhiban/sidebar/auth/callback?code=&state=`
+
+无需认证。校验 `state` → 用 code 换成员 `userid` → 按顾问名册映射 → 下发会话 Cookie → `302` 到 `/sidebar/`。
+
+| 情况 | 状态 | 结果 |
+|---|---|---|
+| `state` 过期或不合法 | `400` | HTML「登录已失效」 |
+| 企微换 code 失败 | `502` | HTML「登录失败」，日志只记错误类型与 errcode |
+| 非企业成员（只有 openid） | `403` | HTML「无法识别成员」，不签发 Cookie |
+| 名册中不存在或非 `active` | `403` | HTML「未开通侧边栏」 |
+| 成功 | `302` | `Set-Cookie: zb_sidebar=…; Path=/; HttpOnly; SameSite=Lax; Secure`（HTTPS 下） |
+
+Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 code、token、userid。
+
+### `GET /zhiban/sidebar/jsapi-config?url=`
+
+需要会话。返回 `wx.agentConfig` 所需签名；`url` 必须是 `publicBaseUrl` 同源的页面地址，否则 `400 URL_NOT_ALLOWED`。
+
+```json
+{ "corpId": "ww…", "agentId": "1000212", "timestamp": "1762645800", "nonceStr": "9f…", "signature": "…", "jsApiList": ["getCurExternalContact", "getCurExternalChat"] }
+```
+
+`jsapi_ticket` 在进程内缓存，失效前 5 分钟刷新；未配置凭据时返回 `503 OAUTH_UNAVAILABLE`。
+
 ### `GET /zhiban/sidebar/context?chatId=&externalUserId=`
 
 首屏数据：会话信息 + 待回复 + 客户速览。只接受 `chatId`（群）与 `externalUserId`（单聊）两个参数；前端传 `roomId` 会被忽略，避免用内部群 id 绕过绑定校验。

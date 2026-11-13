@@ -24,6 +24,7 @@ import { parseSidebarConfig, retentionMs } from './config.ts';
 import { DomainSidebarBackend, sidebarDomain } from './domain.ts';
 import { registerSidebarHttp } from './http.ts';
 import type { SidebarHttpResponse, SidebarWebServer } from './http.ts';
+import { WecomOAuthClient } from './wecom-oauth.ts';
 
 export const name = 'zhiban-sidebar';
 
@@ -87,7 +88,12 @@ interface PatientApiLike {
       }
     | undefined;
   listPatients(): Array<{ externalUserId?: string; displayName: string }>;
-  listAdvisors(): Array<{ id: string; name: string }>;
+  listAdvisors(): Array<{
+    id: string;
+    name: string;
+    wecomUserId?: string;
+    status?: string;
+  }>;
 }
 
 function tailId(id: string): string {
@@ -102,6 +108,15 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
     `加载配置：租户=${config.tenantId} 机器人=${config.botUserIds.length} 个 ` +
       `鉴权=${config.sessionSecret ? '已配置' : '未配置（接口返回 401）'}`,
   );
+
+  const oauth = new WecomOAuthClient({
+    ...(config.corpId ? { corpId: config.corpId } : {}),
+    ...(config.agentId ? { agentId: config.agentId } : {}),
+    ...(config.agentSecret ? { agentSecret: config.agentSecret } : {}),
+    ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
+    log,
+  });
+  log(`企微登录：${oauth.configured ? '已配置' : '未配置（侧边栏无法登录）'}`);
 
   ctx.effect(async () => {
     const domain = await ctx.storageDomain.open(sidebarDomain);
@@ -146,6 +161,21 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
       registerSidebarHttp(ctx.webServer, {
         api,
         ...(config.sessionSecret ? { sessionSecret: config.sessionSecret } : {}),
+        oauth,
+        ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
+        sessionTtlMs: config.sessionTtlMs,
+        log,
+        // 顾问身份来自患者域的顾问名册：只有在职（active）成员签发会话，
+        // 侧边栏内部再按「群负责人」二次收窄可见范围
+        resolveAdvisor: (wecomUserId) => {
+          const record = ctx
+            .get<PatientApiLike>('zhibanPatient')
+            ?.listAdvisors()
+            .find((item) => item.wecomUserId === wecomUserId);
+          if (!record) return undefined;
+          if (record.status !== undefined && record.status !== 'active') return undefined;
+          return { id: record.id, permissions: ['patient.read'] };
+        },
         buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => {
           const admin = ctx.get<WecomAdminLike>('zhibanWecomAdmin');
           const patient = ctx.get<PatientApiLike>('zhibanPatient');

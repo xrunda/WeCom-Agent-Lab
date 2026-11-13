@@ -59,6 +59,57 @@ export function verifySession(
   }
 }
 
+/** 会话 Cookie：HttpOnly + SameSite=Lax，HTTPS 下加 Secure */
+export function sessionCookie(
+  token: string,
+  options: { maxAgeSeconds: number; secure: boolean },
+): string {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.max(0, Math.floor(options.maxAgeSeconds))}`,
+  ];
+  if (options.secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** 清空会话 Cookie（退出或授权失败时用） */
+export function clearedSessionCookie(secure: boolean): string {
+  return sessionCookie('', { maxAgeSeconds: 0, secure });
+}
+
+const STATE_TTL_MS = 10 * 60_000;
+
+/**
+ * OAuth state：只带时间戳与签名，防止把授权码回调当成 CSRF 跳板。
+ * 不绑定具体顾问——回调前还没拿到 userid。
+ */
+export function signState(at: number, secret: string): string {
+  const sig = sign(secret, `state.${at}`);
+  return `${at}.${sig}`;
+}
+
+export function verifyState(
+  state: string | undefined,
+  secret: string,
+  now = Date.now(),
+  ttlMs = STATE_TTL_MS,
+): boolean {
+  if (!state) return false;
+  const index = state.indexOf('.');
+  if (index <= 0) return false;
+  const at = Number(state.slice(0, index));
+  const signature = state.slice(index + 1);
+  if (!Number.isFinite(at) || at <= 0) return false;
+  if (at > now + 60_000 || now - at > ttlMs) return false;
+  const expected = sign(secret, `state.${at}`);
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** 从 Cookie 头里取会话令牌；不做 URL 解码之外的处理 */
 export function sessionFromCookie(header: string | string[] | undefined): string | undefined {
   const raw = Array.isArray(header) ? header.join('; ') : header;
