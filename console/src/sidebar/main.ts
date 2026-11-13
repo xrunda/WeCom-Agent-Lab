@@ -20,13 +20,33 @@ declare global {
 }
 
 const POLL_MS = 30_000;
+/** 企微客户端不保证预置 wx；没预置时自己加载官方 JS-SDK */
+const WX_SDK_URL = 'https://res.wx.qq.com/open/js/jweixin-1.2.0.js';
+const WX_SDK_TIMEOUT_MS = 5_000;
 const AUTH_TRIED_KEY = 'zb_sidebar_auth_tried';
 const CONSOLE_URL: string | undefined = import.meta.env.VITE_CONSOLE_URL;
 
 const root = document.getElementById('root');
-if (root) {
-  render(root, { kind: 'loading' });
-  void start(root);
+
+/** 拿到可用的 wx：客户端已注入就直接用，否则加载官方 JS-SDK */
+function loadWxSdk(): Promise<WxLike | undefined> {
+  if (window.wx) return Promise.resolve(window.wx);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      script.remove();
+      resolve(window.wx);
+    };
+    const script = document.createElement('script');
+    script.src = WX_SDK_URL;
+    script.async = true;
+    script.onload = finish;
+    script.onerror = finish;
+    setTimeout(finish, WX_SDK_TIMEOUT_MS);
+    document.head.appendChild(script);
+  });
 }
 
 function consoleUrl(): string | undefined {
@@ -91,13 +111,17 @@ async function start(rootEl: HTMLElement): Promise<void> {
   reportedPendingView = false;
   render(rootEl, { kind: 'loading' });
 
-  const wx = window.wx;
+  const wx = await loadWxSdk();
   if (!wx) {
-    render(rootEl, {
-      kind: 'error',
-      message: '请在企微聊天窗口里打开侧边栏。',
-      retryable: false,
-    });
+    render(
+      rootEl,
+      {
+        kind: 'error',
+        message: '企微 JS-SDK 没加载出来，请检查网络后重试；如果一直这样，请在企微聊天窗口里重新打开侧边栏。',
+        retryable: true,
+      },
+      handlers(rootEl, () => void start(rootEl)),
+    );
     return;
   }
 
@@ -109,7 +133,11 @@ async function start(rootEl: HTMLElement): Promise<void> {
 
     conversation = await resolveConversation(wx);
     if (conversation.kind === 'unsupported') {
-      render(rootEl, { kind: 'unsupported', reason: 'NO_CONVERSATION' });
+      render(
+        rootEl,
+        { kind: 'unsupported', reason: 'NO_CONVERSATION' },
+        handlers(rootEl, () => void start(rootEl)),
+      );
       return;
     }
 
@@ -127,7 +155,11 @@ async function start(rootEl: HTMLElement): Promise<void> {
       }
       return;
     }
-    render(rootEl, { kind: 'error', message: friendlyMessage(error), retryable: true });
+    render(
+      rootEl,
+      { kind: 'error', message: friendlyMessage(error), retryable: true },
+      handlers(rootEl, () => void refresh(rootEl)),
+    );
   }
 }
 
@@ -177,12 +209,16 @@ async function refresh(rootEl: HTMLElement): Promise<void> {
     if (!data.conv.served) {
       stopPolling();
       lastData = undefined;
-      render(rootEl, {
-        kind: 'unsupported',
-        reason:
-          data.conv.reason ??
-          (conversation.kind === 'dm' ? 'DM_NOT_SUPPORTED' : 'GROUP_NOT_FOUND'),
-      });
+      render(
+        rootEl,
+        {
+          kind: 'unsupported',
+          reason:
+            data.conv.reason ??
+            (conversation.kind === 'dm' ? 'DM_NOT_SUPPORTED' : 'GROUP_NOT_FOUND'),
+        },
+        handlers(rootEl, redraw),
+      );
       return;
     }
     writeAuthTried(false);
@@ -219,7 +255,11 @@ async function refresh(rootEl: HTMLElement): Promise<void> {
       );
       return;
     }
-    render(rootEl, { kind: 'error', message: friendlyMessage(error), retryable: true });
+    render(
+      rootEl,
+      { kind: 'error', message: friendlyMessage(error), retryable: true },
+      handlers(rootEl, () => void refresh(rootEl)),
+    );
   }
 }
 
@@ -232,3 +272,16 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden || !root || !lastData) return;
   void refresh(root);
 });
+
+// 启动必须放在模块末尾：上面的 let 声明（reportedOpen / lastData 等）
+// 在模块求值阶段尚未初始化，提前调用 start() 会撞上 TDZ，页面停在骨架不动。
+if (root) {
+  render(root, { kind: 'loading' });
+  void start(root).catch(() => {
+    render(
+      root,
+      { kind: 'error', message: '侧边栏没能启动，请关闭后重新打开。', retryable: true },
+      handlers(root, () => void start(root)),
+    );
+  });
+}

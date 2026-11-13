@@ -28,6 +28,8 @@ export type ConversationRef =
   | { kind: 'unsupported' };
 
 const INVOKE_TIMEOUT_MS = 3_000;
+/** 签名不对或可信域名没生效时 agentConfig 可能永不回调，超时按失败处理 */
+const AGENT_CONFIG_TIMEOUT_MS = 6_000;
 
 export class WxConfigError extends Error {
   constructor(message: string) {
@@ -39,6 +41,18 @@ export class WxConfigError extends Error {
 /** 自建应用必须走 agentConfig；失败时上层显示可读错误，不继续调 invoke */
 export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(
+      () => finish(new WxConfigError('JS-SDK 鉴权超时')),
+      AGENT_CONFIG_TIMEOUT_MS,
+    );
     try {
       wx.agentConfig({
         corpId: config.corpId,
@@ -47,11 +61,11 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
         nonceStr: config.nonceStr,
         signature: config.signature,
         jsApiList: config.jsApiList,
-        success: () => resolve(),
-        fail: () => reject(new WxConfigError('JS-SDK 鉴权失败')),
+        success: () => finish(),
+        fail: () => finish(new WxConfigError('JS-SDK 鉴权失败')),
       });
     } catch {
-      reject(new WxConfigError('JS-SDK 不可用'));
+      finish(new WxConfigError('JS-SDK 不可用'));
     }
   });
 }
