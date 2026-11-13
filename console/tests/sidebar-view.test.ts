@@ -108,7 +108,7 @@ describe('首屏渲染', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
     expect(root.textContent).toContain('高血压管理 1 群');
-    expect(root.textContent).toContain('本会话没有待回复');
+    expect(root.textContent).toContain('暂无待回复');
     expect(root.textContent).toContain('王阿姨');
     expect(root.textContent).toContain('高血压');
   });
@@ -276,11 +276,11 @@ describe('待回复卡片（#148）', () => {
     vi.useRealTimers();
   });
 
-  it('空态显示最后同步时间', () => {
+  it('空态只说「暂无待回复」，不重复解释', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
-    expect(root.textContent).toContain('本会话没有待回复');
-    expect(root.textContent).toContain('更新于');
+    expect(root.textContent).toContain('暂无待回复');
+    expect(root.textContent).not.toContain('有客户提问时');
   });
 
   it('同步时间按分钟/小时/天分档', () => {
