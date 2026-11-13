@@ -60,8 +60,14 @@ export interface SidebarContextData {
 
 export type SidebarState =
   | { kind: 'loading' }
-  | { kind: 'ready'; data: SidebarContextData }
+  | {
+      kind: 'ready';
+      data: SidebarContextData;
+      /** 刷新失败时保留上次内容，在卡片上方提示 */
+      notice?: { message: string; retryable: boolean };
+    }
   | { kind: 'unsupported'; reason: UnsupportedReason }
+  | { kind: 'auth-expired' }
   | { kind: 'error'; message: string; retryable: boolean };
 
 export type UnsupportedReason =
