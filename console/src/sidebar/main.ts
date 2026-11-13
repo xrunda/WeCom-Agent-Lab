@@ -221,6 +221,10 @@ async function start(rootEl: HTMLElement): Promise<void> {
       }
       return;
     }
+    if (error instanceof WxConfigError) {
+      // 现场只有这块屏幕，把企微的 errMsg 也带进访问日志
+      reportSdkDiag(`ac=${error.message.slice(0, 120)}`);
+    }
     render(
       rootEl,
       { kind: 'error', message: friendlyMessage(error), retryable: true },

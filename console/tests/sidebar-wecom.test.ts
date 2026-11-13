@@ -48,20 +48,43 @@ describe('JS-SDK 封装（#145）', () => {
     await expect(configureAgent(wx, CONFIG)).rejects.toThrow('invalid signature');
   });
 
-  it('先 config 再 agentConfig，config 失败不阻塞', async () => {
+  it('按企微要求用小写 corpid / agentid，驼峰参数同时给出', async () => {
+    let received: Record<string, unknown> = {};
+    const wx: WxLike = {
+      agentConfig: (options) => {
+        received = options;
+        (options.success as () => void)();
+      },
+      invoke: () => {},
+    };
+    await configureAgent(wx, CONFIG);
+    expect(received['corpid']).toBe('ww_test');
+    expect(received['agentid']).toBe('1000001');
+    expect(received['nonceStr']).toBe('nonce');
+    expect(received['jsApiList']).toEqual(['getCurExternalChat']);
+  });
+
+  it('首次 agentConfig 失败时补发 wx.config 后重试', async () => {
     const calls: string[] = [];
+    let attempt = 0;
     const wx: WxLike = {
       config: (options) => {
         calls.push('config');
-        (options.fail as (result: { errMsg: string }) => void)({ errMsg: 'config:fail' });
+        (options.success as () => void)();
       },
-      agentConfig: () => calls.push('agentConfig'),
+      agentConfig: (options) => {
+        attempt += 1;
+        calls.push(`agentConfig${attempt}`);
+        if (attempt === 1) {
+          (options.fail as (result: { errMsg: string }) => void)({ errMsg: 'agentConfig:fail' });
+        } else {
+          (options.success as () => void)();
+        }
+      },
       invoke: () => {},
     };
-    const assertion = expect(configureAgent(wx, CONFIG)).rejects.toThrow('JS-SDK 鉴权超时');
-    await vi.advanceTimersByTimeAsync(6_000);
-    await assertion;
-    expect(calls).toEqual(['config', 'agentConfig']);
+    await expect(configureAgent(wx, CONFIG)).resolves.toBeUndefined();
+    expect(calls).toEqual(['agentConfig1', 'config', 'agentConfig2']);
   });
 
   it('回调一直不来时超时失败，不会永远停在骨架', async () => {

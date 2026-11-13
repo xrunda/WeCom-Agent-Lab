@@ -15,6 +15,7 @@ export interface WxInvokeResult {
 
 export interface WxConfigResult {
   errMsg?: string;
+  hint?: string;
 }
 
 export interface WxLike {
@@ -45,19 +46,28 @@ export class WxConfigError extends Error {
 
 /** 企微 errMsg 只有「接口名:fail 原因」，不含凭据，可以给用户看 */
 function describeWxFailure(result: unknown): string {
-  const errMsg = (result as WxConfigResult | undefined)?.errMsg;
-  return typeof errMsg === 'string' && errMsg !== '' ? errMsg : '未知原因';
+  const value = result as WxConfigResult | undefined;
+  const errMsg = typeof value?.errMsg === 'string' && value.errMsg !== '' ? value.errMsg : '未知原因';
+  const hint = typeof value?.hint === 'string' && value.hint !== '' ? `（${value.hint}）` : '';
+  return `${errMsg}${hint}`;
 }
+
+/** config 有时不回调，给它一秒，超时也照样重试 */
+const CONFIG_CALLBACK_WAIT_MS = 1_000;
 
 /**
  * 自建应用必须走 agentConfig。
  *
- * 企微桌面端会注入 wx 但与页面未建立联系，官方流程是先 config 再 agentConfig；
- * config 失败不阻塞 agentConfig，两者任一成功都算可用。
+ * 参数名是企微的固定写法：`corpid` / `agentid` 全小写，`nonceStr` / `jsApiList` 驼峰。
+ * 写成 corpId 时 SDK 读不到，会当成没传；个别客户端注入的对象认驼峰，两套都给。
+ *
+ * 新版客户端允许 agentConfig 独立调用，所以先直接调；失败再补一次 wx.config
+ * （企业票签名）后重试，兼顾需要 config 建立企业上下文的客户端。
  */
 export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let retried = false;
     const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
@@ -69,40 +79,69 @@ export function configureAgent(wx: WxLike, config: AgentConfig): Promise<void> {
       () => finish(new WxConfigError('JS-SDK 鉴权超时')),
       AGENT_CONFIG_TIMEOUT_MS,
     );
-    // config 用企业 ticket 的签名，agentConfig 用应用 ticket 的签名
-    const configSignature = config.config ?? {
-      timestamp: config.timestamp,
-      nonceStr: config.nonceStr,
-      signature: config.signature,
+
+    const callAgentConfig = (onFail: (result: WxConfigResult) => void): void => {
+      try {
+        wx.agentConfig({
+          // 官方写法：小写 corpid / agentid
+          corpid: config.corpId,
+          agentid: config.agentId,
+          // 兼容按驼峰读参数的客户端
+          corpId: config.corpId,
+          agentId: config.agentId,
+          timestamp: config.timestamp,
+          nonceStr: config.nonceStr,
+          signature: config.signature,
+          jsApiList: config.jsApiList,
+          success: () => finish(),
+          fail: onFail,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : '调用异常';
+        finish(new WxConfigError(`JS-SDK 不可用：${detail}`));
+      }
     };
-    const agentSignature = {
-      timestamp: config.timestamp,
-      nonceStr: config.nonceStr,
-      signature: config.signature,
-      jsApiList: config.jsApiList,
-    };
-    try {
-      wx.config?.({
-        beta: true,
-        debug: false,
-        appId: config.corpId,
-        ...configSignature,
-        jsApiList: config.jsApiList,
-        success: () => {},
-        fail: () => {},
-      });
-      wx.agentConfig({
-        corpId: config.corpId,
-        agentId: config.agentId,
-        ...agentSignature,
-        success: () => finish(),
-        fail: (result: WxConfigResult) =>
+
+    const retryAfterConfig = (): void => {
+      if (settled) return;
+      retried = true;
+      let called = false;
+      const retry = (): void => {
+        if (called || settled) return;
+        called = true;
+        callAgentConfig((result) =>
           finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`)),
-      });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : '调用异常';
-      finish(new WxConfigError(`JS-SDK 不可用：${detail}`));
-    }
+        );
+      };
+      const signature = config.config ?? {
+        timestamp: config.timestamp,
+        nonceStr: config.nonceStr,
+        signature: config.signature,
+      };
+      try {
+        wx.config?.({
+          beta: true,
+          debug: false,
+          appId: config.corpId,
+          ...signature,
+          jsApiList: config.jsApiList,
+          success: retry,
+          fail: retry,
+        });
+      } catch {
+        // config 异常也照样重试 agentConfig
+      }
+      if (typeof wx.config === 'function') setTimeout(retry, CONFIG_CALLBACK_WAIT_MS);
+      else retry();
+    };
+
+    callAgentConfig((result) => {
+      if (retried) {
+        finish(new WxConfigError(`JS-SDK 鉴权失败：${describeWxFailure(result)}`));
+        return;
+      }
+      retryAfterConfig();
+    });
   });
 }
 
