@@ -16,6 +16,7 @@ import type {
   PendingItem,
   SidebarBackend,
   SidebarMessageInput,
+  SidebarMetric,
 } from '../src/p1/sidebar.ts';
 
 const ROOM = groupConvKey('room_test_1');
@@ -186,6 +187,49 @@ test('手动关闭写审计且不带正文', () => {
 
   // 重复关闭无副作用
   assert.equal(svc.close(item!.id, 'dismissed', 'staff_1'), undefined);
+});
+
+test('#149 已处理 / 无需回复 / 转交：状态与埋点分开记录', () => {
+  const backend = new MemoryBackend();
+  const metrics: Array<{ type: string; waitSeconds: number; reason?: string }> = [];
+  const svc = new SidebarService({
+    backend,
+    now: () => T0 + 30 * MIN,
+    onMetric: (metric) => metrics.push(metric),
+  });
+  const { item } = svc.observe(message(ROOM, 'wm_a', '明天几点复诊？', T0));
+  assert.ok(item);
+
+  const closed = svc.close(item!.id, 'handled', 'staff_1');
+  assert.equal(closed?.status, 'handled');
+  assert.equal(closed?.closedReason, 'manual');
+  // 审计只带 id 尾号与动作，不带正文
+  assert.doesNotMatch(JSON.stringify(backend.audits[0]), /复诊/);
+  assert.deepEqual(metrics, [
+    { type: 'pending.close_manual', itemId: item!.id, waitSeconds: 30 * 60, reason: 'handled' },
+  ]);
+});
+
+test('#149 同事回复自动关闭也上报等待时长，且不带正文', () => {
+  const metrics: SidebarMetric[] = [];
+  const svc = new SidebarService({
+    backend: new MemoryBackend(),
+    now: () => T0 + 5 * MIN,
+    onMetric: (metric) => metrics.push(metric),
+  });
+  const { item } = svc.observe(message(ROOM, 'wm_a', '明天几点复诊？', T0));
+  assert.ok(item);
+  svc.observe(message(ROOM, 'staff_2', '九点', T0 + 2 * MIN));
+
+  assert.deepEqual(metrics, [
+    {
+      type: 'pending.auto_closed',
+      itemId: item!.id,
+      waitSeconds: 2 * 60,
+      reason: 'staff_reply',
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(metrics), /复诊/);
 });
 
 test('单聊会话键独立于群会话，互不串数据', () => {

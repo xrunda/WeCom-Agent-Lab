@@ -393,6 +393,26 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       const draft = serviceRef?.store.getDraft(draftId);
       return draft ? structuredClone(draft) : undefined;
     },
+    /**
+     * #149：侧边栏读取「已生成、还没发出」的草稿。
+     * 只读，不触发生成；顾问已确认发送或已发出的草稿不再展示。
+     */
+    latestSidebarDraft(roomId: string, since: number) {
+      const draft = (serviceRef?.store.listDrafts() ?? [])
+        .filter((item) => item.groupRoomId === roomId)
+        .filter((item) => item.createdAt >= since)
+        .filter((item) => item.status === 'PUSHED')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (!draft) return undefined;
+      return {
+        id: draft.id,
+        body: draft.body,
+        riskLevel: draft.riskLevel,
+        ruleNames: [...(draft.ruleNames ?? [])],
+        createdAt: draft.createdAt,
+        status: draft.status,
+      };
+    },
     listGroups() {
       return (serviceRef?.store.listGroups() ?? []).map((group) => structuredClone(group));
     },

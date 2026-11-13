@@ -6,7 +6,7 @@
  * 轮询 30 秒，页面隐藏时暂停，切回立即刷新。
  */
 import './sidebar.css';
-import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext } from './api.ts';
+import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext, postClose, postEvent } from './api.ts';
 import { render } from './view.ts';
 import type { ViewHandlers } from './view.ts';
 import { configureAgent, contextQuery, resolveConversation } from './wecom.ts';
@@ -87,6 +87,8 @@ function handleAuthFailure(): void {
 async function start(rootEl: HTMLElement): Promise<void> {
   stopPolling();
   conversation = undefined;
+  reportedOpen = false;
+  reportedPendingView = false;
   render(rootEl, { kind: 'loading' });
 
   const wx = window.wx;
@@ -130,11 +132,39 @@ async function start(rootEl: HTMLElement): Promise<void> {
 }
 
 let lastData: SidebarState & { kind: 'ready' } | undefined;
+/** 每次打开侧边栏只上报一次，避免 30 秒轮询把统计刷成噪声 */
+let reportedOpen = false;
+let reportedPendingView = false;
+
+async function closeItem(
+  rootEl: HTMLElement,
+  id: string,
+  reason: 'handled' | 'dismissed' | 'transferred',
+): Promise<void> {
+  try {
+    await postClose(id, reason);
+    await refresh(rootEl);
+  } catch (error) {
+    if (error instanceof SidebarApiError && error.status === 401) {
+      handleAuthFailure();
+      return;
+    }
+    if (lastData) {
+      render(
+        rootEl,
+        { ...lastData, notice: { message: '操作没成功，请重试', retryable: true } },
+        handlers(rootEl, () => void refresh(rootEl)),
+      );
+    }
+  }
+}
 
 function handlers(rootEl: HTMLElement, redraw: () => void): ViewHandlers {
   return {
     onRefresh: redraw,
     onRetry: () => void start(rootEl),
+    onClose: (id, reason) => void closeItem(rootEl, id, reason),
+    onEvent: (event, itemId) => void postEvent(event, itemId),
     consoleUrl: consoleUrl(),
   };
 }
@@ -158,6 +188,14 @@ async function refresh(rootEl: HTMLElement): Promise<void> {
     writeAuthTried(false);
     lastData = { kind: 'ready', data };
     render(rootEl, lastData, handlers(rootEl, redraw));
+    if (!reportedOpen) {
+      reportedOpen = true;
+      void postEvent('sidebar.open');
+    }
+    if (!reportedPendingView && data.pending.openCount > 0) {
+      reportedPendingView = true;
+      void postEvent('pending.view');
+    }
   } catch (error) {
     if (error instanceof SidebarApiError && error.status === 401) {
       handleAuthFailure();

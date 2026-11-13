@@ -468,3 +468,75 @@ body {
   white-space: nowrap;
   min-width: 0;
 }
+
+/* —— #149 草稿、手动处理 —— */
+.draft {
+  margin: 0 0 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.draft-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.draft-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.draft-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.risk-low {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.risk-medium {
+  color: var(--warn);
+  background: #fdf3e7;
+}
+
+.risk-high {
+  color: #b91c1c;
+  background: #fdeaea;
+}
+
+.draft-body {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.draft-rules {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.draft-confirm {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.draft .ops {
+  gap: 6px;
+}

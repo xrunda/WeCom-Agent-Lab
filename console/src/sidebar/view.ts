@@ -61,6 +61,10 @@ function clockLabel(at: number): string {
 export interface ViewHandlers {
   onRetry?: () => void;
   onRefresh?: () => void;
+  /** 手动关闭：已处理 / 无需回复 / 转交 */
+  onClose?: (id: string, reason: 'handled' | 'dismissed' | 'transferred') => void;
+  /** 埋点：复制、查看等；失败由 api 层吞掉 */
+  onEvent?: (event: 'sidebar.open' | 'pending.view' | 'pending.copy_excerpt' | 'draft.copy', itemId?: string) => void;
   /** 控制台地址；只有配置了才显示入口 */
   consoleUrl?: string;
 }
@@ -93,9 +97,45 @@ function noticeBanner(notice: { message: string; retryable: boolean }): string {
   </div>`;
 }
 
+const RISK_LABEL = { low: '常规', medium: '需核对', high: '高风险' } as const;
+
+/** 草稿块：正文两行、风险、规则来源、生成时间；高风险必须先展开再复制 */
+function draftHtml(item: SidebarPendingView): string {
+  const draft = item.draft;
+  if (!draft) return '';
+  const risk = RISK_LABEL[draft.riskLevel];
+  const rules = draft.ruleNames.length
+    ? `<p class="draft-rules">依据：${draft.ruleNames
+        .slice(0, 2)
+        .map((name) => escapeHtml(name))
+        .join('、')}</p>`
+    : '';
+  const generated = relativeLabel(
+    Math.max(0, Math.floor((Date.now() - draft.createdAt) / 1000)),
+  );
+  const high = draft.riskLevel === 'high';
+  return `
+    <div class="draft" data-draft-id="${escapeHtml(draft.id)}">
+      <div class="draft-head">
+        <span class="draft-label">草稿</span>
+        <span class="pill risk-${draft.riskLevel}">${risk}</span>
+        <span class="draft-time">${generated}生成</span>
+      </div>
+      <p class="draft-body">${escapeHtml(draft.body)}</p>
+      ${rules}
+      <p class="draft-confirm" hidden>草稿涉及用药或就医建议，请先核对再发给客户。</p>
+      <div class="ops">
+        <button type="button" class="op" data-copy-draft="${
+          high ? 'high' : 'normal'
+        }">${high ? '展开核对' : '复制草稿'}</button>
+      </div>
+    </div>`;
+}
+
 function itemHtml(item: SidebarPendingView): string {
   const tier = waitTier(item.waitSeconds);
   const who = item.customerName ? escapeHtml(item.customerName) : '客户';
+  const id = escapeHtml(item.id);
   return `
     <li class="item">
       <div class="item-head">
@@ -104,9 +144,12 @@ function itemHtml(item: SidebarPendingView): string {
         <span class="wait wait-${tier}">等了 ${formatWait(item.waitSeconds)}</span>
       </div>
       <p class="excerpt">${escapeHtml(item.excerpt)}</p>
+      ${draftHtml(item)}
       <div class="ops">
-        <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}">复制原话</button>
-        <button type="button" class="op" disabled title="本会话暂无草稿">生成回复</button>
+        <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}" data-item="${id}">复制原话</button>
+        <button type="button" class="op" data-close="handled" data-item="${id}">已处理</button>
+        <button type="button" class="op" data-close="dismissed" data-item="${id}">无需回复</button>
+        <button type="button" class="op" data-close="transferred" data-item="${id}">转交</button>
       </div>
       <p class="copy-hint" hidden>复制失败，已选中原文，请手动复制</p>
       ${item.aiReplied ? '<p class="note">机器人已回应</p>' : ''}
@@ -249,12 +292,8 @@ function bind(root: HTMLElement, handlers: ViewHandlers): void {
       const item = button.closest('li');
       void copyText(text).then((ok) => {
         if (ok) {
-          button.textContent = '已复制';
-          button.classList.add('copied');
-          window.setTimeout(() => {
-            button.textContent = '复制原话';
-            button.classList.remove('copied');
-          }, 2_000);
+          handlers.onEvent?.('pending.copy_excerpt', button.dataset.item);
+          flashCopied(button, '复制原话');
           return;
         }
         // 兜底：选中原文，提示手动复制
@@ -264,6 +303,49 @@ function bind(root: HTMLElement, handlers: ViewHandlers): void {
       });
     });
   });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-copy-draft]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const draft = button.closest('.draft');
+      const body = draft?.querySelector('.draft-body')?.textContent ?? '';
+      // 高风险：第一次点击只展开核对，确认后再点一次才复制
+      if (button.dataset.copyDraft === 'high' && button.dataset.armed !== '1') {
+        button.dataset.armed = '1';
+        button.textContent = '确认并复制';
+        const confirm = draft?.querySelector('.draft-confirm');
+        if (confirm instanceof HTMLElement) confirm.hidden = false;
+        return;
+      }
+      void copyText(body).then((ok) => {
+        if (!ok) return;
+        handlers.onEvent?.('draft.copy');
+        flashCopied(button, button.dataset.copyDraft === 'high' ? '确认并复制' : '复制草稿');
+      });
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-close]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.item;
+      const reason = button.dataset.close as 'handled' | 'dismissed' | 'transferred';
+      if (!id || !handlers.onClose) return;
+      // 防止重复点击：同一张卡片的动作全部置灰，失败由上层刷新恢复
+      const item = button.closest('li');
+      item?.querySelectorAll<HTMLButtonElement>('.op').forEach((op) => {
+        op.disabled = true;
+      });
+      handlers.onClose(id, reason);
+    });
+  });
+}
+
+function flashCopied(button: HTMLButtonElement, restore: string): void {
+  button.textContent = '已复制';
+  button.classList.add('copied');
+  window.setTimeout(() => {
+    button.textContent = restore;
+    button.classList.remove('copied');
+  }, 2_000);
 }
 
 export function render(
