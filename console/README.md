@@ -4,7 +4,9 @@ Vite + React 18 + TypeScript + Ant Design 5 + ProComponents 的控制台骨架�
 
 ## 本地运行
 
-仓库根目录的 `./start.sh` **默认以真实接口启动**（`/zhiban/api` 代理到 `127.0.0.1:3080`）；只看示例数据用 `./start.sh mock`。
+仓库根目录的 `./start.sh` **默认以真实接口启动**（`/zhiban/api` 代理到 `127.0.0.1:3080`）；只看示例数据用 `./start.sh mock`。后台启动加 `--bg`，用 `./stop.sh` 停止。
+
+侧边栏 H5（`src/sidebar/`）是独立构建的第二个入口：`./start.sh sidebar` 起 5174 的开发服务，发布产物用 `npm run build:sidebar`（输出 `dist-sidebar/`，nginx 以 `/sidebar/` 提供）。本地调试需要有企微 OAuth 会话，否则页面显示「登录已失效」。
 
 也可以直接在 console 目录启动：
 

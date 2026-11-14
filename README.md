@@ -36,6 +36,9 @@ cd console && npm install && npm test   # 控制台：Vitest + Testing Library
 ./start.sh                  # 控制台连真实接口（默认，代理 127.0.0.1:3080）
 ./start.sh mock             # 控制台 mock 模式（示例数据，无需后端）
 ./start.sh http://127.0.0.1:18081   # 指定后端地址（如 VM 隧道）
+./start.sh sidebar          # 企微侧边栏 H5 开发服务（5174，需企微 OAuth 会话）
+./start.sh --bg mock        # 后台启动，日志与 PID 在 .run/
+./stop.sh                   # 停止控制台/侧边栏（含手工 npm run dev 起的）
 ```
 
 更细的模块说明：患者 Agent [docs/P1-patient-agent.md](./docs/P1-patient-agent.md) · 红线与知识 [docs/P1-guard-knowledge.md](./docs/P1-guard-knowledge.md) · 记忆与计划 [docs/P1-memory-care.md](./docs/P1-memory-care.md) · 控制台后端 [docs/P1-console-backend.md](./docs/P1-console-backend.md)。
@@ -68,7 +71,8 @@ WeCom-Agent-Lab/
 ├── PRD.md
 ├── README.md
 ├── ISSUES.md
-├── start.sh                     # 本地一键启动控制台（默认真实接口，可选 mock）
+├── start.sh                     # 本地一键启动控制台 / 侧边栏（默认真实接口，可选 mock）
+├── stop.sh                      # 停止 start.sh --bg 启动的服务
 ├── docs/                        # P1 产品与实现文档 + M1/C2 历史文档
 ├── config/.env.example          # 密钥占位，不提交真实值
 ├── evidence/                    # 证据索引（raw/ 已忽略）
