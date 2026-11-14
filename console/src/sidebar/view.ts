@@ -213,6 +213,13 @@ function pendingCard(data: SidebarContextData): string {
     </section>`;
 }
 
+/** 存档同意状态的展示口径；未知值原样转义，不猜 */
+const CONSENT_LABEL: Record<string, string> = {
+  agreed: '已同意',
+  unknown: '待确认',
+  disagreed: '不同意',
+};
+
 function profileCard(data: SidebarContextData, consoleUrl?: string): string {
   const profile = data.profile;
   if (!profile || !profile.bound) {
@@ -229,16 +236,25 @@ function profileCard(data: SidebarContextData, consoleUrl?: string): string {
   const confirmed = profile.confirmed
     ? '<span class="pill">本人已确认</span>'
     : '<span class="pill pill-muted">待确认</span>';
+  // 速览是固定结构：每种信息都有一个位置，缺数据时显示占位，不整块消失
   const tags = profile.tags.length
     ? `<div class="tags">${profile.tags
         .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
         .join('')}</div>`
-    : '';
+    : '<span class="field-empty">未打标签</span>';
+  const consent = profile.consent
+    ? escapeHtml(CONSENT_LABEL[profile.consent] ?? profile.consent)
+    : '—';
+  const groups = profile.groups.length
+    ? profile.groups.map((group) => escapeHtml(group)).join('、')
+    : '<span class="field-empty">未绑定服务群</span>';
+
   const facts: string[] = [];
+  facts.push(`顾问：${profile.advisorName ? escapeHtml(profile.advisorName) : '—'}`);
+  if (profile.servedDays !== null) facts.push(`服务 ${profile.servedDays} 天`);
   if (profile.silentDays !== null) {
     facts.push(profile.silentDays === 0 ? '今天活跃' : `沉默 ${profile.silentDays} 天`);
   }
-  if (profile.advisorName) facts.push(`顾问：${escapeHtml(profile.advisorName)}`);
 
   return `
     <section class="card">
@@ -246,17 +262,33 @@ function profileCard(data: SidebarContextData, consoleUrl?: string): string {
         <h2>客户速览 · ${name}</h2>
         ${confirmed}
       </div>
-      ${tags}
-      ${facts.length ? `<p class="facts">${facts.join(' · ')}</p>` : ''}
-      ${chronicHtml(data)}
+      <p class="facts">${facts.join(' · ')}</p>
+      <div class="profile-section">
+        <h3 class="section-title">基础信息</h3>
+        <dl class="fields">
+          <div class="field"><dt>标签</dt><dd>${tags}</dd></div>
+          <div class="field"><dt>存档</dt><dd>${consent}</dd></div>
+          <div class="field"><dt>服务群</dt><dd>${groups}</dd></div>
+        </dl>
+      </div>
+      ${chronicHtml(data, consoleUrl)}
       ${consoleLink(consoleUrl)}
     </section>`;
 }
 
-/** 慢病档案摘要：有数据才渲染，没有就整块不出现，不留「暂未接入」空壳 */
-function chronicHtml(data: SidebarContextData): string {
+/** 慢病档案区块固定保留：没有档案时显示「尚未录入」，并指向控制台补录 */
+function chronicHtml(data: SidebarContextData, consoleUrl?: string): string {
   const chronic = data.profile?.chronic;
-  if (!chronic) return '';
+  if (!chronic) {
+    const action = consoleUrl
+      ? ` · <a href="${escapeHtml(consoleUrl)}" target="_blank" rel="noopener noreferrer">去控制台补录</a>`
+      : '';
+    return `
+      <div class="profile-section chronic">
+        <h3 class="section-title">慢病档案</h3>
+        <p class="field-empty">尚未录入${action}</p>
+      </div>`;
+  }
 
   const conditions = chronic.conditions.length
     ? `<p class="chronic-conditions">${chronic.conditions
@@ -298,9 +330,9 @@ function chronicHtml(data: SidebarContextData): string {
     : '';
 
   return `
-    <div class="chronic">
+    <div class="profile-section chronic">
       <div class="chronic-head">
-        <h3>慢病档案</h3>
+        <h3 class="section-title">慢病档案</h3>
         <span class="chronic-updated">${relativeSince(chronic.updatedAt)}更新</span>
       </div>
       ${conditions}

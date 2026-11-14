@@ -50,7 +50,9 @@ function deps(overrides: Partial<SidebarViewDeps> = {}): SidebarViewDeps {
       identityStatus: 'confirmed',
       lastActiveAt: NOW - 3 * 24 * 60 * 60_000,
       advisorId: 'adv_1',
+      accompaniedSince: NOW - 30 * 24 * 60 * 60_000,
     }),
+    groupsForPatient: () => ['高血压管理 1 群', '复诊跟进群'],
     patientNameFor: (id) => (id === 'wm_a' ? '王阿姨' : undefined),
     getAdvisorName: () => '李医生',
     now: () => NOW,
@@ -73,6 +75,42 @@ test('绑定顾问能拿到待回复、原文和速览', () => {
   assert.equal(view.profile?.name, '王阿姨');
   assert.equal(view.profile?.silentDays, 3);
   assert.equal(view.profile?.advisorName, '李医生');
+  // 速览固定字段：前端据此渲染固定区块
+  assert.equal(view.profile?.consent, 'agreed');
+  assert.equal(view.profile?.servedDays, 30);
+  assert.deepEqual(view.profile?.groups, ['高血压管理 1 群', '复诊跟进群']);
+});
+
+test('速览结构稳定：没有标签、没有慢病档案时字段依然齐全', () => {
+  // 真机反馈：档案信息少时卡片只剩一行，看起来像坏了。
+  // 视图层固定返回这些字段，由前端渲染「未打标签 / 尚未录入」占位。
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [],
+      getPatient: () => ({
+        id: 'pat_2',
+        displayName: 'Star',
+        tags: [],
+        consent: 'unknown',
+        identityStatus: 'confirmed',
+        lastActiveAt: NOW,
+        accompaniedSince: NOW - 7 * 24 * 60 * 60_000,
+      }),
+      groupsForPatient: () => [],
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  const profile = view.profile;
+  assert.ok(profile);
+  assert.equal(profile.bound, true);
+  assert.equal(profile.name, 'Star');
+  assert.deepEqual(profile.tags, []);
+  assert.equal(profile.consent, 'unknown');
+  assert.equal(profile.servedDays, 7);
+  assert.deepEqual(profile.groups, []);
+  assert.equal(profile.chronic, null);
+  assert.equal(profile.silentDays, 0);
 });
 
 test('没有 patient.read 时昵称、群名与标签都不返回', () => {
@@ -82,6 +120,11 @@ test('没有 patient.read 时昵称、群名与标签都不返回', () => {
   assert.equal(view.profile?.name, null);
   assert.deepEqual(view.profile?.tags, []);
   assert.equal(view.profile?.advisorName, null);
+  // 客户数据全部收口：存档状态、服务天数、服务群也不返回
+  assert.equal(view.profile?.consent, null);
+  assert.equal(view.profile?.servedDays, null);
+  assert.deepEqual(view.profile?.groups, []);
+  assert.equal(view.profile?.silentDays, null);
   // 待回复本身仍然可见：顾问就在这个会话里
   assert.equal(view.pending.openCount, 1);
 });
@@ -161,8 +204,10 @@ test('#159 顾问自己的客户单聊返回待回复与速览', () => {
               identityStatus: 'confirmed',
               lastActiveAt: NOW - 2 * 60 * 60_000,
               advisorId: 'adv_1',
+              accompaniedSince: NOW - 3 * 24 * 60 * 60_000,
             }
           : undefined,
+      groupsForPatient: () => ['客户-汪星-20261108'],
       getPatient: () => undefined,
     }),
     advisor,
@@ -181,6 +226,9 @@ test('#159 顾问自己的客户单聊返回待回复与速览', () => {
   assert.equal(view.profile?.name, '汪星');
   assert.equal(view.profile?.confirmed, true);
   assert.equal(view.profile?.advisorName, '李医生');
+  assert.equal(view.profile?.consent, 'agreed');
+  assert.equal(view.profile?.servedDays, 3);
+  assert.deepEqual(view.profile?.groups, ['客户-汪星-20261108']);
 });
 
 test('#159 没有 patient.read 时单聊昵称与速览为空，条目仍可见', () => {
@@ -209,6 +257,9 @@ test('#159 没有 patient.read 时单聊昵称与速览为空，条目仍可见'
   assert.equal(view.profile?.bound, true);
   assert.equal(view.profile?.name, null);
   assert.equal(view.profile?.advisorName, null);
+  assert.equal(view.profile?.consent, null);
+  assert.equal(view.profile?.servedDays, null);
+  assert.deepEqual(view.profile?.groups, []);
 });
 
 test('#159 单聊会话键只按登录顾问自己的 userid 构造，换人查不到', () => {

@@ -36,6 +36,9 @@ const data: SidebarContextData = {
     name: '王阿姨',
     confirmed: true,
     tags: ['高血压'],
+    consent: 'agreed',
+    servedDays: 30,
+    groups: ['高血压管理 1 群'],
     chronic: null,
     carePlan: null,
     silentDays: 3,
@@ -468,12 +471,23 @@ describe('慢病档案（#144）', () => {
     expect(block!.textContent).toContain('阿托伐他汀');
   });
 
-  it('没有档案时整块不出现，也不再显示「暂未接入」占位', () => {
+  it('没有档案时保留区块并显示「尚未录入」，不回到旧的「暂未接入」', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
-    expect(root.querySelector('.chronic')).toBeNull();
-    expect(root.textContent).not.toContain('慢病档案');
+    const section = root.querySelector('.chronic');
+    expect(section).not.toBeNull();
+    expect(section!.textContent).toContain('慢病档案');
+    expect(section!.textContent).toContain('尚未录入');
     expect(root.textContent).not.toContain('档案详情暂未接入');
+  });
+
+  it('没有档案时也给出补录入口', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data }, { consoleUrl: 'https://console.example.com/' });
+    expect(root.querySelector('.chronic a')!.getAttribute('href')).toBe(
+      'https://console.example.com/',
+    );
+    expect(root.textContent).toContain('去控制台补录');
   });
 
   it('档案里的动态文本一律转义', () => {
@@ -490,5 +504,81 @@ describe('慢病档案（#144）', () => {
     });
     expect(root.innerHTML).not.toContain('<img src=x');
     expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('速览结构稳定', () => {
+  // 真机反馈：档案信息少时卡片只剩名字和一个标签，看起来像坏了。
+  // 区块与字段固定，缺数据时显示占位。
+  const sparse: SidebarContextData = {
+    ...data,
+    profile: {
+      bound: true,
+      name: 'Star',
+      confirmed: true,
+      tags: [],
+      consent: 'unknown',
+      servedDays: 7,
+      groups: [],
+      chronic: null,
+      carePlan: null,
+      silentDays: 0,
+      advisorName: '李医生',
+    },
+  };
+
+  it('没有标签、服务群与慢病档案时，标题与占位都在', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: sparse });
+    const text = root.textContent!;
+    expect(text).toContain('基础信息');
+    expect(text).toContain('标签');
+    expect(text).toContain('未打标签');
+    expect(text).toContain('存档');
+    expect(text).toContain('待确认');
+    expect(text).toContain('服务群');
+    expect(text).toContain('未绑定服务群');
+    expect(text).toContain('慢病档案');
+    expect(text).toContain('尚未录入');
+  });
+
+  it('固定字段：顾问、服务天数与活跃状态始终展示', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: sparse });
+    const facts = root.querySelector('.facts')!.textContent!;
+    expect(facts).toContain('顾问：李医生');
+    expect(facts).toContain('服务 7 天');
+    expect(facts).toContain('今天活跃');
+  });
+
+  it('没有权限时不给假数据：存档为「—」，服务天数与活跃状态不展示', () => {
+    const root = document.createElement('div');
+    render(root, {
+      kind: 'ready',
+      data: {
+        ...sparse,
+        profile: {
+          ...sparse.profile!,
+          name: null,
+          consent: null,
+          servedDays: null,
+          groups: [],
+          silentDays: null,
+          advisorName: null,
+        },
+      },
+    });
+    const facts = root.querySelector('.facts')!.textContent!;
+    expect(facts).toContain('顾问：—');
+    expect(facts).not.toContain('服务');
+    expect(root.textContent).toContain('客户信息不可见');
+    expect(root.textContent).toContain('未绑定服务群');
+  });
+
+  it('有数据时区块顺序仍是基础信息在前、慢病档案在后', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: { ...sparse, profile: { ...sparse.profile!, tags: ['高血压'] } } });
+    const titles = [...root.querySelectorAll('.section-title')].map((node) => node.textContent);
+    expect(titles).toEqual(['基础信息', '慢病档案']);
   });
 });

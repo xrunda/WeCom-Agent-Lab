@@ -98,11 +98,15 @@ type PatientRecordLike = {
   identityStatus?: 'pending' | 'confirmed';
   lastActiveAt?: number;
   advisorId?: string;
+  accompaniedSince?: number;
 };
 
 /** zhiban-patient 暴露给控制台的只读视图 */
 interface PatientApiLike {
-  listGroups(): Array<{ roomId: string; patientIds: string[] }>;
+  /** id / name 用于把患者绑定翻成群名；旧版本缺字段时跳过该群 */
+  listGroups(): Array<{ id?: string; name?: string; roomId: string; patientIds: string[] }>;
+  /** 患者 ↔ 群绑定；旧版本 zhiban-patient 没有该方法 */
+  getPatientBindings?(patientId: string): Array<{ groupId: string; isPrimary: boolean }>;
   getPatientAdmin(id: string): PatientRecordLike | undefined;
   listPatients(): Array<{ id: string; externalUserId?: string; displayName: string }>;
   listAdvisors(): Array<{
@@ -126,6 +130,9 @@ function toPatientRef(record: PatientRecordLike | undefined): SidebarPatientRef 
     ...(record.identityStatus ? { identityStatus: record.identityStatus } : {}),
     ...(record.lastActiveAt !== undefined ? { lastActiveAt: record.lastActiveAt } : {}),
     ...(record.advisorId ? { advisorId: record.advisorId } : {}),
+    ...(record.accompaniedSince !== undefined
+      ? { accompaniedSince: record.accompaniedSince }
+      : {}),
   };
 }
 
@@ -270,6 +277,20 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
                 patient?.listAdvisors().find((item) => item.id === advisorId)?.name,
               // 慢病档案随速览一起返回；老版本插件没有该方法时为 undefined
               getChronic: (patientId) => patient?.getChronicProfile?.(patientId),
+              // 绑定的服务群名：主群在前，其余按绑定顺序；查不到群档案时跳过
+              groupsForPatient: (patientId) => {
+                const bindings = patient?.getPatientBindings?.(patientId) ?? [];
+                if (bindings.length === 0) return [];
+                const names = new Map<string, string>();
+                for (const group of patient?.listGroups() ?? []) {
+                  if (group.id && group.name) names.set(group.id, group.name);
+                }
+                return bindings
+                  .slice()
+                  .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+                  .map((binding) => names.get(binding.groupId))
+                  .filter((name): name is string => name !== undefined);
+              },
               // 只读：草稿由患者运行时生成，侧边栏不触发模型调用
               ...(admin?.latestSidebarDraft
                 ? {
