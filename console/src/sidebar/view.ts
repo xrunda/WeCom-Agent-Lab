@@ -220,6 +220,14 @@ const CONSENT_LABEL: Record<string, string> = {
   disagreed: '不同意',
 };
 
+/**
+ * 血糖情境的展示口径。存储值是「随机」（随机血糖），单看这两个字容易被
+ * 理解成「随机抽取的数据」，补成「随机时点」说明这是测量时间而非数据来源。
+ */
+const CONTEXT_LABEL: Record<string, string> = {
+  随机: '随机时点',
+};
+
 function profileCard(data: SidebarContextData, consoleUrl?: string): string {
   const profile = data.profile;
   if (!profile || !profile.bound) {
@@ -307,8 +315,11 @@ function chronicHtml(data: SidebarContextData, consoleUrl?: string): string {
           const unverified = measurement.source === 'agent'
             ? '<span class="metric-src">对话提取</span>'
             : '';
-          const context = measurement.context
-            ? `<span class="metric-context">${escapeHtml(measurement.context)}</span>`
+          const contextText = measurement.context
+            ? (CONTEXT_LABEL[measurement.context] ?? measurement.context)
+            : '';
+          const context = contextText
+            ? `<span class="metric-context">${escapeHtml(contextText)}</span>`
             : '';
           // 情境（空腹 / 早晨自测…）可能很长，单独占一行，不跟数值抢位置
           const note = context || unverified

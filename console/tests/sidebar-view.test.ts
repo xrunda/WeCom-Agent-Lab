@@ -507,6 +507,31 @@ describe('慢病档案（#144）', () => {
     expect(metrics[1]!.querySelector('.metric-note')).toBeNull();
   });
 
+  it('血糖的「随机」显示成「随机时点」，避免被当成随机数据', () => {
+    const root = document.createElement('div');
+    render(root, {
+      kind: 'ready',
+      data: {
+        ...data,
+        profile: {
+          ...data.profile!,
+          chronic: {
+            ...chronic,
+            measurements: [
+              {
+                ...chronic.measurements[0]!,
+                context: '随机',
+              },
+            ],
+          },
+        },
+      },
+    });
+    const note = root.querySelector('.metric-note')!;
+    expect(note.textContent).toContain('随机时点');
+    expect(note.textContent).not.toContain('随机对话');
+  });
+
   it('档案里的动态文本一律转义', () => {
     const root = document.createElement('div');
     render(root, {
