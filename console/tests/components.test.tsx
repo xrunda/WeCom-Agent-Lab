@@ -55,10 +55,38 @@ describe('通用组件', () => {
 
     await waitFor(() => expect(screen.getByTestId('term')).toHaveTextContent('患者'));
 
-    await user.click(screen.getByRole('combobox', { name: '切换客户称谓' }));
+    await user.click(screen.getByRole('combobox', { name: '切换服务对象称谓' }));
     const option = await screen.findByTitle('会员');
     await user.click(option);
 
     await waitFor(() => expect(screen.getByTestId('term')).toHaveTextContent('会员'));
+  });
+
+  it('齿轮可以保存自定义称谓', async () => {
+    await login('admin', MOCK_PASSWORD);
+    const user = userEvent.setup();
+
+    render(
+      <ConfigProvider locale={zhCN}>
+        <App>
+          <MemoryRouter>
+            <AuthProvider>
+              <TenantTermControl />
+              <TermProbe />
+            </AuthProvider>
+          </MemoryRouter>
+        </App>
+      </ConfigProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '自定义服务对象称谓' }),
+    );
+    const input = await screen.findByLabelText('自定义称谓输入');
+    await user.clear(input);
+    await user.type(input, '亲人');
+    await user.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    await waitFor(() => expect(screen.getByTestId('term')).toHaveTextContent('亲人'));
   });
 });

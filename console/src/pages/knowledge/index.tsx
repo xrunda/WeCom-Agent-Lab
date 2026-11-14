@@ -1,4 +1,9 @@
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   App,
@@ -250,7 +255,12 @@ export default function KnowledgePage() {
             width: 120,
             render: (_: unknown, entry: KnowledgeEntry) => (
               <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(entry)}>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => openEdit(entry)}
+                >
                   编辑
                 </Button>
                 <Popconfirm
@@ -261,7 +271,7 @@ export default function KnowledgePage() {
                   okButtonProps={{ danger: true }}
                   onConfirm={() => void remove(entry)}
                 >
-                  <Button type="link" size="small" danger>
+                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                     删除
                   </Button>
                 </Popconfirm>

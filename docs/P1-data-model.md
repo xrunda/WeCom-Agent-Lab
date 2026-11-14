@@ -66,12 +66,13 @@ P1 的业务数据围绕五个东西组织：**租户（tenant）→ 服务群�
 | 标记 | 含义 | 进统计 | 界面表现 |
 |---|---|---|---|
 | `sandbox: true` | 体验中心模拟渠道产生的数据，渠道是假的，Agent 是真的 | **不进**工作台、报表、告警角标 | 「体验沙盒」标识；可一键重置 |
-| `demo: true` | 真实链路跑出来的演示患者数据（虚构人物、真实发送） | **进**统计 | 「演示患者」标签 |
-| 都为 false | 真实客户数据 | 进统计 | 无标记 |
+| `demo: true` | 部署来源标记（历史约定，早期表示「演示患者」） | **进**统计 | **不展示**；控制台已去掉「演示环境 / 演示患者」标签 |
+| 都为 false | 未带标记的记录 | 进统计 | 无标记 |
 
 - `sandbox` 只出现在 draft、delivery、verification、alert、memory、care_plan、meal_log、agent_action、audit_event 上。
 - `demo` 只出现在 patient、group 上；由患者/群继承到其产出的 draft。
 - 任何列表接口默认排除 `sandbox: true`，除非显式 `sandbox=true`；`demo` 默认包含。
+- **已知现状**：部署配置延续了早期的 `demo: true`，真实客户群与患者也可能带该标记；它不表示数据是虚构的，也不再影响界面。
 
 ### 1.5 软删除
 
@@ -139,7 +140,7 @@ media：文件在磁盘，元数据随消息保存
 | `name` | string | 否 | 机构名称，展示在控制台左上角 |
 | `agentName` | string | 否 | Agent 名字，默认「小安」 |
 | `agentAvatar` | string | 是 | 头像 URL；空时用默认图 |
-| `patientTerm` | string | 否 | 对服务对象的称谓：患者 / 客户 / 会员，默认「患者」 |
+| `patientTerm` | string | 否 | 对服务对象的称谓：预设「患者 / 客户 / 会员 / 亲人 / 家人」，允许机构自定义（1–8 个字符），默认「患者」 |
 | `tone` | string | 否 | 语气说明，注入系统提示词 |
 | `timezone` | string | 否 | IANA 时区，默认 `Asia/Shanghai` |
 | `settings` | object | 否 | 运营参数，见下表 |
@@ -223,7 +224,7 @@ media：文件在磁盘，元数据随消息保存
 | `externalMemberCount` | number | 否 | 外部成员数（`wm` 开头） |
 | `consent` | object | 否 | `{ agreed, unknown, disagreed }`，该群外部成员的存档同意统计 |
 | `lastActiveAt` | number | 是 | 最近一条存档消息时间 |
-| `demo` | boolean | 否 | 演示群 |
+| `demo` | boolean | 否 | 部署来源标记（历史约定）；控制台不展示，不代表数据虚构 |
 | `createdAt` | number | 否 | |
 | `updatedAt` | number | 否 | |
 | `deletedAt` | number | 是 | 默认不展示，保留排障 |
@@ -297,7 +298,7 @@ media：文件在磁盘，元数据随消息保存
 | `consent` | enum | 否 | `agreed` / `unknown` / `disagreed`；未同意不自动服务 |
 | `consentCheckedAt` | number | 是 | |
 | `status` | enum | 否 | `serving` / `paused` / `archived` |
-| `demo` | boolean | 否 | 演示患者 |
+| `demo` | boolean | 否 | 部署来源标记（历史约定）；控制台不展示，不代表数据虚构 |
 | `accompaniedSince` | number | 否 | 开始陪伴时间（首次绑定服务群） |
 | `lastActiveAt` | number | 是 | 最近一条双向消息时间 |
 | `memoryCount` | number | 否 | 派生：有效记忆条数 |
@@ -467,7 +468,7 @@ media：文件在磁盘，元数据随消息保存
 | `citedKnowledgeIds` | array<string> | 否 | Agent 声明引用的知识 |
 | `fallback` | boolean | 否 | 是否为模板草稿（模型超时/报错/未调工具） |
 | `sandbox` | boolean | 否 | |
-| `demo` | boolean | 否 | 继承患者 |
+| `demo` | boolean | 否 | 继承患者/群的部署来源标记；控制台不展示 |
 | `cardTaskId` | string | 是 | 企微模板卡片 task_id（F12：必须唯一） |
 | `pushAttempts` | number | 否 | |
 | `verifyAttempts` | number | 否 | |
@@ -606,7 +607,7 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 | `tenantId` | string | 否 | |
 | `patientId` | string | 否 | |
 | `draftId` | string | 是 | 由该动作产出的草稿 |
-| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `image_classify` / `meal_log_write` |
+| `tool` | enum | 否 | `reply_draft` / `reply_skip` / `memory_write` / `memory_update` / `schedule_create` / `escalate_to_human` / `image_classify` / `meal_log_write` / `chronic_record_write` |
 | `summary` | string | 否 | 一句话结果，如「新增饮食禁忌：海鲜过敏」 |
 | `result` | enum | 否 | `success` / `failed` / `skipped` |
 | `errorCode` | string | 是 | |
@@ -664,23 +665,29 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 | `ruleCount` | number | 否 | |
 | `updatedAt` | number | 否 | |
 
-### 3.22 B 档示例实体（只在前端 sample 层，不落后端库）
+### 3.22 chronic_profile（慢病管理，真实实体）
 
-以下实体的数据只存在于 `console/src/sample/` 与 mock fixtures，接口返回时必须带 `sample: true`。
-
-**health_profile**（患者主页「健康档案」Tab）
+患者域表 `chronic_profiles`，主键 `patientId`。顾问在控制台手工录入，Agent 通过 `chronic_record_write` 从对话中提取；两条入口写同一份档案，用 `source` 区分来源。不存检验报告原文，也不做诊断。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `patientId` | string | |
-| `heightCm` | number | |
-| `weightKg` | number | |
-| `bmi` | number | |
-| `bloodPressure` | string | 如 `128/82` |
-| `conditions` | array<string> | |
-| `medications` | array<string> | |
+| `patientId` | string | 主键 |
+| `tenantId` | string | |
+| `conditions` | array<string> | 慢病 / 合并症；预设常见慢病，也允许自定义 |
+| `heightCm` | number? | 80–250 |
+| `weightKg` | number? | 20–250；BMI 由页面按身高体重计算，不另存 |
+| `medications` | array<object> | `{ name, dose?, frequency?, note?, source, updatedAt, updatedBy? }`，整体替换 |
+| `measurements` | array<object> | `{ id, metric, value, secondaryValue?, context?, measuredAt, source, recordedAt, recordedBy? }`，按 `measuredAt` 倒序，最多 500 条 |
+| `notes` | string? | 最多 500 字 |
 | `updatedAt` | number | |
-| `sample` | boolean | 恒为 `true` |
+| `updatedBy` | string? | |
+
+`metric`：`bp`（血压，`secondaryValue` 为舒张压）、`glucose`（血糖，`context` 可记空腹 / 餐后 2 小时 / 随机 / 睡前）、`hba1c`、`weight`、`heart_rate`、`uric_acid`、`ldl`。
+`source`：`advisor` / `agent`。
+
+### 3.23 B 档示例实体（只在前端 sample 层，不落后端库）
+
+以下实体的数据只存在于 mock fixtures，接口返回时必须带 `sample: true`。
 
 **service_plan**（患者主页「服务计划」Tab）
 
@@ -788,6 +795,12 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 | `group.patientIds` | 同上 |
 | `draft.sentVersion` | 对应 `delivery.version` |
 | `duration.*` | 各节点时间差（见 API 服务流详情） |
+| `dashboard.team_attention` | 读时聚合：未解决告警（`open` / `acknowledged`）+ 草稿 + 患者 + 顾问 + 群绑定，按服务人员输出需要管理员介入的事项；不落新表 |
+
+`dashboard.team_attention` 的阈值固定在 `src/p1/console-views.ts` 的
+`TEAM_ATTENTION_THRESHOLDS`：`PUSHED` 超过 15 分钟、客户消息 30 / 60 分钟、
+`QUEUED + PUSHED` 超过 3 条、今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍、
+今日改稿或忽略率 ≥40%（至少 4 条）。只输出行为元数据，不包含消息正文或健康数值。
 
 统计口径（#58）：
 
@@ -838,7 +851,7 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 
 ## 7. 存储约定
 
-- 使用 DSH `storage-sqlite`；表名 snake_case 复数：`tenants`、`accounts`、`advisors`、`groups`、`group_members`、`group_bindings`、`patients`、`memories`、`care_plans`、`meal_logs`、`knowledge`、`risk_rules`、`drafts`、`draft_revisions`、`deliveries`、`verifications`、`alerts`、`audit_events`、`agent_actions`、`onboarding_requests`。
+- 使用 DSH `storage-sqlite`；表名 snake_case 复数：`tenants`、`accounts`、`advisors`、`groups`、`group_members`、`group_bindings`、`patients`、`memories`、`care_plans`、`meal_logs`、`chronic_profiles`、`knowledge`、`risk_rules`、`drafts`、`draft_revisions`、`deliveries`、`verifications`、`alerts`、`audit_events`、`agent_actions`、`onboarding_requests`。
 - 列名 snake_case；JSON 数组/对象存 `TEXT`（JSON 字符串），读时解析。
 - 所有业务表带 `tenant_id`，且为联合索引首列。
 - 建议索引：

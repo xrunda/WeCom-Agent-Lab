@@ -90,6 +90,8 @@ export interface SandboxServiceOptions {
   agent?: () => SandboxAgentPort | undefined;
   mediaWriter?: SandboxMediaWriter;
   dailyLimit?: number;
+  /** memory.created 事件不带正文；按 memoryId 回查，供面板展示 */
+  memoryContent?: (memoryId: string) => string | undefined;
 }
 
 export interface SandboxSessionView {
@@ -159,6 +161,7 @@ export class SandboxService implements SandboxSinkPort {
   private readonly resolveAgent?: () => SandboxAgentPort | undefined;
   private readonly mediaWriter?: SandboxMediaWriter;
   private readonly dailyLimit: number;
+  private readonly memoryContent?: (memoryId: string) => string | undefined;
   private readonly inflight = new Set<string>();
 
   constructor(options: SandboxServiceOptions) {
@@ -170,6 +173,7 @@ export class SandboxService implements SandboxSinkPort {
     this.resolveAgent = options.agent;
     this.mediaWriter = options.mediaWriter;
     this.dailyLimit = options.dailyLimit ?? SANDBOX_DAILY_LIMIT;
+    this.memoryContent = options.memoryContent;
   }
 
   // ---------- 会话 ----------
@@ -380,10 +384,14 @@ export class SandboxService implements SandboxSinkPort {
       .listSandboxEvents(accountId)
       .filter((item) => since === undefined || item.at > since)
       .sort((a, b) => a.at - b.at);
+    const memories = this.store.listSandboxMemories(accountId).map((memory) =>
+      // 事件里没有正文时回查主记忆库；历史空记录也能正常展示
+      memory.content ? memory : { ...memory, content: this.memoryContent?.(memory.id) ?? '' },
+    );
     return {
       session: { id: record.id, lastActiveAt: record.lastActiveAt },
       messages,
-      memories: this.store.listSandboxMemories(accountId),
+      memories,
       drafts,
       verification: verifications.at(-1) ?? null,
       events,

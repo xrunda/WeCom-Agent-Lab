@@ -1,6 +1,6 @@
 import {
   AlertOutlined,
-  CalendarOutlined,
+  ArrowRightOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   DatabaseOutlined,
@@ -21,7 +21,7 @@ import { ValueBar } from './ValueBar.tsx';
 import { useTerm } from '../../auth/AuthContext.tsx';
 import {
   getDashboardKpis,
-  getDashboardRecent,
+  getDashboardTeamAttention,
   getDashboardValue,
 } from '../../mock/dashboard.ts';
 import { isMockMode } from '../../mock/http.ts';
@@ -29,10 +29,11 @@ import { SAMPLE_ADVISORS, SAMPLE_DAYS, SAMPLE_PERIOD_LABEL, SAMPLE_TOTALS } from
 import type {
   DashboardKpis,
   DashboardRange,
-  DashboardRecentItem,
   DashboardValue,
+  TeamAttention,
+  TeamAttentionPerson,
 } from '../../types.ts';
-import { formatPercent, formatRelative } from '../../utils/format.ts';
+import { formatPercent } from '../../utils/format.ts';
 import '../wp-l.css';
 import './dashboard.css';
 
@@ -44,21 +45,46 @@ const RANGE_LABELS: Record<DashboardRange, string> = {
   month: '本月',
 };
 
-const OUTCOME_META: Record<
-  DashboardRecentItem['outcome'],
-  { label: string; color: string }
-> = {
-  verified: { label: '已核验', color: 'green' },
-  edit_sent: { label: '改后发送', color: 'blue' },
-  misroute: { label: '发错群', color: 'red' },
-  unverified: { label: '未核验', color: 'orange' },
-  pending: { label: '待核验', color: 'gold' },
-};
-
 interface DashboardData {
   value: DashboardValue;
   kpis: DashboardKpis;
-  recent: DashboardRecentItem[];
+  attention: TeamAttention;
+}
+
+/** 团队关注只跳转，不在首页做催办或处理。 */
+function attentionTarget(person: TeamAttentionPerson): string {
+  const reason = person.reasons[0];
+  if (!reason) return '/alerts';
+  const params = new URLSearchParams({ advisorId: person.advisorId });
+  switch (reason.code) {
+    case 'redline':
+    case 'misroute':
+    case 'unverified':
+      params.set('kind', reason.code);
+      return `/alerts?${params.toString()}`;
+    case 'advisor_paused':
+      if (reason.draftId || reason.patientId) params.set('kind', 'advisor_paused');
+      return `/alerts?${params.toString()}`;
+    case 'no_reply':
+      if (!reason.patientId) return '/patients';
+      return `/patients?patientId=${encodeURIComponent(reason.patientId)}&tab=timeline`;
+    case 'queue_blocked':
+      params.set('status', 'PUSHED');
+      return `/service-flow?${params.toString()}`;
+    case 'backlog':
+    case 'slow_response':
+    case 'high_revision':
+      return `/service-flow?${params.toString()}`;
+    default:
+      return '/alerts';
+  }
+}
+
+function formatWait(minutes: number): string {
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} 小时` : `${hours} 小时 ${rest} 分钟`;
 }
 
 export default function DashboardPage() {
@@ -73,12 +99,12 @@ export default function DashboardPage() {
     async (nextRange: DashboardRange) => {
       setLoading(true);
       try {
-        const [value, kpis, recent] = await Promise.all([
+        const [value, kpis, attention] = await Promise.all([
           getDashboardValue(nextRange),
           getDashboardKpis(nextRange),
-          getDashboardRecent(8),
+          getDashboardTeamAttention(),
         ]);
-        setData({ value, kpis, recent: recent.items });
+        setData({ value, kpis, attention });
       } catch (error) {
         message.error(error instanceof Error ? error.message : '工作台加载失败');
       } finally {
@@ -174,9 +200,10 @@ export default function DashboardPage() {
     );
   }
 
-  const { value, kpis, recent } = data;
+  const { value, kpis, attention } = data;
   const rangeLabel = RANGE_LABELS[range];
   const maxAdvisorVolume = Math.max(1, ...rankingRows.map((advisor) => advisor.volume));
+  const attentionPeople = attention.people.slice(0, 8);
 
   return (
     <PageContainer
@@ -209,6 +236,133 @@ export default function DashboardPage() {
           onRefresh={() => void load(range)}
           onOpenOnboarding={() => navigate('/settings/onboarding')}
         />
+
+        <Card
+          className="zb-card team-attention-card"
+          variant="borderless"
+          title={
+            <Space size={8}>
+              <span>团队关注</span>
+              {attention.summary.peopleCount > 0 ? (
+                <Tag
+                  color={attention.summary.immediateCount > 0 ? 'red' : 'gold'}
+                  bordered={false}
+                >
+                  {attention.summary.peopleCount} 人
+                </Tag>
+              ) : null}
+            </Space>
+          }
+          extra={
+            isMockMode ? (
+              <SampleDataTag compact />
+            ) : (
+              <Text type="secondary">按服务人员聚合</Text>
+            )
+          }
+        >
+          {attentionPeople.length === 0 ? (
+            <div className="team-attention-empty">
+              <CheckCircleOutlined />
+              <div>
+                <div className="team-attention-empty-title">今天团队运行正常</div>
+                <Paragraph type="secondary" style={{ margin: 0 }}>
+                  今日已核验 {attention.summary.verifiedToday} 条 · 平均响应{' '}
+                  {attention.summary.avgResponseSeconds} 秒 · 未核验{' '}
+                  {attention.summary.unverifiedCount} 条
+                </Paragraph>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="team-attention-summary">
+                <span>
+                  今天 <strong>{attention.summary.peopleCount}</strong> 人需要关注
+                </span>
+                {attention.summary.immediateCount > 0 ? (
+                  <span className="team-attention-summary-alert">
+                    其中 {attention.summary.immediateCount} 人需立即介入
+                  </span>
+                ) : null}
+                <span className="team-attention-summary-muted">
+                  今日已核验 {attention.summary.verifiedToday} 条 · 平均响应{' '}
+                  {attention.summary.avgResponseSeconds} 秒 · 未核验{' '}
+                  {attention.summary.unverifiedCount} 条
+                  {attention.people.length > attentionPeople.length
+                    ? ` · 仅显示前 ${attentionPeople.length} 人`
+                    : ''}
+                </span>
+              </div>
+              <div className="team-attention-list">
+                {attentionPeople.map((person) => (
+                  <button
+                    type="button"
+                    key={person.advisorId}
+                    className={`team-attention-row is-${person.level.toLowerCase()}`}
+                    onClick={() => navigate(attentionTarget(person))}
+                  >
+                    <span className="team-attention-avatar">
+                      <TeamOutlined />
+                    </span>
+                    <span className="team-attention-main">
+                      <span className="team-attention-head">
+                        <Text strong>{person.advisorName}</Text>
+                        <Tag
+                          color={person.level === 'L1' ? 'red' : 'gold'}
+                          bordered={false}
+                        >
+                          {person.level === 'L1' ? '立即介入' : '今日跟进'}
+                        </Tag>
+                        <span
+                          className={`team-attention-presence ${
+                            person.online ? '' : 'is-offline'
+                          }`}
+                        >
+                          {person.online ? '在线' : '离线'}
+                        </span>
+                        <span className="team-attention-meta">
+                          名下 {person.patientCount} 位 · 待处理 {person.pendingCount} 条
+                        </span>
+                        {person.oldestWaitMinutes > 0 ? (
+                          <span className="team-attention-wait">
+                            最久等待 {formatWait(person.oldestWaitMinutes)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="team-attention-reasons">
+                        {person.reasons.slice(0, 2).map((reason) => (
+                          <span key={reason.code} className="team-attention-reason">
+                            {reason.text}
+                          </span>
+                        ))}
+                        {person.reasons.length > 2 ? (
+                          <span className="team-attention-more">
+                            另有 {person.reasons.length - 2} 条
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="team-attention-suggestion">
+                        建议：{person.suggestion}
+                      </span>
+                    </span>
+                    <span className="team-attention-action">
+                      {person.level === 'L1' ? '去处理' : '去查看'}
+                      <ArrowRightOutlined />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <div className="team-attention-foot">
+            <Text type="secondary">
+              只展示需要管理员介入的行为信号，不展示消息正文与健康数值。
+            </Text>
+            <Button type="link" onClick={() => navigate('/alerts')}>
+              在质检与告警中查看全部事件 <ArrowRightOutlined />
+            </Button>
+          </div>
+        </Card>
 
         <div className="kpi-grid">
           <div className="zb-kpi-card">
@@ -353,58 +507,6 @@ export default function DashboardPage() {
             </Paragraph>
           </Card>
         </div>
-
-        <Card
-          className="zb-card"
-          variant="borderless"
-          title="最近服务动态"
-          extra={
-            <Button type="link" onClick={() => navigate('/service-flow')}>
-              查看实时服务流
-            </Button>
-          }
-        >
-          <div className="recent-list">
-            {recent.map((item) => {
-              const meta = OUTCOME_META[item.outcome] ?? OUTCOME_META.pending;
-              return (
-                <button
-                  type="button"
-                  key={item.id}
-                  className="recent-row"
-                  onClick={() => navigate('/service-flow')}
-                >
-                  <span className="recent-avatar">
-                    <TeamOutlined />
-                  </span>
-                  <span className="recent-main">
-                    <span className="recent-title">
-                      <Text strong>{item.patientName}</Text>
-                      <Tag color={meta.color} bordered={false}>
-                        {meta.label}
-                      </Tag>
-                      {item.sandbox ? (
-                        <Tag color="purple" bordered={false}>
-                          沙盒
-                        </Tag>
-                      ) : null}
-                    </span>
-                    <span className="recent-meta">
-                      {item.advisorName} · {item.groupName} · {item.preview}
-                    </span>
-                  </span>
-                  <span className="recent-time">{formatRelative(item.at)}</span>
-                </button>
-              );
-            })}
-          </div>
-          <Paragraph type="secondary" className="chart-footnote">
-            <CalendarOutlined />{' '}
-            {isMockMode
-              ? 'KPI 来自接口口径，沙盒数据不计入；趋势、排行与最近动态为示例数据。'
-              : 'KPI、趋势、排行与最近动态均来自真实会话存档，沙盒数据不计入。'}
-          </Paragraph>
-        </Card>
       </div>
     </PageContainer>
   );

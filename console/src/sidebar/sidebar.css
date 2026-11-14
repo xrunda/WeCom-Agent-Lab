@@ -462,6 +462,105 @@ body {
   color: var(--muted);
 }
 
+/* 慢病档案：不另起卡片，用一条分隔线和速览的其他信息区分开 */
+.chronic {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.chronic-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chronic-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chronic-updated {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chronic-conditions {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.metrics {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.metric-label {
+  flex: 0 0 auto;
+  min-width: 5.5em;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value em {
+  margin-left: 2px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.metric-context,
+.metric-src {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 对话提取、还没被顾问核对过的数值，用暖色提醒 */
+.metric-src {
+  color: var(--warn);
+}
+
+.metric-date {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chronic-meds {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.chronic-label {
+  margin-right: 6px;
+  color: var(--muted);
+}
+
 .console {
   margin: 10px 0 0;
   font-size: 12px;

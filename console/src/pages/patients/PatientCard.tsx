@@ -35,11 +35,6 @@ export function PatientCard({ patient, term, online, advisorName, onOpen }: Pati
             <Text strong style={{ fontSize: 16 }}>
               {patient.displayName}
             </Text>
-            {patient.demo ? (
-              <Tag bordered={false} color="purple" className="tag-tight">
-                演示环境
-              </Tag>
-            ) : null}
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {online ? '专属 Agent 在线' : '专属 Agent 离线'} · 顾问 {advisorName}

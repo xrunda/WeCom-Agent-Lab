@@ -1,3 +1,4 @@
+import { EditOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
   Alert,
@@ -300,11 +301,6 @@ export default function GroupsPage() {
       render: (value: string, group) => (
         <Space size={6} wrap>
           <Text strong={group.status === 'pending'}>{value}</Text>
-          {group.demo ? (
-            <Tag bordered={false} color="purple">
-              演示环境
-            </Tag>
-          ) : null}
           {group.nameSource === 'roomid' ? <Tag bordered={false}>未命名</Tag> : null}
         </Space>
       ),
@@ -428,7 +424,13 @@ export default function GroupsPage() {
               </Button>
             </Popconfirm>
           ) : null}
-          <Button type="link" size="small" disabled={!canWrite} onClick={() => openEdit(group)}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            disabled={!canWrite}
+            onClick={() => openEdit(group)}
+          >
             编辑
           </Button>
         </Space>

@@ -16,7 +16,7 @@
     PatientService（同步路由：serving / collect_only / pending / disabled）
                  │
     PatientAgentRuntime（合并窗口 → 患者长期 Session → 回合 → 工具 → 降级）
-                 │  reply_draft / reply_skip / image_classify / meal_log_write
+                 │  reply_draft / reply_skip / image_classify / meal_log_write / chronic_record_write
                  ▼
           PatientBridge ──► zhiban-wecom ──► C2Service（版本化卡片）
 ```
@@ -42,6 +42,8 @@
 | `src/p1/reply-tools.ts` | `reply_draft` / `reply_skip` 参数校验与 DSH 工具定义 |
 | `src/p1/vision.ts` | 图片读取与格式嗅探、类型/饮食记录校验、图片提示词、饮食记录视图 |
 | `src/p1/meal-tools.ts` | `image_classify` / `meal_log_write` 参数校验与 DSH 工具定义 |
+| `src/p1/chronic.ts` | 慢病档案模型、常见慢病预设、体征枚举与校验、补丁合并 |
+| `src/p1/chronic-tools.ts` | `chronic_record_write` 参数校验与 DSH 工具定义 |
 | `plugins/zhiban-patient/` | DSH 装配：领域存储、Session 适配、工具注册、`zhibanPatient` 服务 |
 | `plugins/zhiban-wecom/runtime.ts` | 把存档消息转交患者域；旧模板链路兜底；STALE_CARD 提示 |
 
@@ -133,6 +135,25 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 - 草稿把 `mediaKinds` 带到 C2：卡片显示「客户发来图片 · 餐食」，原图按 JPEG/PNG ≤ 2 MB
   转发到服务群；转发失败的图片只记审计，不阻塞卡片与正文。
 
+### 2.7 慢病管理（对话提取）
+
+- 提示词要求：客户**明确说出**血压、血糖等数值或慢病诊断时才调用
+  `chronic_record_write`；不推断，也不从化验单 / 报告 / 药品图片里抄数字。
+- 工具一次最多写 5 条体征、10 个慢病标签；血压必须同时有收缩压与舒张压，
+  数值范围在 `src/p1/chronic.ts` 统一定义。
+- 写入来源固定为 `agent`，与顾问在控制台手工录入的 `advisor` 区分；
+  页面展示「对话提取 / 顾问录入」，审计只记动作与字段名，不记体征数值。
+- 沙盒回合不写真实慢病档案，工具返回 `sandbox: true`。
+- 影像回合的提示词仍要求报告 / 药品图不解读指标；这类图不会触发本工具。
+
+### 2.8 语音消息（ASR 转写）
+
+- 服务群里的语音消息先经腾讯云一句话识别转写，再把转写文本按普通文本消息参与合并与草稿。
+- 凭据从环境变量读取（`TENCENT_ASR_SECRET_ID` / `TENCENT_ASR_SECRET_KEY` / `TENCENT_ASR_REGION`）；未配置时语音消息不转写、不进入服务流。
+- 音频字节只在内存里流转，不落盘、不进日志；只记录转写成功后的文本长度。
+- 转写失败（格式不支持、超 3 MB、网络或接口错误）的消息不进入服务流，避免用空上下文起回合；失败只记日志。
+- 转写成功的消息在服务流按文本展示，`mediaKinds` 仍保留 `voice` 标记。
+
 ---
 
 ## 3. 配置
@@ -170,7 +191,7 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
 
 `zhibanPatient.systemPrompt()` 返回租户化的人设与红线。生产环境应把同一预设
 （`agentPreset`）配置到 DSH，使患者 Session 使用它；工具 `reply_draft` / `reply_skip` /
-`image_classify` / `meal_log_write` 由本插件注册。
+`image_classify` / `meal_log_write` / `chronic_record_write` 由本插件注册。
 
 ---
 
@@ -235,16 +256,19 @@ C2 核验结果（已核验 / 有改动 / 错群 / 未核验）通过 `injectCon
    `image_classify` / `meal_log_write`、卡片出现「客户发来图片 · 餐食」、
    原图转发到顾问 1:1，控制台饮食记录可见。
 9. **报告与药品图**：发一张化验单 / 药盒，确认草稿风险至少 `medium`、
-   正文不解读指标、不判断能否服用。
-10. **自动发现端到端**：在企业微信里新建一个客户群（企业创建、有外部客户），
+   正文不解读指标、不判断能否服用；确认慢病档案没有被写入图片里的数值。
+10. **慢病对话提取**：让客户在服务群说「今天早上血压 138/86」，确认模型调用
+    `chronic_record_write`，控制台慢病管理中新增一条来源为「对话提取」的体征；
+    再由顾问手工录入一条，确认来源显示「顾问录入」。沙盒回合不写真实档案。
+11. **自动发现端到端**：在企业微信里新建一个客户群（企业创建、有外部客户），
     等一轮发现周期后确认控制台出现 `pending` 候选、群名与成员正确，且此时客户发言
     不产生草稿；点「开始服务」后客户再发一条，确认出现草稿。同时核对
     `groupchat/list` 返回的 `chat_id` 与存档 roomid 是同一个值——不一致会导致
     白名单对不上，需按真机返回值调整映射。
-11. **停用持久化**：把已发现的群「忽略 / 移出服务」后重启服务，确认它仍是停用状态、
+12. **停用持久化**：把已发现的群「忽略 / 移出服务」后重启服务，确认它仍是停用状态、
     不会重新变成候选。
 
-> 以上 1–11 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
+> 以上 1–12 未在本地 mock 之外验证前，不得在 PR / issue 中写「真机通过」。
 
 ---
 

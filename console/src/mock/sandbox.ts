@@ -5,6 +5,9 @@
  */
 import { API_BASE, ApiError, isMockMode } from './http.ts';
 import { mediaUrl, uploadSandboxImage, type UploadedMedia } from './media.ts';
+import sampleSeaBass from '../assets/sandbox/sea-bass.jpg';
+import sampleBeefNoodles from '../assets/sandbox/beef-noodles.jpg';
+import sampleMilletPorridge from '../assets/sandbox/millet-porridge.jpg';
 
 export type SandboxDraftStatus =
   | 'QUEUED'
@@ -135,6 +138,13 @@ export interface SandboxActionResult {
 
 const STORAGE_KEY = 'zhiban.console.j.sandbox';
 const DAILY_LIMIT = 100;
+
+/** 预置餐食照片走前端静态资源，mock / real 模式都能显示；发送前再由上传接口换成真实 mediaId */
+export const SANDBOX_SAMPLE_IMAGES: Record<string, string> = {
+  med_sample_meal_01: sampleSeaBass,
+  med_sample_meal_02: sampleBeefNoodles,
+  med_sample_meal_03: sampleMilletPorridge,
+};
 
 const uploadedMedia = new Map<string, string>();
 const listeners = new Set<() => void>();
@@ -282,9 +292,18 @@ export async function createSandboxSession(): Promise<SandboxSessionResponse> {
 
 export async function getSandboxState(since?: number): Promise<SandboxState> {
   if (!isMockMode) {
-    return apiRequest<SandboxState>(
+    const state = await apiRequest<SandboxState>(
       `/sandbox/state${typeof since === 'number' ? `?since=${since}` : ''}`,
     );
+    // 真实接口只返回 mediaId，图片地址按鉴权路由补出来
+    return {
+      ...state,
+      messages: state.messages.map((message) =>
+        message.kind === 'image' && message.mediaId && !message.imageUrl
+          ? { ...message, imageUrl: mediaUrl(message.mediaId, 'meal') }
+          : message,
+      ),
+    };
   }
   const state = ensureState();
   if (typeof since !== 'number') return state;

@@ -17,6 +17,7 @@ import {
 import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import { C2Service } from '../../src/c2/service.ts';
+import { tencentAsrFromEnv } from '../../src/c2/tencent-asr.ts';
 import { ArchiveTrigger } from '../../src/c2/trigger.ts';
 import type { ArchivePort } from '../../src/c2/ports.ts';
 import type {
@@ -628,6 +629,9 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       });
 
       const clock = { now: () => Date.now() };
+      // 语音转写：凭据缺失时 available=false，语音消息保持「不处理」
+      const asr = tencentAsrFromEnv();
+      if (!asr.available) log('语音识别未配置：客户语音消息不会被转写');
 
       // 运行时服务群名单：profile 白名单只是种子，控制台可在运行时增删
       const registry = new ServiceGroupRegistry({
@@ -685,6 +689,14 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           binaryPath: config.archive.binaryPath,
           configPath: config.archive.configPath,
         },
+        transcribeVoice: asr.available
+          ? async (audio: Buffer) => {
+              const started = Date.now();
+              const text = await asr.transcribe(audio);
+              log(`语音识别完成 耗时=${Date.now() - started}ms chars=${text.length}`);
+              return text;
+            }
+          : undefined,
         logger: log,
       });
       archive.setSeq(store.getMeta<number>('archive_seq') ?? 0);

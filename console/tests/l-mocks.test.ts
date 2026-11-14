@@ -18,7 +18,7 @@ import {
 } from '../src/mock/scripts.ts';
 import {
   getDashboardKpis,
-  getDashboardRecent,
+  getDashboardTeamAttention,
   getDashboardValue,
 } from '../src/mock/dashboard.ts';
 import { getSkill, listSkills, listSolutionPacks } from '../src/mock/skills.ts';
@@ -186,10 +186,14 @@ describe('工作台 mock', () => {
     expect(week.verificationPassRate).toBeLessThanOrEqual(1);
   });
 
-  it('最近动态按数量限制且不含沙盒数据', async () => {
-    const recent = await getDashboardRecent(3);
-    expect(recent.items).toHaveLength(3);
-    expect(recent.items.every((item) => item.sandbox === false)).toBe(true);
+  it('团队关注按服务人员聚合，区分立即介入与今日跟进', async () => {
+    const attention = await getDashboardTeamAttention();
+    expect(attention.people).toHaveLength(2);
+    expect(attention.people[0].level).toBe('L1');
+    expect(attention.people[1].level).toBe('L2');
+    expect(attention.people.every((person) => person.reasons.length > 0)).toBe(true);
+    expect(attention.summary.peopleCount).toBe(2);
+    expect(attention.summary.immediateCount).toBe(1);
   });
 });
 

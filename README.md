@@ -5,7 +5,9 @@
 > 当前阶段：**P1 演示版**开发中（GitHub 里程碑 P1-M0～M3）。下文的 M1 结论作为平台约束保留。
 
 - **开发指南（多 Agent 并行）：[docs/DEV-GUIDE.md](./docs/DEV-GUIDE.md)**
-- **产品需求：[PRD.md](./PRD.md)（v1.0，知伴健康 Agent）** · P1 范围：[docs/P1-scope.md](./docs/P1-scope.md)
+- **产品需求：[PRD.md](./PRD.md)（v1.1，知伴健康 Agent）** · P1 范围：[docs/P1-scope.md](./docs/P1-scope.md)
+- 接口契约：[docs/P1-api.md](./docs/P1-api.md) · 数据模型：[docs/P1-data-model.md](./docs/P1-data-model.md) · 部署：[docs/P1-deploy.md](./docs/P1-deploy.md)
+- 控制台说明：[console/README.md](./console/README.md)
 - M1 需求（已归档）：[docs/archive/PRD-M1-v0.5.md](./docs/archive/PRD-M1-v0.5.md)
 - 能力矩阵：[docs/M1-capability-matrix.md](./docs/M1-capability-matrix.md)
 - 测试计划：[docs/M1-test-plan.md](./docs/M1-test-plan.md)
@@ -16,6 +18,27 @@
 - **C2 架构设计（后续方向，不属 M1）**：[docs/C2-architecture.md](./docs/C2-architecture.md)
 - **C2 平台验证记录**：[docs/C2-0-verification-log.md](./docs/C2-0-verification-log.md)
 - **业务侧产品设计交接**（给接手的产品 Agent 读）：[docs/HANDOFF-C2-business-product.md](./docs/HANDOFF-C2-business-product.md)
+
+## P1 知伴健康 Agent（当前阶段）
+
+P1 把 C2 闭环做成可演示的产品：每位患者一个专属健康 Agent，长期记忆、主动关怀；顾问在企微把关后发出，系统回读会话存档核验确实送达。
+
+已实现：
+
+- **患者 Agent**（`plugins/zhiban-patient`）：长期记忆、主动计划、红线与知识问答、餐食图片识别、语音消息 ASR 转写、慢病体征记录（顾问录入 / 对话提取）、顾问改稿
+- **企微服务通道**（`plugins/zhiban-wecom`）：客户群自动发现与开始 / 停止服务、两段式草稿卡片、核验结果回写、员工发言红线质检与告警、顾问 1:1 话术库查询
+- **控制台**（`console/`）：工作台（价值条 / **团队关注** / KPI / 趋势 / 排行）、患者 Agent（记忆、计划、时间线、饮食、慢病管理）、实时服务流、体验沙盒、质检与告警、服务群、顾问、知识库 / 风险规则 / 话术库、审计与数据导出
+- **数据面**：DSH 领域存储本地持久化；会话存档按 `seq` 增量拉取，图片落 `/var/lib/zhiban/media`。**不保存会话存档全量原文镜像**，消息留存边界见 [#138](https://github.com/xrunda/WeCom-Agent-Lab/issues/138)
+
+```bash
+npm test                    # 后端：node --test
+cd console && npm install && npm test   # 控制台：Vitest + Testing Library
+./start.sh                  # 控制台连真实接口（默认，代理 127.0.0.1:3080）
+./start.sh mock             # 控制台 mock 模式（示例数据，无需后端）
+./start.sh http://127.0.0.1:18081   # 指定后端地址（如 VM 隧道）
+```
+
+更细的模块说明：患者 Agent [docs/P1-patient-agent.md](./docs/P1-patient-agent.md) · 红线与知识 [docs/P1-guard-knowledge.md](./docs/P1-guard-knowledge.md) · 记忆与计划 [docs/P1-memory-care.md](./docs/P1-memory-care.md) · 控制台后端 [docs/P1-console-backend.md](./docs/P1-console-backend.md)。
 
 ## 历史：M1 要回答的唯一问题
 
@@ -45,9 +68,13 @@ WeCom-Agent-Lab/
 ├── PRD.md
 ├── README.md
 ├── ISSUES.md
-├── docs/                        # M1 文档 + C2 架构设计
+├── start.sh                     # 本地一键启动控制台（默认真实接口，可选 mock）
+├── docs/                        # P1 产品与实现文档 + M1/C2 历史文档
 ├── config/.env.example          # 密钥占位，不提交真实值
 ├── evidence/                    # 证据索引（raw/ 已忽略）
+├── src/p1/                      # P1 运行时：患者 Agent、草稿、告警、慢病、控制台视图
+├── plugins/                     # zhiban-console / patient / wecom / memory / care / guard / knowledge
+├── console/                     # 知伴控制台（React 18 + Ant Design 5 + Vite）
 ├── experiments/minimal/         # 最小测试代码，非业务后端
 ├── src/c2/                      # C2 离线可测核心 + 真实机器人适配器
 │   ├── types.ts                 # 领域模型
@@ -66,7 +93,7 @@ WeCom-Agent-Lab/
 │   └── adapters/
 │       ├── wecom-bot.ts         # API 模式机器人长连接适配器
 │       └── wecom-archive.ts     # 会话存档适配器（调用 archive_dump）
-└── tests/                       # node --test，73 个用例
+└── tests/                       # 后端 node --test；控制台测试在 console/tests/
 ```
 
 ## C2 核心（离线可测，已实现）
@@ -85,7 +112,7 @@ C2 = 人工在环草稿投递：客户在群里发消息 → 存档触发草稿�
 所有平台交互都在 `BotPort` / `ArchivePort` 后面。离线流程由 `MockBot` / `MockArchive` 驱动；真实机器人已接到 `WeComBotAdapter`（C2-2-01/03），存档已接到 `WeComArchiveAdapter`（C2-2-02，调用 `archive_dump` 子进程，C2-0 A5–A7 已实测通过）。`ArchiveTrigger`（C2-2-05）按群、发送者、时间窗从存档里筛出客户消息，按 `msgid` 去重后交给 `compose` 生成草稿。
 
 ```bash
-npm test        # 状态机 / 消息 / 匹配 / 队列 / 触发 / 全流程 / 机器人与存档适配器，共 73 个用例
+npm test        # 状态机 / 消息 / 匹配 / 队列 / 触发 / 全流程 / 机器人与存档适配器
 npm run demo    # 3 个群排队 → 串行推送 → 确认 → 校验 → 错群告警
 npm run bot:live  # 真实机器人单聊：发消息 → 卡片+正文 → 点按钮确认（需 .env.local）
 npm run bot:e2e   # 端到端：客户群消息 → 存档触发 → 推送 → 人工转发 → 回读 → VERIFIED（需存档 SDK，仅 Linux；不填 ARCHIVE_ROOM_ID 时自动发现群）
@@ -124,7 +151,6 @@ npm run bot:test   # 需要先在 .env.local 填机器人凭证
 | C2-0 平台假设验证 | ✅ 完成（A1–A8 全部通过；存档延迟上界 35 秒） |
 | C2-1 离线核心 | ✅ 完成 |
 | C2-2 接入联调 | ✅ 完成（真实机器人 + 真实存档，端到端 VERIFIED） |
+| P1 演示版 | 🔄 开发中；VM 已部署，[范围](./docs/P1-scope.md) |
 
-**企微侧已清零**（2026-11-09）：没有任何未关闭的企微平台任务。后续工作在业务侧接入，见 [ISSUES.md](./ISSUES.md) 的 C2-3。C2 的接缝只有三处（`compose` / 顾问名单 / 通知），业务侧可以直接接。
-
-基线已提交：`55ee99d`（48 文件）。未推送到远端。
+**企微侧已清零**（2026-11-09）：没有任何未关闭的企微平台任务。后续工作在 P1 产品侧，见 [ISSUES.md](./ISSUES.md)。C2 的接缝只有三处（`compose` / 顾问名单 / 通知），P1 已在上面实现。

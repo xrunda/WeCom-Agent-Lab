@@ -122,7 +122,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 ### 1.7 `sandbox` 与 `demo`
 
 - 列表默认 `sandbox=false`；沙盒页面显式传 `sandbox=true`。
-- `demo=true` 的数据正常出现在所有列表与统计中，仅用于界面打标签。
+- `demo` 是部署来源标记（历史约定），正常出现在所有列表与统计中；**控制台不再展示「演示环境 / 演示患者」标签**，该字段不影响数据真实性。
 - 沙盒数据不计入工作台、报表、告警角标（服务端聚合时过滤）。
 
 ### 1.8 幂等与并发
@@ -229,7 +229,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 响应 `200`：更新后的 tenant。保存即生效：`agentName` / `patientTerm` / `tone` 下一轮 Agent 回合使用（#41），前端下次刷新全局文案。
 
-错误：`VALIDATION_FAILED`（称谓只能是「患者 / 客户 / 会员」；`writeMinutesPerDraft` 1–30；`quietHours` 必须合法 HH:mm）。
+错误：`VALIDATION_FAILED`（称谓为 1–8 个字符、不能只含空白，预设为「患者 / 客户 / 会员 / 亲人 / 家人」但允许自定义；`writeMinutesPerDraft` 1–30；`quietHours` 必须合法 HH:mm）。
 
 ---
 
@@ -291,13 +291,59 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 }
 ```
 
-### `GET /dashboard/recent?limit=10`
+### `GET /dashboard/team-attention`
 
-角色：全部。响应 `200`：`{ "items": [ServiceFlowRow] }`，按 `createdAt` 倒序，默认 10、最大 20。`ServiceFlowRow` 见 §6。
+角色：全部（`patient.read`）。响应 `200`：
+
+```json
+{
+  "generatedAt": 1762646400000,
+  "people": [
+    {
+      "advisorId": "adv_...",
+      "advisorName": "李光",
+      "online": true,
+      "patientCount": 12,
+      "pendingCount": 4,
+      "level": "L1",
+      "reasons": [
+        {
+          "code": "queue_blocked",
+          "level": "L1",
+          "text": "草稿已推送 42 分钟未处理，队列可能阻塞",
+          "waitMinutes": 42,
+          "draftId": "draft_...",
+          "patientId": "pat_...",
+          "groupId": "grp_..."
+        }
+      ],
+      "suggestion": "去实时服务流查看阻塞草稿，必要时在告警台账释放队列",
+      "oldestWaitMinutes": 42,
+      "lastActivityAt": 1762643880000
+    }
+  ],
+  "summary": {
+    "peopleCount": 1,
+    "immediateCount": 1,
+    "verifiedToday": 18,
+    "avgResponseSeconds": 180,
+    "unverifiedCount": 2
+  }
+}
+```
+
+口径：
+
+- **一行一位服务人员**（顾问与客服不区分角色）。只输出行为元数据，**不返回消息正文、患者姓名或健康数值**。
+- `L1`（立即介入）：未解决红线 / 发错群 / 未核验 / 顾问暂停告警；`PUSHED` 超过 15 分钟；客户最新消息超过 60 分钟无人跟进。
+- `L2`（今日跟进）：客户消息 30–60 分钟无人跟进；`QUEUED + PUSHED` 超过 3 条；今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍；今日改稿或忽略率 ≥40%（至少 4 条草稿）。
+- 未解决告警 = `status` 为 `open` 或 `acknowledged`；告警归属依次取 `advisorId` → 草稿顾问 → 患者顾问。
+- 排序：`L1` 先于 `L2`；同级别按原因优先级（客户安全 → 服务履约 → 人员状态）→ 最久等待 → 姓名。同一服务人员只出现一次，原因最多由前端展示 2 条。
+- 只做发现与跳转；催办、释放队列、恢复顾问仍在质检与告警台账处理。沙盒数据不计入。
 
 ### B 档图表数据
 
-趋势图、排行、数据报表为 B 档，数据来自 `console/src/sample/`，**不提供后端接口**。前端必须显示 `<SampleDataTag/>`。
+数据报表为 B 档，数据来自 `console/src/sample/`，**不提供后端接口**。前端必须显示 `<SampleDataTag/>`。工作台趋势图与顾问排行已由 `GET /dashboard/value` 返回真实数据，不属于 B 档。
 
 ---
 
@@ -499,11 +545,53 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 角色：全部（`patient.read`）。按记录 id 回读存档原图，`content-type` 按文件魔数判断（扩展名不可信），
 `cache-control: private, max-age=300`。错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在）。
 
-### B 档 Tab
+### 慢病管理
 
-#### `GET /patients/{id}/health-profile`
+界面称「慢病管理」（原「健康档案」）。数据落在患者域 `chronic_profiles` 表，顾问手工录入与 Agent 对话提取共用同一份档案。
 
-角色：全部。响应 `200`：`{ "profile": { ... }, "sample": true }`；无数据时 `profile: null, sample: true`。前端显示示例数据标签。
+#### `GET /patients/{id}/chronic-profile`
+
+角色：全部（`patient.read`）。响应 `200`：`{ "profile": ChronicProfile }`。没有记录时返回空档案（`conditions: []`、`medications: []`、`measurements: []`、`updatedAt: 0`），不返回 `404`。
+
+```json
+{
+  "profile": {
+    "patientId": "pat_01",
+    "tenantId": "tn_default",
+    "conditions": ["高血压", "2 型糖尿病"],
+    "heightCm": 162,
+    "weightKg": 58,
+    "medications": [
+      { "name": "氨氯地平", "dose": "5 mg", "frequency": "每日一次", "source": "advisor", "updatedAt": 1760000000000, "updatedBy": "李顾问" }
+    ],
+    "measurements": [
+      { "id": "cme_12", "metric": "bp", "value": 138, "secondaryValue": 86, "measuredAt": 1760000000000, "source": "agent", "recordedAt": 1760000000000, "recordedBy": "Agent" }
+    ],
+    "notes": "近两周晨起血压偏高",
+    "updatedAt": 1760000000000,
+    "updatedBy": "李顾问"
+  }
+}
+```
+
+`metric` 枚举：`bp`（血压，需 `secondaryValue` 舒张压）、`glucose`（血糖，可带 `context`：空腹 / 餐后 2 小时 / 随机 / 睡前）、`hba1c`、`weight`、`heart_rate`、`uric_acid`、`ldl`。
+`source` 枚举：`advisor`（顾问录入）/ `agent`（对话提取）；页面必须展示来源，避免把模型提取当成顾问确认过的事实。`measurements` 按 `measuredAt` 倒序，单患者最多 500 条。
+
+#### `PATCH /patients/{id}/chronic-profile`
+
+角色：`patient.write`。请求体（至少一个字段）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `conditions` | array<string> | 整体替换；常见慢病可多选，也允许自定义诊断 |
+| `heightCm` | number / null | 80–250；`null` 清除 |
+| `weightKg` | number / null | 20–250；`null` 清除 |
+| `medications` | array<object> | 整体替换；`name` 必填，可带 `dose` / `frequency` / `note` |
+| `notes` | string / null | 最多 500 字；`null` 清除 |
+| `measurements` | array<object> | 追加体征（兼容单条写法 `measurement`）；一次最多 5 条 |
+
+响应 `200`：`{ "profile": ChronicProfile }`。来源固定写为 `advisor`，`recordedBy` 为当前账号显示名；操作写 `patient.chronic.update` 审计（只记字段名，不记体征数值）。
+校验失败返回 `422 VALIDATION_FAILED`：血压缺舒张压、舒张压不小于收缩压、数值超范围、测量时间晚于当前时间等。
 
 #### `GET /patients/{id}/service-plan`
 
@@ -543,7 +631,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 }
 ```
 
-`mediaKinds`：`image` / `meal` / `report` / `medicine` / `voice` / `file` / `video`；无图时 `[]`。`voice` / `file` / `video` 在前端显示「暂不支持自动草稿」。
+`mediaKinds`：`image` / `meal` / `report` / `medicine` / `other`（`image` 为未分类兜底）；无图时 `[]`。语音不计入 `mediaKinds`：经腾讯云一句话识别转写成功后按文本处理，转写失败的消息不进入服务流；文件、视频不进入草稿链路，前端对这三类保留「暂不支持自动草稿」提示。
 
 ### `GET /service-flow`
 
@@ -949,8 +1037,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
     "lastActiveAt": 1762646400000
   },
   "presets": [
-    { "id": "preset_allergy", "label": "我对海鲜过敏", "kind": "text" },
-    { "id": "preset_dinner", "label": "晚上吃什么好", "kind": "text" },
+    { "id": "preset_allergy", "label": "我对海鲜过敏", "kind": "text", "text": "我对海鲜过敏" },
+    { "id": "preset_dinner", "label": "晚上吃什么好", "kind": "text", "text": "晚上吃什么好" },
     { "id": "preset_meal_photo", "label": "发一张餐食照片", "kind": "image", "mediaId": "med_sample_meal_01" }
   ],
   "guideSteps": [
@@ -1264,7 +1352,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 |---|---|---|---|
 | 工作台 | 价值条 | `GET /dashboard/value` | A |
 | 工作台 | KPI | `GET /dashboard/kpis` | A |
-| 工作台 | 最近动态 | `GET /dashboard/recent` | A |
+| 工作台 | 团队关注 | `GET /dashboard/team-attention` | A |
 | 工作台 | 趋势图、排行 | `GET /dashboard/value` 的 `trend` / `advisorRanking` | A |
 | 工作台 | 开通引导卡片 | `GET /settings/onboarding` | A |
 | 患者 Agent | 卡片墙列表 | `GET /patients` | A |
@@ -1274,7 +1362,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 患者 Agent 主页 | 办事记录 | `GET /patients/{id}/actions` | A |
 | 患者 Agent 主页 | 对话时间线 | `GET /patients/{id}/timeline` | A |
 | 患者 Agent 主页 | 饮食记录 | `GET /patients/{id}/meal-logs`、`GET /patients/{id}/meal-logs/{logId}/photo` | A |
-| 患者 Agent 主页 | 健康档案 | `GET /patients/{id}/health-profile`（`sample:true`） | B |
+| 患者 Agent 主页 | 慢病管理（原健康档案） | `GET/PATCH /patients/{id}/chronic-profile` | A |
 | 患者 Agent 主页 | 服务计划 | `GET /patients/{id}/service-plan`（`sample:true`） | B |
 | 实时服务流 | 列表 + SSE | `GET /service-flow`、`GET /stream` | A |
 | 实时服务流 | 详情抽屉 | `GET /service-flow/{id}` | A |
@@ -1305,7 +1393,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 系统设置 · 数据与安全 | 证据 / 记录导出 | `GET /drafts/{id}/evidence.pdf`、`GET /patients/{id}/records.pdf` | A |
 | 系统设置 · 开通正式服务 | 清单、计算器、申请 | `GET /settings/onboarding`、`POST /settings/onboarding/requests` | A |
 
-**缺口检查**：P1-scope §4 的所有 A 档区块都有接口；B 档全部标注 `sample`；C 档不需要接口。语音 / 文件 / 视频只返回 `mediaKinds` 标记，不提供内容接口（P1 不做）。
+**缺口检查**：P1-scope §4 的所有 A 档区块都有接口；B 档全部标注 `sample`；C 档不需要接口。文件 / 视频不进入草稿链路（前端保留「暂不支持自动草稿」提示）；语音经 ASR 转写后以文本进入服务流。
 
 ---
 

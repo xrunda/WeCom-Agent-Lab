@@ -112,12 +112,6 @@ export function ConsoleLayout() {
               <Fragment key="account">{accountMenu}</Fragment>,
             ]
       }
-      menuFooterRender={() => (
-        <div className="sider-tenant">
-          <span className="sider-tenant-name">{tenant.name}</span>
-          <span className="sider-tenant-agent">Agent：{tenant.agentName}</span>
-        </div>
-      )}
       footerRender={() => (
         <footer className="console-footer">
           <span>知伴健康 Agent · P1 控制台</span>

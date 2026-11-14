@@ -167,12 +167,25 @@ export interface SavedMedia {
   ext: string;
 }
 
+export interface DownloadedMedia {
+  buffer: Buffer;
+  md5: string;
+  size: number;
+}
+
+/** 下载校验用的输入；不落盘时同样复用 */
+export interface DownloadMediaInput {
+  sdkfileid: string;
+  expectedMd5?: string;
+  expectedSize?: number;
+}
+
 export interface MediaDownloaderConfig extends DownloadMediaOptions {
   /** 图片落盘根目录；实际路径为 <root>/<roomId>/<msgId>.<ext> */
   rootDir: string;
 }
 
-/** 下载并落盘一张图片 */
+/** 下载并校验媒体；图片落盘，语音只取字节（不落盘） */
 export class MediaDownloader {
   private readonly source: MediaChunkSource;
   private readonly config: MediaDownloaderConfig;
@@ -182,7 +195,7 @@ export class MediaDownloader {
     this.config = config;
   }
 
-  async save(input: SaveMediaInput): Promise<SavedMedia> {
+  async download(input: DownloadMediaInput): Promise<DownloadedMedia> {
     const buffer = await downloadMedia(this.source, input.sdkfileid, this.config);
     const md5 = md5Of(buffer);
     const size = buffer.length;
@@ -190,18 +203,24 @@ export class MediaDownloader {
     if (input.expectedSize !== undefined && input.expectedSize > 0 && input.expectedSize !== size) {
       throw new MediaError(
         'MEDIA_SIZE_MISMATCH',
-        `图片大小不一致：存档 ${input.expectedSize}，实际 ${size}`,
+        `媒体大小不一致：存档 ${input.expectedSize}，实际 ${size}`,
       );
     }
     if (input.expectedMd5 && input.expectedMd5.toLowerCase() !== md5) {
-      throw new MediaError('MEDIA_MD5_MISMATCH', '图片 md5 与存档不一致');
+      throw new MediaError('MEDIA_MD5_MISMATCH', '媒体 md5 与存档不一致');
     }
 
-    const ext = detectImageExt(buffer);
+    return { buffer, md5, size };
+  }
+
+  async save(input: SaveMediaInput): Promise<SavedMedia> {
+    const downloaded = await this.download(input);
+
+    const ext = detectImageExt(downloaded.buffer);
     const path = join(this.config.rootDir, sanitizeSegment(input.roomId), `${sanitizeSegment(input.msgId)}.${ext}`);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, buffer);
-    return { path, md5, size, ext };
+    await writeFile(path, downloaded.buffer);
+    return { path, md5: downloaded.md5, size: downloaded.size, ext };
   }
 }
 

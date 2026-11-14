@@ -40,6 +40,12 @@ import type {
   SandboxPatient,
 } from '../../src/p1/sandbox.ts';
 import { buildSecurityOverview } from '../../src/p1/security.ts';
+import { validateChronicPatch } from '../../src/p1/chronic.ts';
+import type {
+  ChronicActor,
+  ChronicProfile,
+  ChronicProfilePatch,
+} from '../../src/p1/chronic.ts';
 import type { CarePlanRecord } from '../../src/p1/care.ts';
 import type { KnowledgeRecord } from '../../src/p1/knowledge.ts';
 import type { MemoryRecord } from '../../src/p1/memory.ts';
@@ -49,6 +55,7 @@ import {
   buildPatientActions,
   buildPatientTimeline,
   dashboardKpis,
+  dashboardTeamAttention,
   dashboardValue,
   decodeArchiveMediaId,
   draftPatient,
@@ -206,6 +213,13 @@ interface PatientApiLike {
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
+  /** 慢病管理：结构化档案 */
+  getChronicProfile?(patientId: string): ChronicProfile;
+  updateChronicProfile?(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile;
   /** #60 上线：群列表与服务状态入口 */
   listGroups?(): PatientGroupViewLike[];
   updateGroup?(
@@ -518,6 +532,13 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           injectContext: (sessionId, text) => api.sandboxInjectContext(sessionId, text),
         };
         return port;
+      },
+      // 记忆事件只广播定位字段、不带正文；沙盒面板展示时按 id 回查
+      memoryContent: (memoryId) => {
+        const record = ctx.get<MemoryApiLike>('zhibanMemory')?.get?.(memoryId) as
+          | { content?: unknown }
+          | undefined;
+        return typeof record?.content === 'string' ? record.content : undefined;
       },
     });
     // 患者运行时通过这个服务把沙盒草稿交回来（而不是进入 C2 队列）
@@ -1175,6 +1196,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           roomId: group.roomId,
           name: group.name,
           advisorId: group.advisorId ?? mapped?.advisorId,
+          status: group.status,
           demo: group.demo,
         };
       });
@@ -1226,17 +1248,6 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     const parseConsent = (raw: unknown): Patient['consent'] => {
       if (raw === 'agreed' || raw === 'unknown' || raw === 'disagreed') return raw;
       throw new ConsoleError('VALIDATION_FAILED', 'consent 必须是 agreed / unknown / disagreed');
-    };
-
-    /** 工作台「最近服务动态」的口径：只区分已核验/改后发送/发错群/未核验，其余为待核验。 */
-    const recentOutcome = (
-      status: Draft['status'],
-    ): 'verified' | 'edit_sent' | 'misroute' | 'unverified' | 'pending' => {
-      if (status === 'VERIFIED') return 'verified';
-      if (status === 'EDIT_SENT') return 'edit_sent';
-      if (status === 'MISROUTE_ALERT') return 'misroute';
-      if (status === 'UNVERIFIED') return 'unverified';
-      return 'pending';
     };
 
     const ARCHIVE_MEDIA_TYPES: Record<string, string> = {      jpg: 'image/jpeg',
@@ -1338,28 +1349,28 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
 
     router.add(
       'GET',
-      '/dashboard/recent',
+      '/dashboard/team-attention',
       (rc) => {
         tenantActor(rc);
-        const limit = Math.min(20, positiveInt(rc.query.get('limit'), 10));
         const lookups = consoleLookups();
-        const items = consoleDrafts()
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, limit)
-          .map((draft) => {
-            const row = serviceFlowRow(draft, lookups);
-            return {
-              id: row.id,
-              patientName: row.patientName,
-              advisorName: row.advisorName,
-              groupName: row.groupName,
-              preview: row.summary,
-              outcome: recentOutcome(draft.status),
-              at: row.createdAt,
-              sandbox: false,
-            };
-          });
-        respond(rc, 200, { items });
+        const unresolved = [
+          ...alerts.list({ status: 'open', pageSize: 200 }).items,
+          ...alerts.list({ status: 'acknowledged', pageSize: 200 }).items,
+        ];
+        respond(
+          rc,
+          200,
+          dashboardTeamAttention({
+            now: nowMs(),
+            timeZone: auth.tenant.timezone,
+            drafts: consoleDrafts(),
+            patients: lookups.patients,
+            advisors: lookups.advisors,
+            groups: lookups.groups,
+            bindings: lookups.bindings,
+            alerts: unresolved,
+          }),
+        );
       },
       { permission: 'patient.read' },
     );
@@ -1977,18 +1988,61 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       { permission: 'patient.read' },
     );
 
-    // -- B 档：真实健康档案 / 服务计划暂未接入，按契约返回空 --
+    // -- 慢病管理：结构化档案（顾问手工录入 + Agent 对话提取） --
 
     router.add(
       'GET',
-      '/patients/:id/health-profile',
+      '/patients/:id/chronic-profile',
       (rc) => {
         tenantActor(rc);
-        requirePatient(rc.params.id!);
-        respond(rc, 200, { profile: null, sample: true });
+        const api = patientReadApi();
+        if (!api?.getChronicProfile) throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        const patient = requirePatient(rc.params.id!);
+        respond(rc, 200, { profile: api.getChronicProfile(patient.id) });
       },
       { permission: 'patient.read' },
     );
+
+    router.add(
+      'PATCH',
+      '/patients/:id/chronic-profile',
+      async (rc) => {
+        const actor = tenantActor(rc);
+        const api = patientReadApi();
+        if (!api?.updateChronicProfile || !api.getChronicProfile) {
+          throw new ConsoleError('UPSTREAM_UNAVAILABLE', '患者域未就绪');
+        }
+        const patient = requirePatient(rc.params.id!);
+        const body = await rc.json<Record<string, unknown>>();
+        const parsed = validateChronicPatch(body, Date.now());
+        if (!parsed.ok) {
+          throw new ConsoleError('VALIDATION_FAILED', parsed.violations.join('；'));
+        }
+        let profile: ChronicProfile;
+        try {
+          profile = api.updateChronicProfile(patient.id, parsed.value, {
+            id: actor.account.id,
+            name: actor.account.displayName,
+            source: 'advisor',
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.startsWith('PATIENT_NOT_FOUND')) {
+            throw new ConsoleError('NOT_FOUND', '患者不存在');
+          }
+          throw error;
+        }
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, 'patient.chronic.update', 'patient', patient.id, {
+            fields: Object.keys(parsed.value),
+          }),
+        );
+        respond(rc, 200, { profile });
+      },
+      { permission: 'patient.write' },
+    );
+
+    // -- B 档：服务计划暂未接入，按契约返回空 --
 
     router.add(
       'GET',

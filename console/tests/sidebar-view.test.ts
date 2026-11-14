@@ -409,3 +409,86 @@ describe('草稿与手动处理（#149）', () => {
     expect(itemRoot.querySelector('[data-copy]')!.hasAttribute('disabled')).toBe(true);
   });
 });
+
+describe('慢病档案（#144）', () => {
+  const now = Date.now();
+  const chronic: NonNullable<SidebarContextData['profile']>['chronic'] = {
+    conditions: ['高血压', '2 型糖尿病'],
+    measurements: [
+      {
+        metric: 'glucose',
+        label: '血糖',
+        unit: 'mmol/L',
+        value: 7.2,
+        secondaryValue: null,
+        context: '空腹',
+        measuredAt: now - 60 * 60_000,
+        source: 'agent',
+      },
+      {
+        metric: 'bp',
+        label: '血压',
+        unit: 'mmHg',
+        value: 138,
+        secondaryValue: 86,
+        context: null,
+        measuredAt: now - 2 * 86_400_000,
+        source: 'advisor',
+      },
+    ],
+    medications: [
+      { name: '氨氯地平', dose: '5mg', frequency: '每日一次' },
+      { name: '阿托伐他汀', dose: null, frequency: null },
+    ],
+    updatedAt: now - 86_400_000,
+  };
+
+  function chronicData(): SidebarContextData {
+    return { ...data, profile: { ...data.profile!, chronic } };
+  }
+
+  it('有档案时显示慢病指标、情境、用药与更新时间', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: chronicData() });
+    const block = root.querySelector('.chronic');
+    expect(block).not.toBeNull();
+    expect(block!.querySelector('.chronic-head')!.textContent).toContain('慢病档案');
+    expect(block!.textContent).toContain('高血压、2 型糖尿病');
+    const metrics = block!.querySelectorAll('.metric');
+    expect(metrics).toHaveLength(2);
+    expect(metrics[0]!.textContent).toContain('血糖');
+    expect(metrics[0]!.textContent).toContain('7.2');
+    expect(metrics[0]!.textContent).toContain('空腹');
+    expect(metrics[0]!.textContent).toContain('1 小时前');
+    // 对话提取、还没核对的数值要标出来
+    expect(metrics[0]!.querySelector('.metric-src')!.textContent).toBe('对话提取');
+    expect(metrics[1]!.textContent).toContain('138/86');
+    expect(metrics[1]!.querySelector('.metric-src')).toBeNull();
+    expect(block!.textContent).toContain('氨氯地平 5mg 每日一次');
+    expect(block!.textContent).toContain('阿托伐他汀');
+  });
+
+  it('没有档案时整块不出现，也不再显示「暂未接入」占位', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data });
+    expect(root.querySelector('.chronic')).toBeNull();
+    expect(root.textContent).not.toContain('慢病档案');
+    expect(root.textContent).not.toContain('档案详情暂未接入');
+  });
+
+  it('档案里的动态文本一律转义', () => {
+    const root = document.createElement('div');
+    render(root, {
+      kind: 'ready',
+      data: {
+        ...data,
+        profile: {
+          ...data.profile!,
+          chronic: { ...chronic, conditions: ['<img src=x onerror=alert(1)>'] },
+        },
+      },
+    });
+    expect(root.innerHTML).not.toContain('<img src=x');
+    expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});

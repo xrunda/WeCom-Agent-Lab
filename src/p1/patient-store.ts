@@ -16,6 +16,7 @@ import type {
   PatientSessionRecord,
 } from './types.ts';
 import type { MealLogRecord } from './vision.ts';
+import type { ChronicProfile } from './chronic.ts';
 
 export interface PatientSnapshot {
   advisors: AdvisorRecord[];
@@ -26,6 +27,8 @@ export interface PatientSnapshot {
   sessions: PatientSessionRecord[];
   /** #55 饮食记录 */
   mealLogs?: MealLogRecord[];
+  /** 慢病管理：每位患者一份结构化档案 */
+  chronicProfiles?: ChronicProfile[];
   stats?: Partial<AgentStats>;
   audits?: AuditEvent[];
 }
@@ -38,6 +41,7 @@ export type PatientTable =
   | 'patients'
   | 'sessions'
   | 'mealLogs'
+  | 'chronicProfiles'
   | 'stats'
   | 'audit';
 
@@ -73,6 +77,7 @@ export class MemoryPatientStore {
   private readonly patients = new Map<string, Patient>();
   private readonly sessions = new Map<string, PatientSessionRecord>();
   private readonly mealLogs = new Map<string, MealLogRecord>();
+  private readonly chronicProfiles = new Map<string, ChronicProfile>();
   private readonly auditEvents: AuditEvent[] = [];
   private readonly backend?: PatientStoreBackend;
   private readonly onPersistError?: (error: Error) => void;
@@ -86,6 +91,7 @@ export class MemoryPatientStore {
     gbd: 0,
     pat: 0,
     meal: 0,
+    cme: 0,
   };
 
   private counts: AgentStats = {
@@ -110,6 +116,9 @@ export class MemoryPatientStore {
     for (const patient of snapshot.patients) this.patients.set(patient.id, patient);
     for (const session of snapshot.sessions) this.sessions.set(session.patientId, session);
     for (const log of snapshot.mealLogs ?? []) this.mealLogs.set(log.id, log);
+    for (const profile of snapshot.chronicProfiles ?? []) {
+      this.chronicProfiles.set(profile.patientId, profile);
+    }
     if (snapshot.stats) this.counts = { ...this.counts, ...snapshot.stats };
     if (snapshot.audits) this.auditEvents.push(...snapshot.audits);
 
@@ -119,9 +128,15 @@ export class MemoryPatientStore {
     this.seq.gbd = maxId([...this.bindings.keys()], 'gbd_');
     this.seq.pat = maxId([...this.patients.keys()], 'pat_');
     this.seq.meal = maxId([...this.mealLogs.keys()], 'meal_');
+    this.seq.cme = maxId(
+      [...this.chronicProfiles.values()].flatMap((profile) =>
+        profile.measurements.map((measurement) => measurement.id),
+      ),
+      'cme_',
+    );
   }
 
-  nextId(kind: 'adv' | 'grp' | 'gm' | 'gbd' | 'pat' | 'meal'): string {
+  nextId(kind: 'adv' | 'grp' | 'gm' | 'gbd' | 'pat' | 'meal' | 'cme'): string {
     this.seq[kind] += 1;
     return `${kind}_${this.seq[kind]}`;
   }
@@ -260,6 +275,21 @@ export class MemoryPatientStore {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  // ---------- 慢病管理 ----------
+
+  saveChronicProfile(profile: ChronicProfile): void {
+    this.chronicProfiles.set(profile.patientId, profile);
+    this.persist('chronicProfiles', profile.patientId, profile);
+  }
+
+  getChronicProfile(patientId: string): ChronicProfile | undefined {
+    return this.chronicProfiles.get(patientId);
+  }
+
+  listChronicProfiles(): ChronicProfile[] {
+    return [...this.chronicProfiles.values()];
+  }
+
   // ---------- stats ----------
 
   bumpStat(key: keyof AgentStats, by = 1): void {
@@ -294,6 +324,7 @@ export class MemoryPatientStore {
       patients: [...this.patients.values()],
       sessions: [...this.sessions.values()],
       mealLogs: [...this.mealLogs.values()],
+      chronicProfiles: [...this.chronicProfiles.values()],
       stats: { ...this.counts },
       audits: [...this.auditEvents],
     };

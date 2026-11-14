@@ -1,7 +1,8 @@
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { App, Button, Col, Empty, Input, Row, Select, Space, Spin, Tag, Typography } from 'antd';
+import { App, Button, Col, Empty, Input, Row, Select, Space, Spin, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useAuth, useTerm } from '../../auth/AuthContext.tsx';
 import { listAdvisors, type Advisor } from '../../mock/advisors.ts';
@@ -17,14 +18,30 @@ export default function PatientsPage() {
   const term = useTerm();
   const { can } = useAuth();
   const { message } = App.useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
+  const urlTab = searchParams.get('tab') ?? undefined;
 
   const [keyword, setKeyword] = useState('');
   const [tag, setTag] = useState<string | undefined>();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(urlPatientId);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // 团队关注「客户消息无人跟进」深链：直接打开患者对话时间线。
+  useEffect(() => {
+    if (urlPatientId) setActiveId(urlPatientId);
+  }, [urlPatientId]);
+
+  const closeDrawer = useCallback(() => {
+    setActiveId(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete('patientId');
+    next.delete('tab');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // 标签选项只来自当前真实数据，避免把示例数据里的标签混进筛选器
   const tags = useMemo(() => {
@@ -122,19 +139,14 @@ export default function PatientsPage() {
             ? '记忆与计划支持编辑，所有变更都会写入审计日志。'
             : '当前角色为只读，记忆与计划不可编辑。'}
           {!isMockMode ? ' 列表与详情来自企微会话存档，不是虚构样例。' : null}
-          {patients.some((item) => item.demo) ? (
-            <span>
-              {' '}
-              标记 <Tag bordered={false}>演示环境</Tag> 的记录产生于演示环境，请勿作为生产数据。
-            </span>
-          ) : null}
         </Text>
       </Space>
 
       <AgentDrawer
         patientId={activeId}
         term={term}
-        onClose={() => setActiveId(null)}
+        initialTab={urlTab}
+        onClose={closeDrawer}
         onChanged={refresh}
       />
     </PageContainer>

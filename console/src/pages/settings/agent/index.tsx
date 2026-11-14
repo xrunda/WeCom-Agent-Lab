@@ -1,11 +1,27 @@
 import { CheckCircleOutlined, RobotOutlined, SaveOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { Alert, App, Avatar, Button, Card, Form, Input, Select, Space, Tag, Typography } from 'antd';
+import {
+  Alert,
+  App,
+  AutoComplete,
+  Avatar,
+  Button,
+  Card,
+  Form,
+  Input,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
 import { ENABLED_CAPABILITIES } from '../../../capabilities.ts';
-import { PATIENT_TERMS, type PatientTerm } from '../../../types.ts';
+import {
+  PATIENT_TERM_MAX_LENGTH,
+  PATIENT_TERMS,
+  type PatientTerm,
+} from '../../../types.ts';
 import { formatDateTime } from '../../../utils/format.ts';
 import '../settings.css';
 import '../../wp-l.css';
@@ -46,7 +62,7 @@ export default function AgentSettingsPage() {
       await updateTenant({
         agentName: values.agentName.trim(),
         agentAvatar: values.agentAvatar?.trim() || null,
-        patientTerm: values.patientTerm,
+        patientTerm: values.patientTerm.trim(),
         tone: values.tone.trim(),
       });
       message.success('已保存，下一条草稿与沙盒中的名字立即同步');
@@ -106,10 +122,23 @@ export default function AgentSettingsPage() {
             <Form.Item
               label={`${patientTerm}称谓`}
               name="patientTerm"
-              rules={[{ required: true, message: '请选择称谓' }]}
-              extra="影响菜单与页面文案，例如「患者 Agent」「客户 Agent」。"
+              rules={[
+                { required: true, whitespace: true, message: '请填写称谓' },
+                {
+                  max: PATIENT_TERM_MAX_LENGTH,
+                  message: `称谓不超过 ${PATIENT_TERM_MAX_LENGTH} 个字`,
+                },
+              ]}
+              extra="影响菜单、页面文案与 Agent 提示词。可直接输入自定义叫法，例如「亲人」「家人」。"
             >
-              <Select options={PATIENT_TERMS.map((term) => ({ value: term, label: term }))} />
+              <AutoComplete
+                options={PATIENT_TERMS.map((term) => ({ value: term, label: term }))}
+                placeholder="例如：患者、客户、会员、亲人、家人"
+                maxLength={PATIENT_TERM_MAX_LENGTH}
+                filterOption={(input, option) =>
+                  String(option?.value ?? '').includes(input.trim())
+                }
+              />
             </Form.Item>
 
             <Form.Item

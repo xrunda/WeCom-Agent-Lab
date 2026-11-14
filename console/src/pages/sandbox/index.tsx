@@ -28,11 +28,13 @@ import {
   SANDBOX_GUIDE_STEPS,
   SANDBOX_OUTCOME_LABELS,
   SANDBOX_PRESET_IMAGES,
+  SANDBOX_SAMPLE_IMAGES,
   applySandboxAction,
   createSandboxSession,
   getSandboxState,
   resetSandboxSession,
   sendSandboxMessage,
+  subscribeSandbox,
   uploadSandboxFile,
   type SandboxAction,
   type SandboxDraft,
@@ -107,6 +109,17 @@ export default function SandboxPage() {
     };
   }, [message]);
 
+  // 真实模式下 Agent 回合是异步的：发送接口返回 202，草稿稍后经 SSE 到达。
+  // 不订阅的话页面只会在发送后刷新一次，看不到随后生成的草稿。
+  useEffect(() => {
+    const unsubscribe = subscribeSandbox(() => {
+      void refresh().catch(() => {
+        // 忽略单次刷新失败；下一次事件会再拉
+      });
+    });
+    return unsubscribe;
+  }, [refresh]);
+
   const draft = state?.drafts.at(-1) ?? null;
   const verification = state?.verification ?? null;
   const latestImage = useMemo(() => {
@@ -121,7 +134,18 @@ export default function SandboxPage() {
     if (!state) return;
     setSending(true);
     try {
-      await sendSandboxMessage(payload);
+      let mediaId = payload.mediaId;
+      const sampleSrc =
+        payload.kind === 'image' && mediaId ? SANDBOX_SAMPLE_IMAGES[mediaId] : undefined;
+      if (sampleSrc) {
+        // 预置示例图是前端静态资源：先上传换成真实 mediaId，后端和模型才能读到文件
+        const blob = await (await fetch(sampleSrc)).blob();
+        const uploaded = await uploadSandboxFile(
+          new File([blob], `${mediaId}.jpg`, { type: blob.type || 'image/jpeg' }),
+        );
+        mediaId = uploaded.mediaId;
+      }
+      await sendSandboxMessage({ ...payload, mediaId });
       await refresh();
       if (payload.kind === 'text') setInput('');
     } catch (error) {
@@ -145,8 +169,9 @@ export default function SandboxPage() {
     if (!preset) return;
     if (preset.kind === 'image' && preset.mediaId) {
       void send({ kind: 'image', mediaId: preset.mediaId });
-    } else if (preset.text) {
-      void send({ kind: 'text', text: preset.text });
+    } else {
+      // 旧版接口的文本预置没有 text 字段，退回 label，避免点击无反应
+      void send({ kind: 'text', text: preset.text ?? preset.label });
     }
   };
 
@@ -338,7 +363,13 @@ export default function SandboxPage() {
                   disabled={sending}
                   onClick={() => void send({ kind: 'image', mediaId: sample.mediaId })}
                 >
-                  <img src={mediaUrl(sample.mediaId, 'meal', sample.label)} alt={sample.label} />
+                  <img
+                    src={
+                      SANDBOX_SAMPLE_IMAGES[sample.mediaId] ??
+                      mediaUrl(sample.mediaId, 'meal', sample.label)
+                    }
+                    alt={sample.label}
+                  />
                   <span>{sample.label}</span>
                 </button>
               ))}

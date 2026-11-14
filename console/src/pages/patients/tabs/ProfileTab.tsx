@@ -113,15 +113,9 @@ export function ProfileTab({ detail, term, canWrite, onSaved }: ProfileTabProps)
                 : '未绑定',
           },
           {
-            key: 'demo',
+            key: 'dataSource',
             label: '数据来源',
-            children: patient.demo ? (
-              <Tag bordered={false} color="purple">
-                演示环境记录
-              </Tag>
-            ) : (
-              <Tag bordered={false}>真实服务数据</Tag>
-            ),
+            children: <Tag bordered={false}>真实服务数据</Tag>,
           },
         ]}
       />

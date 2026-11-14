@@ -7,6 +7,8 @@
  * 权限：只有该会话的绑定顾问可以读取；昵称与档案只在具备
  * `patient.read` 时返回，否则为 null，不降级成「外部成员 xxx」。
  */
+import type { ChronicProfile } from './chronic.ts';
+import { CHRONIC_METRICS, latestMeasurements } from './chronic.ts';
 import type { PendingItem } from './sidebar.ts';
 import { dmConvKey, groupConvKey } from './sidebar.ts';
 
@@ -60,6 +62,8 @@ export interface SidebarViewDeps {
   patientNameFor?(externalUserId: string): string | undefined;
   /** #159 按外部成员 userid 找患者档案；单聊速览用 */
   patientForExternal?(externalUserId: string): SidebarPatientRef | undefined;
+  /** 慢病档案；没有录入过时返回 undefined，视图层转成 chronic: null */
+  getChronic?(patientId: string): ChronicProfile | undefined;
   getAdvisorName?(advisorId: string): string | undefined;
   /** 该群在 since 之后生成、还没发出的草稿；没有则空 */
   latestDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
@@ -106,13 +110,40 @@ export interface SidebarClosedView {
   closedBy: string | null;
 }
 
+/** 慢病档案里单个指标的最新值；label/unit 由服务端按指标表给出，前端不再维护一份 */
+export interface SidebarChronicMeasurementView {
+  metric: string;
+  label: string;
+  unit: string;
+  value: number;
+  /** 血压的舒张压，其他指标为 null */
+  secondaryValue: number | null;
+  /** 血糖的测量情境（空腹 / 餐后 2 小时…） */
+  context: string | null;
+  measuredAt: number;
+  source: 'advisor' | 'agent';
+}
+
+export interface SidebarChronicMedicationView {
+  name: string;
+  dose: string | null;
+  frequency: string | null;
+}
+
+export interface SidebarChronicView {
+  conditions: string[];
+  measurements: SidebarChronicMeasurementView[];
+  medications: SidebarChronicMedicationView[];
+  updatedAt: number;
+}
+
 export interface SidebarProfileView {
   bound: boolean;
   name: string | null;
   confirmed: boolean;
   tags: string[];
-  /** 慢性档案在另一个未合并分支，先返回 null，避免假装有数据 */
-  chronic: null;
+  /** 慢病档案摘要；没有档案或未授权时为 null，前端不显示该区块 */
+  chronic: SidebarChronicView | null;
   carePlan: null;
   silentDays: number | null;
   advisorName: string | null;
@@ -191,6 +222,7 @@ export function buildSidebarContext(
         canRead,
         now,
         canRead ? (deps.getAdvisorName?.(advisor.id) ?? null) : null,
+        canRead && patient ? deps.getChronic?.(patient.id) : undefined,
       ),
       generatedAt: now,
     };
@@ -269,6 +301,7 @@ export function buildSidebarContext(
     canRead,
     now,
     canRead ? (group.advisorId ? (deps.getAdvisorName?.(group.advisorId) ?? null) : null) : null,
+    canRead && patient ? deps.getChronic?.(patient.id) : undefined,
   );
 
   return {
@@ -357,6 +390,7 @@ function profileView(
   canRead: boolean,
   now: number,
   advisorName: string | null,
+  chronic?: ChronicProfile,
 ): SidebarProfileView {
   if (!patient) {
     return {
@@ -375,12 +409,58 @@ function profileView(
     name: canRead ? patient.displayName : null,
     confirmed: patient.identityStatus === 'confirmed',
     tags: canRead ? [...(patient.tags ?? [])] : [],
-    chronic: null,
+    chronic: canRead ? chronicView(chronic) : null,
     carePlan: null,
     silentDays:
       patient.lastActiveAt === undefined
         ? null
         : Math.max(0, Math.floor((now - patient.lastActiveAt) / DAY_MS)),
     advisorName: canRead ? advisorName : null,
+  };
+}
+
+/** 侧边栏只放得下最近几条，指标按测量时间取最新的 3 个 */
+const SIDEBAR_CHRONIC_METRIC_LIMIT = 3;
+const SIDEBAR_MEDICATION_LIMIT = 3;
+
+/**
+ * 慢病档案摘要：每个指标只取最新一条，按测量时间倒序截断。
+ * 条件与用药是清单，档案为空时整块返回 null，让前端隐藏而不是显示空壳。
+ */
+function chronicView(profile: ChronicProfile | undefined): SidebarChronicView | null {
+  if (!profile) return null;
+  if (
+    profile.conditions.length === 0 &&
+    profile.medications.length === 0 &&
+    profile.measurements.length === 0
+  ) {
+    return null;
+  }
+
+  const measurements = [...latestMeasurements(profile).entries()]
+    .sort(([, a], [, b]) => b.measuredAt - a.measuredAt)
+    .slice(0, SIDEBAR_CHRONIC_METRIC_LIMIT)
+    .map(([metric, measurement]) => ({
+      metric,
+      label: CHRONIC_METRICS[metric].label,
+      unit: CHRONIC_METRICS[metric].unit,
+      value: measurement.value,
+      secondaryValue: measurement.secondaryValue ?? null,
+      context: measurement.context ?? null,
+      measuredAt: measurement.measuredAt,
+      source: measurement.source,
+    }));
+
+  return {
+    conditions: [...profile.conditions],
+    measurements,
+    medications: profile.medications
+      .slice(0, SIDEBAR_MEDICATION_LIMIT)
+      .map((medication) => ({
+        name: medication.name,
+        dose: medication.dose ?? null,
+        frequency: medication.frequency ?? null,
+      })),
+    updatedAt: profile.updatedAt,
   };
 }

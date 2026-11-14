@@ -65,6 +65,10 @@ describe('WP-L 工作台与报表', () => {
     expect(screen.getByText('价值速览 · 今日')).toBeInTheDocument();
     expect(screen.getAllByText('示例').length).toBeGreaterThan(0);
     expect(screen.getAllByText('核验通过率').length).toBeGreaterThan(0);
+    expect(screen.getByText('团队关注')).toBeInTheDocument();
+    expect(screen.getByText('立即介入')).toBeInTheDocument();
+    expect(screen.getByText('今日跟进')).toBeInTheDocument();
+    expect(screen.getByText(/在质检与告警中查看全部事件/)).toBeInTheDocument();
   });
 
   it('数据报表显示自洽的示例摘要', async () => {
@@ -74,6 +78,34 @@ describe('WP-L 工作台与报表', () => {
     expect(screen.getAllByText('420').length).toBeGreaterThan(0);
     expect(screen.getByText(/本页为预置示例/)).toBeInTheDocument();
     expect(screen.getByText('顾问对比')).toBeInTheDocument();
+  });
+});
+
+describe('团队关注深链', () => {
+  it('质检与告警按服务人员与类型筛选，并显示可清除提示', async () => {
+    await renderAt('/alerts?advisorId=adv_03&kind=unverified');
+
+    expect(await screen.findByText('已按服务人员筛选：赵顾问')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '清除人员筛选' })).toBeInTheDocument();
+    expect(screen.getAllByText('未核验').length).toBeGreaterThan(0);
+  });
+
+  it('患者深链直接打开对话时间线', async () => {
+    await renderAt('/patients?patientId=pat_01&tab=timeline');
+
+    expect((await screen.findAllByText('张女士')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('对话时间线')).toBeInTheDocument();
+  });
+
+  it('实时服务流按服务人员筛选', async () => {
+    const { container } = await renderAt('/service-flow?advisorId=adv_01');
+
+    expect((await screen.findAllByText('实时服务流')).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(
+        container.querySelector('.ant-select-selection-item[title="李顾问"]'),
+      ).not.toBeNull(),
+    );
   });
 });
 

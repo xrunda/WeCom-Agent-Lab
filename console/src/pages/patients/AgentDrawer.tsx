@@ -1,4 +1,4 @@
-import { FilePdfOutlined } from '@ant-design/icons';
+import { EditOutlined, FilePdfOutlined } from '@ant-design/icons';
 import {
   Alert,
   App,
@@ -45,14 +45,34 @@ import { TimelineTab } from './tabs/TimelineTab.tsx';
 
 const { Text, Title } = Typography;
 
+const DRAWER_TABS = new Set([
+  'profile',
+  'memories',
+  'plans',
+  'actions',
+  'timeline',
+  'diet',
+  'health',
+  'service-plan',
+]);
+
 export interface AgentDrawerProps {
   patientId: string | null;
   term: string;
+  /** 深链打开时定位到指定 Tab，例如团队关注的 ?tab=timeline */
+  initialTab?: string;
   onClose: () => void;
   onChanged: () => void;
 }
 
-export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawerProps) {
+export function AgentDrawer({
+  patientId,
+  term,
+  initialTab,
+  onClose,
+  onChanged,
+}: AgentDrawerProps) {
+  const activeTab = initialTab && DRAWER_TABS.has(initialTab) ? initialTab : 'profile';
   const { can } = useAuth();
   const { message } = App.useApp();
   const [detail, setDetail] = useState<PatientDetail | null>(null);
@@ -189,7 +209,7 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
                 该 Agent 对应{term}：<Text strong>{detail.patient.displayName}</Text>（顾问已确认）
               </Text>
               {can('patient.write') ? (
-                <Button type="link" size="small" onClick={() => setIdentityOpen(true)}>
+                <Button size="small" icon={<EditOutlined />} onClick={() => setIdentityOpen(true)}>
                   修改{term}
                 </Button>
               ) : null}
@@ -225,6 +245,8 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
           />
 
           <Tabs
+            key={`${detail.patient.id}:${activeTab}`}
+            defaultActiveKey={activeTab}
             items={[
               {
                 key: 'profile',
@@ -269,8 +291,14 @@ export function AgentDrawer({ patientId, term, onClose, onChanged }: AgentDrawer
               },
               {
                 key: 'health',
-                label: '健康档案',
-                children: <HealthProfileTab patientId={detail.patient.id} term={term} />,
+                label: '慢病管理',
+                children: (
+                  <HealthProfileTab
+                    patientId={detail.patient.id}
+                    term={term}
+                    canWrite={can('patient.write')}
+                  />
+                ),
               },
               {
                 key: 'service-plan',

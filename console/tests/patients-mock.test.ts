@@ -5,8 +5,9 @@ import {
   cancelCarePlan,
   createCarePlan,
   deleteMemory,
-  getHealthProfile,
+  getChronicProfile,
   getPatientDetail,
+  updateChronicProfile,
   getServicePlan,
   getTimeline,
   listCarePlans,
@@ -90,10 +91,35 @@ describe('患者 mock 数据', () => {
     expect(page.total).toBe(events.length);
   });
 
-  it('健康档案与服务计划带 sample 标记', async () => {
-    const profile = await getHealthProfile('pat_01');
-    expect(profile.sample).toBe(true);
-    expect(profile.bmi).toBeGreaterThan(0);
+  it('慢病档案含结构化体征，可手工追加且按测量时间排序', async () => {
+    const before = await getChronicProfile('pat_01');
+    expect(before.conditions.length).toBeGreaterThan(0);
+    expect(before.measurements.length).toBeGreaterThan(0);
+    expect(before.measurements[0].metric).toBeDefined();
+
+    const now = Date.now();
+    const after = await updateChronicProfile('pat_01', {
+      conditions: ['高血压', '2 型糖尿病'],
+      heightCm: 162,
+      weightKg: 58,
+      medications: [{ name: '虚构药物', dose: '5 mg', frequency: '每日一次' }],
+      measurements: [
+        { metric: 'bp', value: 136, secondaryValue: 88, measuredAt: now },
+        { metric: 'glucose', value: 7.2, context: '餐后 2 小时', measuredAt: now + 1000 },
+      ],
+    });
+
+    expect(after.conditions).toEqual(['高血压', '2 型糖尿病']);
+    expect(after.medications[0]).toMatchObject({ name: '虚构药物', source: 'advisor' });
+    expect(after.measurements[0]).toMatchObject({ metric: 'glucose', value: 7.2 });
+    expect(after.measurements[1]).toMatchObject({ metric: 'bp', value: 136, secondaryValue: 88 });
+    expect(after.measurements[0].source).toBe('advisor');
+
+    await expect(
+      updateChronicProfile('pat_01', {
+        measurements: [{ metric: 'bp', value: 120, secondaryValue: 130 }],
+      }),
+    ).rejects.toThrow('舒张压必须小于收缩压');
 
     const plan = await getServicePlan('pat_01');
     expect(plan.sample).toBe(true);

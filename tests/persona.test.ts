@@ -103,3 +103,13 @@ test('评测规则：正文出现「群里有人问到」判为不可直接转�
   });
   assert.equal(good.pass, true);
 });
+
+test('语音消息在提示词里标注 [语音]，正文用转写结果', () => {
+  const batch = merged(UNKNOWN);
+  batch.messages = [
+    { ...batch.messages[0], msgtype: 'voice', text: '今晚吃什么比较好' },
+  ];
+
+  const prompt = buildTurnPrompt(batch, SETTINGS);
+  assert.match(prompt, /\[语音\] 今晚吃什么比较好/);
+});

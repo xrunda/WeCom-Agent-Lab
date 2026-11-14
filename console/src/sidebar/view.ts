@@ -247,10 +247,71 @@ function profileCard(data: SidebarContextData, consoleUrl?: string): string {
         ${confirmed}
       </div>
       ${tags}
-      <p class="sub">档案详情暂未接入</p>
       ${facts.length ? `<p class="facts">${facts.join(' · ')}</p>` : ''}
+      ${chronicHtml(data)}
       ${consoleLink(consoleUrl)}
     </section>`;
+}
+
+/** 慢病档案摘要：有数据才渲染，没有就整块不出现，不留「暂未接入」空壳 */
+function chronicHtml(data: SidebarContextData): string {
+  const chronic = data.profile?.chronic;
+  if (!chronic) return '';
+
+  const conditions = chronic.conditions.length
+    ? `<p class="chronic-conditions">${chronic.conditions
+        .map((condition) => escapeHtml(condition))
+        .join('、')}</p>`
+    : '';
+
+  const metrics = chronic.measurements.length
+    ? `<ul class="metrics">${chronic.measurements
+        .map((measurement) => {
+          const value =
+            measurement.secondaryValue !== null
+              ? `${measurement.value}/${measurement.secondaryValue}`
+              : `${measurement.value}`;
+          // 对话提取的数值还没被顾问核对，标出来，别让人当成已确认
+          const unverified = measurement.source === 'agent'
+            ? '<span class="metric-src">对话提取</span>'
+            : '';
+          const context = measurement.context
+            ? `<span class="metric-context">${escapeHtml(measurement.context)}</span>`
+            : '';
+          return `<li class="metric">
+            <span class="metric-label">${escapeHtml(measurement.label)}</span>
+            <span class="metric-value">${escapeHtml(value)}<em>${escapeHtml(measurement.unit)}</em></span>
+            ${context}${unverified}
+            <span class="metric-date">${relativeSince(measurement.measuredAt)}</span>
+          </li>`;
+        })
+        .join('')}</ul>`
+    : '';
+
+  const medications = chronic.medications.length
+    ? `<p class="chronic-meds"><span class="chronic-label">用药</span>${chronic.medications
+        .map((medication) => {
+          const detail = [medication.dose, medication.frequency].filter(Boolean).join(' ');
+          return escapeHtml(detail ? `${medication.name} ${detail}` : medication.name);
+        })
+        .join('；')}</p>`
+    : '';
+
+  return `
+    <div class="chronic">
+      <div class="chronic-head">
+        <h3>慢病档案</h3>
+        <span class="chronic-updated">${relativeSince(chronic.updatedAt)}更新</span>
+      </div>
+      ${conditions}
+      ${metrics}
+      ${medications}
+    </div>`;
+}
+
+/** 时间戳 → 「刚刚 / x 分钟前 / x 天前」，与刷新提示同一套口径 */
+function relativeSince(at: number): string {
+  return relativeLabel(Math.max(0, Math.floor((Date.now() - at) / 1000)));
 }
 
 function consoleLink(consoleUrl?: string): string {

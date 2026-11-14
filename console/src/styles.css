@@ -48,6 +48,20 @@ a {
   text-decoration: none;
 }
 
+/* ---------- 按钮 ---------- */
+/* AntD 的 link 按钮默认和纯文本几乎一样；悬停加下划线，明确“这里能点” */
+.ant-btn.ant-btn-link:not(:disabled):hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 键盘聚焦时给可见焦点环，不只靠颜色变化 */
+.ant-btn.ant-btn-link:focus-visible {
+  outline: 2px solid var(--zb-focus);
+  outline-offset: 2px;
+  border-radius: var(--zb-radius-sm);
+}
+
 .app-loading {
   min-height: 100vh;
   display: grid;
@@ -116,31 +130,6 @@ a {
 }
 
 .brand-title-sub {
-  font-size: 11px;
-  color: var(--zb-muted);
-}
-
-.sider-tenant {
-  margin: 10px 14px 14px;
-  padding: 12px;
-  border: 1px solid var(--zb-line);
-  border-radius: var(--zb-radius-control);
-  background: var(--zb-surface-2);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sider-tenant-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--zb-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sider-tenant-agent {
   font-size: 11px;
   color: var(--zb-muted);
 }
@@ -440,6 +429,47 @@ a {
 
 .zb-num {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 慢病管理 ---------- */
+.chronic-metric-card {
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--zb-line);
+  border-radius: var(--zb-radius-sm);
+  background: var(--zb-surface-2);
+}
+
+.chronic-metric-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--zb-muted);
+  font-size: 12px;
+}
+
+.chronic-metric-context {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--zb-brand-tint);
+  color: var(--zb-primary-deep);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.chronic-metric-value {
+  margin-top: 4px;
+  color: var(--zb-ink);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.chronic-metric-meta {
+  margin-top: 4px;
+  color: var(--zb-muted-2);
+  font-size: 11px;
 }
 
 /* ---------- 数据表格 ---------- */

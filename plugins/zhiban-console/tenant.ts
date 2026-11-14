@@ -7,7 +7,8 @@
 import { ConsoleError } from '../../src/p1/console-error.ts';
 import {
   DEFAULT_TENANT_SETTINGS,
-  PATIENT_TERMS,
+  isValidPatientTerm,
+  PATIENT_TERM_MAX_LENGTH,
   type PatientTerm,
   type TenantRecord,
   type TenantSettings,
@@ -61,10 +62,12 @@ export function validateTenantPatch(raw: unknown, existing: TenantRecord): Tenan
     else patch.agentAvatar = text(input.agentAvatar, 'agentAvatar', 500);
   }
   if (input.patientTerm !== undefined) {
-    if (!PATIENT_TERMS.includes(input.patientTerm as PatientTerm)) {
-      fail('patientTerm', '只能是「患者 / 客户 / 会员」');
+    if (typeof input.patientTerm !== 'string') fail('patientTerm', '必须是字符串');
+    const term = input.patientTerm.trim();
+    if (!isValidPatientTerm(term)) {
+      fail('patientTerm', `必须是 1–${PATIENT_TERM_MAX_LENGTH} 个字符，不能只含空白`);
     }
-    patch.patientTerm = input.patientTerm as PatientTerm;
+    patch.patientTerm = term;
   }
 
   if (input.settings !== undefined) {

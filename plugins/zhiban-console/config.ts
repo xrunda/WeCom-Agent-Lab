@@ -7,7 +7,8 @@
 import { validatePassword } from '../../src/p1/console-auth.ts';
 import {
   DEFAULT_TENANT_SETTINGS,
-  PATIENT_TERMS,
+  isValidPatientTerm,
+  PATIENT_TERM_MAX_LENGTH,
   type PatientTerm,
   type TenantSettings,
 } from '../../src/p1/console-types.ts';
@@ -108,9 +109,9 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
   const object = asObject(raw);
   const tenantId = requireString(object.tenantId, 'tenantId');
   const tenantRaw = object.tenant === undefined ? {} : asObject(object.tenant);
-  const patientTermRaw = optionalString(tenantRaw.patientTerm, '患者');
-  if (!PATIENT_TERMS.includes(patientTermRaw as PatientTerm)) {
-    throw new Error('tenant.patientTerm 只能是「患者 / 客户 / 会员」');
+  const patientTermRaw = optionalString(tenantRaw.patientTerm, '患者').trim();
+  if (!isValidPatientTerm(patientTermRaw)) {
+    throw new Error(`tenant.patientTerm 必须是 1–${PATIENT_TERM_MAX_LENGTH} 个字符`);
   }
   const allowedOriginsRaw = object.allowedOrigins;
   if (

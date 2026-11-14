@@ -32,6 +32,13 @@ import type { MemoryRecord } from '../src/p1/memory.ts';
 import type { AdvisorRecord, ConsentStatus, Patient } from '../src/p1/types.ts';
 import type { Draft } from '../src/c2/types.ts';
 import type { MealLogRecord } from '../src/p1/vision.ts';
+import {
+  applyChronicPatch,
+  emptyChronicProfile,
+  type ChronicActor,
+  type ChronicProfile,
+  type ChronicProfilePatch,
+} from '../src/p1/chronic.ts';
 
 const ADMIN_PASSWORD = 'AdminPass123';
 const PLATFORM_PASSWORD = 'PlatformPass123';
@@ -173,6 +180,12 @@ interface PatientApi {
   consentStats?(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录 */
   listMealLogs?(patientId: string): MealLogRecord[];
+  getChronicProfile?(patientId: string): ChronicProfile;
+  updateChronicProfile?(
+    patientId: string,
+    patch: ChronicProfilePatch,
+    actor: ChronicActor,
+  ): ChronicProfile;
   getPatientGroups?(id: string):
     | {
         patient: { id: string; displayName: string };
@@ -1194,6 +1207,7 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
     realDraft({ id: 'draft_4', status: 'QUEUED', createdAt: Date.now() - 8 * 60_000 }),
   ];
   const paused: string[] = [];
+  const chronicProfiles = new Map<string, ChronicProfile>();
 
   Object.assign(ctx.patientApi, {
     listPatients: () => patients,
@@ -1308,6 +1322,24 @@ function installRealDataPorts(ctx: FakeConsoleContext): {
       };
       patients[index] = updated;
       return updated;
+    },
+    getChronicProfile: (id: string) =>
+      chronicProfiles.get(id) ?? emptyChronicProfile(id, 'tn_test'),
+    updateChronicProfile: (
+      id: string,
+      patch: ChronicProfilePatch,
+      actor: ChronicActor,
+    ) => {
+      const current = chronicProfiles.get(id) ?? emptyChronicProfile(id, 'tn_test');
+      const now = Date.now();
+      let seq = 0;
+      const next = applyChronicPatch(current, patch, {
+        now,
+        actor,
+        nextMeasurementId: () => `cme_${now}_${++seq}`,
+      });
+      chronicProfiles.set(id, next);
+      return next;
     },
     getPatientGroups: (id: string) =>
       id === 'pat_1'
@@ -1689,33 +1721,43 @@ test('工作台：价值与 KPI 直接来自真实草稿，不出现示例数据
   assert.ok(kpiBody.avgResponseSeconds > 0);
   assert.equal(kpiBody.openAlerts, 0);
 
-  const recent = await call('GET', '/zhiban/api/dashboard/recent?limit=2', { cookie });
-  assert.equal(recent.status, 200);
-  const recentBody = recent.json() as {
-    items: Array<{
-      id: string;
-      patientName: string;
+  const attention = await call('GET', '/zhiban/api/dashboard/team-attention', { cookie });
+  assert.equal(attention.status, 200);
+  const attentionBody = attention.json() as {
+    generatedAt: number;
+    people: Array<{
+      advisorId: string;
       advisorName: string;
-      groupName: string;
-      preview: string;
-      outcome: string;
-      at: number;
-      sandbox: boolean;
+      online: boolean;
+      patientCount: number;
+      pendingCount: number;
+      level: string;
+      reasons: Array<{ code: string; text: string; waitMinutes: number }>;
+      suggestion: string;
     }>;
+    summary: {
+      peopleCount: number;
+      immediateCount: number;
+      verifiedToday: number;
+      avgResponseSeconds: number;
+      unverifiedCount: number;
+    };
   };
-  assert.equal(recentBody.items.length, 2);
-  assert.equal(recentBody.items[0]!.id, 'draft_1');
-  assert.equal(recentBody.items[0]!.outcome, 'verified');
-  assert.equal(recentBody.items[0]!.patientName, '汪女士');
-  assert.equal(recentBody.items[0]!.advisorName, '李广');
-  assert.equal(recentBody.items[0]!.sandbox, false);
-  assert.ok(recentBody.items.every((item) => typeof item.at === 'number'));
-
-  const recentAll = await call('GET', '/zhiban/api/dashboard/recent?limit=10', { cookie });
-  const skipped = (recentAll.json() as { items: Array<{ id: string; outcome: string }> }).items.find(
-    (item) => item.id === 'draft_3',
-  );
-  assert.equal(skipped?.outcome, 'pending');
+  assert.equal(attentionBody.people.length, 1);
+  assert.equal(attentionBody.people[0]!.advisorId, 'adv_1');
+  assert.equal(attentionBody.people[0]!.advisorName, '李广');
+  assert.equal(attentionBody.people[0]!.online, true);
+  assert.equal(attentionBody.people[0]!.level, 'L2');
+  assert.equal(attentionBody.people[0]!.reasons[0]!.code, 'high_revision');
+  assert.equal(attentionBody.people[0]!.patientCount, 2);
+  assert.equal(attentionBody.people[0]!.pendingCount, 1);
+  assert.equal(attentionBody.summary.peopleCount, 1);
+  assert.equal(attentionBody.summary.immediateCount, 0);
+  assert.equal(attentionBody.summary.verifiedToday, 2);
+  assert.equal(attentionBody.summary.unverifiedCount, 0);
+  // 团队关注不返回消息正文或患者姓名，只返回行为元数据。
+  assert.equal(JSON.stringify(attentionBody).includes('晚餐清淡'), false);
+  assert.equal(JSON.stringify(attentionBody).includes('汪女士'), false);
 
   const invalid = await call('GET', '/zhiban/api/dashboard/value?range=year', { cookie });
   assert.equal(invalid.status, 422);
@@ -1763,9 +1805,28 @@ test('患者：真实患者列表区分 demo，详情含群与顾问，健康档
   });
   assert.equal(invalid.status, 422);
 
-  const profile = await call('GET', '/zhiban/api/patients/pat_1/health-profile', { cookie });
+  const profile = await call('GET', '/zhiban/api/patients/pat_1/chronic-profile', { cookie });
   assert.equal(profile.status, 200);
-  assert.deepEqual(profile.json(), { profile: null, sample: true });
+  assert.deepEqual((profile.json() as { profile: ChronicProfile }).profile.conditions, []);
+
+  const recorded = await call('PATCH', '/zhiban/api/patients/pat_1/chronic-profile', {
+    cookie,
+    body: {
+      conditions: ['高血压'],
+      measurements: [{ metric: 'bp', value: 138, secondaryValue: 86 }],
+    },
+  });
+  assert.equal(recorded.status, 200);
+  const recordedProfile = (recorded.json() as { profile: ChronicProfile }).profile;
+  assert.deepEqual(recordedProfile.conditions, ['高血压']);
+  assert.equal(recordedProfile.measurements[0]?.source, 'advisor');
+  assert.equal(recordedProfile.measurements[0]?.recordedBy, '林主管');
+
+  const badMeasurement = await call('PATCH', '/zhiban/api/patients/pat_1/chronic-profile', {
+    cookie,
+    body: { measurements: [{ metric: 'bp', value: 138 }] },
+  });
+  assert.equal(badMeasurement.status, 422);
 
   const plan = await call('GET', '/zhiban/api/patients/pat_1/service-plan', { cookie });
   assert.equal(plan.status, 200);

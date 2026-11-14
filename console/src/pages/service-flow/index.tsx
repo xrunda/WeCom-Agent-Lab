@@ -113,10 +113,14 @@ export default function ServiceFlowPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlDraftId = searchParams.get('draftId');
   const urlPatientId = searchParams.get('patientId') ?? undefined;
+  const urlAdvisorId = searchParams.get('advisorId') ?? undefined;
+  const urlStatus = searchParams.get('status') ?? undefined;
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => ({
     ...EMPTY_FILTERS,
     patientId: urlPatientId,
+    advisorId: urlAdvisorId,
+    status: urlStatus,
   }));
   const [rows, setRows] = useState<ServiceFlowRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,12 +133,21 @@ export default function ServiceFlowPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [version, setVersion] = useState<number | null>(null);
 
-  // 从告警/其它页面带参跳转过来时，同步 URL 里的患者筛选
+  // 从团队关注/告警带参跳转过来时，同步 URL 里的患者、服务人员与状态筛选。
   useEffect(() => {
     setFilters((current) =>
-      current.patientId === urlPatientId ? current : { ...current, patientId: urlPatientId },
+      current.patientId === urlPatientId &&
+      current.advisorId === urlAdvisorId &&
+      current.status === urlStatus
+        ? current
+        : {
+            ...current,
+            patientId: urlPatientId,
+            advisorId: urlAdvisorId,
+            status: urlStatus,
+          },
     );
-  }, [urlPatientId]);
+  }, [urlAdvisorId, urlPatientId, urlStatus]);
 
   // 深链 ?draftId= 直接打开对应草稿详情，而不是落在列表首页
   useEffect(() => {
@@ -165,7 +178,11 @@ export default function ServiceFlowPage() {
 
   const resetFilters = useCallback(() => {
     setFilters(EMPTY_FILTERS);
-    updateParams((params) => params.delete('patientId'));
+    updateParams((params) => {
+      params.delete('patientId');
+      params.delete('advisorId');
+      params.delete('status');
+    });
   }, [updateParams]);
 
   const clearPatientFilter = useCallback(() => {
