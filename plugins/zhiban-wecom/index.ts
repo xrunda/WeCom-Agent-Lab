@@ -10,7 +10,10 @@
  */
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
-import { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import {
+  WeComArchiveAdapter,
+  isExternalCustomerId,
+} from '../../src/c2/adapters/wecom-archive.ts';
 import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import { C2Service } from '../../src/c2/service.ts';
@@ -36,7 +39,10 @@ import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
 import { ScriptQueryService, splitForWecom } from './script-query.ts';
 import type { QueryableScript } from './script-query.ts';
-import { ServiceGroupRegistry } from './service-groups.ts';
+import { KnowledgeQueryService } from './knowledge-query.ts';
+import { PatrolService } from './patrol-service.ts';
+import { PromiseService } from '../../src/c2/promise-service.ts';
+import { ServiceGroupRegistry, reconcileServiceGroups } from './service-groups.ts';
 
 export const name = 'zhiban-wecom';
 
@@ -93,6 +99,18 @@ interface ScriptsApi {
   listEnabled(): QueryableScript[];
 }
 
+/** #162 zhiban-knowledge 暴露的只读检索入口 */
+interface KnowledgeApi {
+  list(query?: { q?: string; enabled?: boolean }): Array<{
+    id: string;
+    category: string;
+    title: string;
+    content: string;
+    enabled: boolean;
+    deletedAt?: number;
+  }>;
+}
+
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   const config = parsePluginConfig(rawConfig);
   const log = (line: string): void => ctx.logger?.info?.(`[zhiban-wecom] ${line}`);
@@ -103,6 +121,12 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
   // 避免两个插件加载顺序不同导致对方拿不到服务。
   let serviceRef: C2Service | undefined;
   let botRef: WeComBotAdapter | undefined;
+  /** #160：承诺账本；员工发言与草稿确认都会写入 */
+  let promiseRef: PromiseService | undefined;
+  /** #163：侧边栏关闭待回复时推进草稿状态（运行时创建后可用） */
+  let acknowledgeRef:
+    | ((draftId: string, action: 'sent' | 'skipped', actor: string) => Promise<void>)
+    | undefined;
   /** #59：证据导出需要回读存档原文；运行时才创建，未就绪时证据降级为空 */
   let archiveRef: ArchivePort | undefined;
   /** #106：运行时服务群名单；控制台「开始服务 / 移出服务」改它 */
@@ -160,6 +184,19 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     groupName?: string;
     text: string;
   }): void => {
+    // #160：顾问在群里手动说的话也可能包含承诺；与质检无关，先入账
+    const speaker = resolveStaffAdvisor(message.from);
+    if (speaker) {
+      promiseRef?.ingestText({
+        advisorId: speaker.id,
+        roomId: message.roomId,
+        groupName: message.groupName ?? '服务群',
+        text: message.text,
+        msgId: message.msgid,
+        at: Date.now(),
+      });
+    }
+
     const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
     if (!guard?.reviewStaffMessage) return;
     const advisor = resolveStaffAdvisor(message.from);
@@ -411,7 +448,27 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         ruleNames: [...(draft.ruleNames ?? [])],
         createdAt: draft.createdAt,
         status: draft.status,
+        ...(draft.verification
+          ? {
+              verification: {
+                outcome: draft.verification.outcome,
+                checkedAt: draft.verification.checkedAt,
+              },
+            }
+          : {}),
       };
+    },
+    /**
+     * #163：侧边栏「已处理 / 忽略」→ 确认草稿，随后由运行时回读核验。
+     * 核验结果只回侧边栏，不再私聊推回执。
+     */
+    async acknowledgeDraft(
+      draftId: string,
+      action: 'sent' | 'skipped',
+      actor = 'sidebar',
+    ) {
+      if (!acknowledgeRef) throw new Error('WECOM_RUNTIME_NOT_READY');
+      await acknowledgeRef(draftId, action, actor);
     },
     listGroups() {
       return (serviceRef?.store.listGroups() ?? []).map((group) => structuredClone(group));
@@ -438,7 +495,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       registry.activate(roomId);
       const existing = service.store.getGroup(roomId);
       const name = input.name?.trim() || existing?.name || `群 ${tailId(roomId)}`;
-      service.bindGroup({ roomId, name, advisorId: config.advisorId });
+      // 绑定时把 chatId 补上：侧边栏拿 JS-SDK 的 chatId 查档案，两者同值
+      service.bindGroup({ roomId, name, advisorId: config.advisorId, chatId: roomId });
       service.store.appendAudit({
         at: Date.now(),
         actor: input.actor ?? 'admin',
@@ -534,6 +592,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     routeInbound(message: PatientInboundMessage): { handled: boolean; decision: RouteDecision };
     handleDraftVerified(draftId: string, outcome: VerifyOutcome): Promise<void>;
     handleAdvisorText(advisorUserId: string, text: string): Promise<boolean>;
+    /** #159：服务状态是存档白名单的源头；旧版本患者域可能没有该方法 */
+    listGroups?(): Array<{ roomId: string; status?: string }>;
   } | undefined => ctx.get('zhibanPatient');
   const patientSink: PatientSink = {
     observeRooms: (rooms) => patientApi()?.observeRooms(rooms),
@@ -608,6 +668,18 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         cacheLimit: config.archive.cacheLimit,
         // 每轮轮询都会调用；名单在控制台「开始服务 / 移出服务」后即时生效
         isServiceGroup: (roomId) => registry.isAllowed(roomId),
+        // #159：顾问与外部客户之间的单聊保留正文（供待回复索引展示）；
+        // 与 AI 助手、内部应用的会话以及对端不是客户的单聊仍只留元数据
+        isServedDm: (record) => {
+          if (record.roomid) return false;
+          const staff = config.advisorChatId;
+          const from = typeof record.from === 'string' ? record.from : '';
+          const to = (record.tolist ?? []).filter(
+            (id): id is string => typeof id === 'string' && id !== '',
+          );
+          if (from === staff) return isExternalCustomerId(to[0] ?? '');
+          return to.includes(staff) && isExternalCustomerId(from);
+        },
         media: {
           rootDir: config.mediaRootDir,
           binaryPath: config.archive.binaryPath,
@@ -627,6 +699,30 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         () => clock.now(),
       );
 
+      // #162：知识检索与判定解释；只读知识库与本人草稿
+      const knowledgeQuery = new KnowledgeQueryService({
+        source: () => ctx.get<KnowledgeApi>('zhibanKnowledge'),
+        latestDraft: (userId) => {
+          const advisor = resolveStaffAdvisor(userId);
+          if (!advisor) return undefined;
+          const activeId = serviceRef?.store.getActiveDraft(advisor.id);
+          const draft =
+            (activeId ? serviceRef?.store.getDraft(activeId) : undefined) ??
+            serviceRef?.store
+              .listDrafts()
+              .filter((item) => item.advisorId === advisor.id)
+              .sort((a, b) => b.createdAt - a.createdAt)[0];
+          if (!draft) return undefined;
+          return {
+            id: draft.id,
+            riskLevel: draft.riskLevel,
+            ruleNames: [...(draft.ruleNames ?? [])],
+            hasRuleEvidence: (draft.ruleIds?.length ?? 0) > 0,
+          };
+        },
+        now: () => clock.now(),
+      });
+
       bot = new WeComBotAdapter(
         { botId: config.botId, secret: config.botSecret, logger: log },
         {
@@ -636,21 +732,24 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
-              // 「话术 …」是查询指令；看过列表后直接发编号也取全文；其余文本按改稿指令处理（#56）
+              // 「话术 …」「知识 …」是查询指令；看过列表后直接发编号也取全文；
+              // 其余文本按改稿指令处理（#56）
               const reply =
+                knowledgeQuery.reply(message.userid, message.text) ??
                 scriptQuery.reply(message.userid, message.text) ??
-                scriptQuery.replyToSelection(message.userid, message.text);
+                scriptQuery.replyToSelection(message.userid, message.text) ??
+                knowledgeQuery.replyToSelection(message.userid, message.text);
               if (reply !== undefined) {
                 const target = botRef;
                 if (target) {
                   void (async () => {
-                    // 长话术按字节拆成多条，避免超过企微 markdown 单条上限
+                    // 长文本按字节拆成多条，避免超过企微 markdown 单条上限
                     for (const chunk of splitForWecom(reply)) {
                       await target.sendText(message.userid, chunk);
                     }
                   })().catch((error: unknown) =>
                     log(
-                      `话术回复失败 user=${tailId(message.userid)}：` +
+                      `指令回复失败 user=${tailId(message.userid)}：` +
                         `${error instanceof Error ? error.message : 'UNKNOWN'}`,
                     ),
                   );
@@ -685,6 +784,47 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       serviceRef = service;
       botRef = bot;
 
+      // #160：承诺追踪。只读顾问自己的发言，提醒只发本人 1:1。
+      const promiseService = new PromiseService({
+        store,
+        bot,
+        clock,
+        chatIdFor: (advisorId) => store.getAdvisor(advisorId)?.chatId,
+        logger: log,
+      });
+      promiseRef = promiseService;
+
+      // #161：每日巡检。信号落告警（控制台可见），汇总只发顾问本人。
+      const patrolService = new PatrolService({
+        archive,
+        bot,
+        clock,
+        groups: () => store.listGroups(),
+        advisorUserId: config.advisorChatId,
+        advisorChatId: config.advisorChatId,
+        advisorId: config.advisorId,
+        emitAlert: (alert) => {
+          store.emitAlert(alert);
+          ctx.emit('alert.created', alert);
+          log(`巡检告警 ${alert.kind}`);
+        },
+        state: {
+          get: (key) => store.getMeta(key),
+          set: (key, value) => store.setMeta(key, value),
+        },
+        patientNameForRoom: (roomId) => {
+          const patient = ctx.get<{
+            listGroups(): Array<{ roomId: string; patientIds: string[] }>;
+            getPatientAdmin(id: string): { displayName: string } | undefined;
+          }>('zhibanPatient');
+          const patientId = patient?.listGroups().find((group) => group.roomId === roomId)
+            ?.patientIds[0];
+          return patientId ? patient?.getPatientAdmin(patientId)?.displayName : undefined;
+        },
+        canReadPatient: true,
+        logger: log,
+      });
+
       // 顾问与群绑定：已存在则保留，同步配置里的显示名与 chatId
       const advisor = store.getAdvisor(config.advisorId);
       if (!advisor) {
@@ -706,7 +846,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           roomId,
           name: config.groupName,
           advisorId: config.advisorId,
-          chatId: config.groupChatId,
+          // 客户群 chatId 与 roomId 同值；groupChatId 只在旧单群配置里出现
+          chatId: config.groupChatId ?? roomId,
         });
       }
 
@@ -754,6 +895,17 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         log('服务群自动发现未启用：缺少 contactSecret / corpId');
       }
 
+      // #159：患者域的服务状态是白名单源头。控制台切换状态会实时同步白名单，
+      // 但沙盒预置或企微域离线期间的状态变更不走那条路径——每轮轮询前对齐兜底
+      const reconcileFromPatient = () => {
+        const groups = patientApi()?.listGroups?.() ?? [];
+        const active = groups.filter(
+          (group) => group.status === 'serving' || group.status === 'collect_only',
+        ).length;
+        log(`服务群白名单对齐：患者域 ${groups.length} 群（活跃 ${active}）`);
+        reconcileServiceGroups(registry, groups, log);
+      };
+
       runtime = new WecomRuntime({
         store,
         service,
@@ -764,8 +916,11 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         clock,
         patient: patientSink,
         staffQuality: checkStaffMessage,
+        promises: promiseService,
+        patrol: patrolService,
         // #146：加载顺序不确定，getter 每条消息现取
         sidebar: () => ctx.get<SidebarSink>('zhibanSidebar'),
+        reconcileServiceGroups: reconcileFromPatient,
         groupInfo,
         roomAgree,
         discovery: discovery
@@ -779,6 +934,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       confirmHandler = (key) => {
         void runtime?.handleButtonKey(key);
       };
+      acknowledgeRef = (draftId, action, actor) =>
+        runtime!.acknowledgeFromSidebar(draftId, action, actor);
 
       await bot.connect();
       runtime.start({ downtimeGapMs });
@@ -790,6 +947,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         bot?.close();
         serviceRef = undefined;
         botRef = undefined;
+        promiseRef = undefined;
+        acknowledgeRef = undefined;
         registryRef = undefined;
         await domain.close();
         log('已停止并落盘');

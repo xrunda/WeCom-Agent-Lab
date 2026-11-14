@@ -53,6 +53,12 @@ export interface SidebarOAuthPort {
     nonceStr: string;
     signature: string;
   }>;
+  /** wx.config 签名；企业 ticket 与应用 ticket 不是同一张，旧实现可以省略 */
+  signConfig?(url: string): Promise<{
+    timestamp: string;
+    nonceStr: string;
+    signature: string;
+  }>;
 }
 
 export interface SidebarHttpOptions {
@@ -63,9 +69,20 @@ export interface SidebarHttpOptions {
   authenticate?: (req: SidebarHttpRequest) => SidebarAdvisor | undefined;
   /** 由插件在运行时组装：群绑定、患者档案、待回复 */
   buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => unknown;
+  /**
+   * #163：侧边栏「已处理 / 忽略」同时推进草稿状态，
+   * 让「已发送 → 回读核验」在内容分发移除后仍然生效。
+   */
+  acknowledgeDraft?: (
+    advisor: SidebarAdvisor,
+    draftId: string,
+    action: 'sent' | 'skipped',
+  ) => void;
   oauth?: SidebarOAuthPort;
   /** OAuth 换到 userid 后映射顾问；未开通返回 undefined */
   resolveAdvisor?: (wecomUserId: string) => SidebarAdvisor | undefined;
+  /** #159 会话路径按 advisorId 回名册取顾问（带 wecomUserId，单聊会话键需要）；未提供或查不到时只回 id/permissions */
+  resolveAdvisorById?: (advisorId: string) => SidebarAdvisor | undefined;
   /** 侧边栏公网地址；用于设置 Secure Cookie 与回调地址 */
   publicBaseUrl?: string;
   /** 会话有效期（毫秒），默认 8 小时 */
@@ -194,7 +211,13 @@ function resolveAdvisor(
   if (injected) return injected;
   if (!options.sessionSecret) return undefined;
   const payload = verifySession(parseCookies(req), options.sessionSecret, options.now?.() ?? Date.now());
-  return payload ? { id: payload.advisorId, permissions: payload.permissions } : undefined;
+  if (!payload) return undefined;
+  // #159：单聊会话键要用登录顾问自己的企微 userid，会话令牌里没有，
+  // 从顾问名册按 id 补齐；查不到时保持原行为（群可用，单聊按未接入返回）
+  return options.resolveAdvisorById?.(payload.advisorId) ?? {
+    id: payload.advisorId,
+    permissions: payload.permissions,
+  };
 }
 
 export function registerSidebarHttp(webServer: SidebarWebServer, options: SidebarHttpOptions): unknown {
@@ -299,7 +322,8 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
       }
       try {
         const signed = await options.oauth.signAgentConfig(target);
-        sendJson(res, 200, { ...signed, jsApiList: JSAPI_LIST });
+        const config = options.oauth.signConfig ? await options.oauth.signConfig(target) : undefined;
+        sendJson(res, 200, { ...signed, ...(config ? { config } : {}), jsApiList: JSAPI_LIST });
       } catch (error) {
         if (isOAuthError(error)) {
           sendJson(res, error.code === 'URL_NOT_ALLOWED' ? 400 : 503, {
@@ -356,8 +380,19 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         sendJson(res, 404, { code: 'NOT_FOUND', message: '待回复条目不存在' });
         return;
       }
+      let draftId: string | undefined;
       try {
-        options.buildContext(advisor, new URLSearchParams(itemQuery(item.convKey)));
+        const context = options.buildContext(
+          advisor,
+          new URLSearchParams(itemQuery(item.convKey)),
+        ) as {
+          pending?: {
+            open?: Array<{ id: string; draft?: { id: string } | null }>;
+          };
+        };
+        // 草稿只挂在最新一条待回复上；只有关闭这条时才推进草稿状态
+        const withDraft = context.pending?.open?.find((entry) => entry.draft);
+        if (withDraft?.id === id) draftId = withDraft.draft!.id;
       } catch (error) {
         if (isAccessError(error)) {
           sendJson(res, 403, { code: error.code, message: error.message });
@@ -366,6 +401,16 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         throw error;
       }
       options.api.close(id, reason, advisor.id);
+      if (draftId && (reason === 'handled' || reason === 'dismissed')) {
+        try {
+          options.acknowledgeDraft?.(advisor, draftId, reason === 'handled' ? 'sent' : 'skipped');
+        } catch (error) {
+          // 草稿状态推进失败不影响关闭待回复：记录类型，不记录正文
+          options.log?.(
+            `侧边栏草稿状态推进失败：${error instanceof Error ? error.name : 'UNKNOWN'}`,
+          );
+        }
+      }
       sendJson(res, 200, { ok: true, id, status: reason });
       return;
     }

@@ -3,17 +3,11 @@ import assert from 'node:assert/strict';
 
 import { buttonKey } from '../src/c2/message.ts';
 import type { C2Service } from '../src/c2/service.ts';
-import type { BotSentRecord } from '../src/c2/ports.ts';
 import { setup } from './helpers.ts';
 
 const BODY_A = '张女士您好，您反馈的用餐记录问题我们已经收到，营养师今天下午会电话联系您。';
 const BODY_B = '李先生您好，您的方案我们已调整，晚些时候会把新的安排发到群里。';
 const BODY_C = '王女士您好，明天的随访时间改到上午十点，您看方便吗？';
-
-function cardTitle(record: BotSentRecord | undefined): string {
-  if (!record || record.message.msgtype !== 'template_card') return '';
-  return record.message.template_card.main_title.title;
-}
 
 function seed(service: C2Service): void {
   service.addAdvisor({ id: 'adv_1', name: '李顾问', chatId: 'chat_adv_1' });
@@ -54,28 +48,29 @@ function seed(service: C2Service): void {
   });
 }
 
-test('三个群同一个顾问：串行推送、逐条确认、存档校验、错群暂停', async () => {
+test('三个群同一个顾问：逐条确认、存档校验、错群暂停', async () => {
   const { service, store, bot, archive, clock } = setup({
     verifier: { verifyDelayMs: 30_000 },
   });
   seed(service);
 
-  // 1. 三条草稿同时到达，只推送最早的一条
+  // 1. 三条草稿同时到达：全部进侧边栏，active 指向最早的一条
   assert.equal(service.queueDepth('adv_1'), 3);
   await service.tick();
-  assert.equal(bot.cards().length, 1);
+  assert.equal(bot.cards().length, 0);
+  assert.equal(bot.sent.length, 0);
+  assert.equal(store.getDraft('D-A')?.status, 'PUSHED');
+  assert.equal(store.getDraft('D-B')?.status, 'PUSHED');
   assert.equal(store.getActiveDraft('adv_1'), 'D-A');
-  assert.match(cardTitle(bot.cards()[0]), /A 群/);
 
-  // 2. 员工确认后，B 群草稿才出现
+  // 2. 员工确认 A 群后，active 交给 B 群草稿（内容早已在侧边栏）
   service.handleButtonCallback(buttonKey('D-A', 'sent'));
   assert.equal(store.getDraft('D-A')?.status, 'ACKNOWLEDGED');
   assert.equal(service.queueDepth('adv_1'), 2);
 
   await service.tick();
-  assert.equal(bot.cards().length, 2);
+  assert.equal(bot.cards().length, 0);
   assert.equal(store.getActiveDraft('adv_1'), 'D-B');
-  assert.match(cardTitle(bot.cards()[1]), /B 群/);
 
   // 3. 存档里在 A 群找到原文 → VERIFIED
   clock.advance(31_000);
@@ -90,11 +85,11 @@ test('三个群同一个顾问：串行推送、逐条确认、存档校验、�
   assert.equal(store.getDraft('D-A')?.status, 'VERIFIED');
   assert.equal(round.verified.some((v) => v.outcome === 'VERIFIED'), true);
 
-  // 4. B 群草稿确认后，C 群草稿推送
+  // 4. 员工确认 B 群后，active 交给 C 群草稿
   service.handleButtonCallback(buttonKey('D-B', 'sent'));
   await service.tick();
   assert.equal(store.getActiveDraft('adv_1'), 'D-C');
-  assert.match(cardTitle(bot.cards()[2]), /C 群/);
+  assert.equal(bot.cards().length, 0);
 
   // 5. B 的正文出现在 C 群 → MISROUTE_ALERT
   clock.advance(31_000);
@@ -130,7 +125,7 @@ test('三个群同一个顾问：串行推送、逐条确认、存档校验、�
   assert.equal(store.getAdvisor('adv_1')?.status, 'paused');
   assert.ok(store.listAlerts().some((a) => a.kind === 'ADVISOR_PAUSED'));
 
-  // 7. 暂停后新草稿不再推送
+  // 7. 暂停后新草稿不再处理
   service.enqueueDraft({
     id: 'D-D',
     advisorId: 'adv_1',
@@ -143,7 +138,7 @@ test('三个群同一个顾问：串行推送、逐条确认、存档校验、�
   });
   await service.tick();
   assert.equal(store.getDraft('D-D')?.status, 'QUEUED');
-  assert.equal(bot.cards().length, 3);
+  assert.equal(bot.cards().length, 0);
 });
 
 test('一次正确校验会把连续错群计数清零', async () => {

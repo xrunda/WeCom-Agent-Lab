@@ -87,10 +87,10 @@ test('access_token 过期后重新获取', async () => {
   assert.ok(calls.at(-1)!.includes('access_token=token_2'));
 });
 
-test('agentConfig 签名可按企微规则复算，ticket 只取一次', async () => {
+test('agentConfig 用应用 ticket 签名，可按企微规则复算且只取一次', async () => {
   const { fn, calls } = fakeFetch([
     { errcode: 0, access_token: 'token_1', expires_in: 7200 },
-    { errcode: 0, ticket: 'TICKET1', expires_in: 7200 },
+    { errcode: 0, ticket: 'AGENT_TICKET', expires_in: 7200 },
   ]);
   const oauth = client(fn);
   const url = `${BASE}/sidebar/?chatId=chat_1`;
@@ -99,14 +99,39 @@ test('agentConfig 签名可按企微规则复算，ticket 只取一次', async (
 
   const expected = createHash('sha1')
     .update(
-      `jsapi_ticket=TICKET1&noncestr=${first.nonceStr}&timestamp=${first.timestamp}&url=${url}`,
+      `jsapi_ticket=AGENT_TICKET&noncestr=${first.nonceStr}&timestamp=${first.timestamp}&url=${url}`,
     )
     .digest('hex');
   assert.equal(first.signature, expected);
   assert.equal(first.corpId, 'corp_test');
   assert.equal(first.agentId, '1000212');
   assert.notEqual(first.nonceStr, second.nonceStr);
-  assert.equal(calls.filter((item) => item.includes('/get_jsapi_ticket')).length, 1);
+  const agentCalls = calls.filter((item) => item.includes('type=agent_config'));
+  assert.equal(agentCalls.length, 1);
+  // 没有 access_token 时企微只回 41022，必须确认参数确实带上了
+  assert.ok(agentCalls[0]!.includes('access_token=token_1'));
+});
+
+test('config 签名用企业 jsapi_ticket，与 agentConfig 不是同一张票', async () => {
+  const { fn, calls } = fakeFetch([
+    { errcode: 0, access_token: 'token_1', expires_in: 7200 },
+    { errcode: 0, ticket: 'AGENT_TICKET', expires_in: 7200 },
+    { errcode: 0, ticket: 'CORP_TICKET', expires_in: 7200 },
+  ]);
+  const oauth = client(fn);
+  const url = `${BASE}/sidebar/`;
+  await oauth.signAgentConfig(url);
+  const config = await oauth.signConfig(url);
+
+  const expected = createHash('sha1')
+    .update(
+      `jsapi_ticket=CORP_TICKET&noncestr=${config.nonceStr}&timestamp=${config.timestamp}&url=${url}`,
+    )
+    .digest('hex');
+  assert.equal(config.signature, expected);
+  const corpCalls = calls.filter((item) => item.includes('/get_jsapi_ticket'));
+  assert.equal(corpCalls.length, 1);
+  assert.ok(corpCalls[0]!.includes('access_token=token_1'));
 });
 
 test('拒绝为其它来源的页面签名', async () => {

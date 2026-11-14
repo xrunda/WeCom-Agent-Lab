@@ -1396,13 +1396,25 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
 
 ### `GET /zhiban/sidebar/jsapi-config?url=`
 
-需要会话。返回 `wx.agentConfig` 所需签名；`url` 必须是 `publicBaseUrl` 同源的页面地址，否则 `400 URL_NOT_ALLOWED`。
+需要会话。返回 `wx.agentConfig` 与 `wx.config` 两份签名；`url` 必须是 `publicBaseUrl` 同源的页面地址，否则 `400 URL_NOT_ALLOWED`。
 
 ```json
-{ "corpId": "ww…", "agentId": "1000212", "timestamp": "1762645800", "nonceStr": "9f…", "signature": "…", "jsApiList": ["getCurExternalContact", "getCurExternalChat"] }
+{
+  "corpId": "ww…",
+  "agentId": "1000212",
+  "timestamp": "1762645800",
+  "nonceStr": "9f…",
+  "signature": "…",
+  "config": { "timestamp": "1762645800", "nonceStr": "3c…", "signature": "…" },
+  "jsApiList": ["getCurExternalContact", "getCurExternalChat"]
+}
 ```
 
-`jsapi_ticket` 在进程内缓存，失效前 5 分钟刷新；未配置凭据时返回 `503 OAUTH_UNAVAILABLE`。
+顶层字段是 `agentConfig` 签名，用**应用 ticket**（`/cgi-bin/ticket/get?type=agent_config`）；
+`config` 是 `wx.config` 签名，用**企业 jsapi_ticket**（`/cgi-bin/get_jsapi_ticket`）。
+两张票不能混用，否则企微返回 `agentConfig:fail`。两种 ticket 都在进程内缓存，失效前 5 分钟刷新；未配置凭据时返回 `503 OAUTH_UNAVAILABLE`。
+
+前端还需要两个 JS 文件：`jweixin-1.2.0.js`（基础）与 `jwxwork-1.0.0.js`（提供 `wx.agentConfig`）。
 
 ### `GET /zhiban/sidebar/context?chatId=&externalUserId=`
 

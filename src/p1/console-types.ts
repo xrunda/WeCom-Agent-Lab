@@ -207,7 +207,9 @@ export type AlertKind =
   | 'advisor_paused'
   | 'redline'
   | 'push_failed'
-  | 'no_chat_id';
+  | 'no_chat_id'
+  | 'patrol_silent'
+  | 'patrol_complaint';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type AlertStatus = 'open' | 'acknowledged' | 'resolved';
@@ -247,6 +249,8 @@ export const C2_ALERT_KIND: Record<string, AlertKind> = {
   DOWNTIME: 'push_failed',
   BOT_DISCONNECTED: 'push_failed',
   PERSIST_FAILED: 'push_failed',
+  PATROL_SILENT: 'patrol_silent',
+  PATROL_COMPLAINT: 'patrol_complaint',
 };
 
 const ALERT_META: Record<AlertKind, { title: string; severity: AlertSeverity }> = {
@@ -259,6 +263,8 @@ const ALERT_META: Record<AlertKind, { title: string; severity: AlertSeverity }> 
   redline: { title: '健康红线命中', severity: 'warning' },
   push_failed: { title: '推送失败', severity: 'warning' },
   no_chat_id: { title: '顾问尚未开通机器人会话', severity: 'warning' },
+  patrol_silent: { title: '巡检：客户长期沉默', severity: 'warning' },
+  patrol_complaint: { title: '巡检：投诉/风险信号', severity: 'critical' },
 };
 
 export function alertMeta(kind: AlertKind): { title: string; severity: AlertSeverity } {

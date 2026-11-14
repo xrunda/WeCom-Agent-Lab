@@ -9,7 +9,15 @@ import {
   resolveConversation,
 } from '../src/sidebar/wecom.ts';
 import type { WxLike } from '../src/sidebar/wecom.ts';
-import { escapeHtml, formatWait, relativeLabel, render, waitTier } from '../src/sidebar/view.ts';
+import {
+  escapeHtml,
+  flashRefreshed,
+  formatWait,
+  markRefreshBusy,
+  relativeLabel,
+  render,
+  waitTier,
+} from '../src/sidebar/view.ts';
 import type { SidebarContextData } from '../src/sidebar/types.ts';
 import { SidebarApiError } from '../src/sidebar/api.ts';
 
@@ -55,7 +63,9 @@ describe('会话解析', () => {
 
   it('内部群或非企微环境返回 unsupported', async () => {
     const ref = await resolveConversation(wxWith({}));
-    expect(ref).toEqual({ kind: 'unsupported' });
+    // 99e5357 起 unsupported 带上企微 err_msg 明细，便于真机排错
+    expect(ref).toMatchObject({ kind: 'unsupported' });
+    expect((ref as { detail?: string }).detail).toContain('getCurExternalChat:fail');
     expect(contextQuery(ref)).toBe('');
   });
 
@@ -94,11 +104,11 @@ describe('首屏渲染', () => {
     expect(root.innerHTML).toContain('&lt;script&gt;');
   });
 
-  it('有群名、待回复数与客户名', () => {
+  it('有群名与客户速览，没有待回复时不出现待回复区域', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
     expect(root.textContent).toContain('高血压管理 1 群');
-    expect(root.textContent).toContain('本会话没有待回复');
+    expect(root.textContent).not.toContain('待回复');
     expect(root.textContent).toContain('王阿姨');
     expect(root.textContent).toContain('高血压');
   });
@@ -199,7 +209,7 @@ describe('待回复卡片（#148）', () => {
     expect(items[1]!.textContent).toContain('客户');
     expect(items[1]!.textContent).toContain('机器人已回应');
     const ops = [...items[1]!.querySelectorAll('.op')].map((element) => element.textContent);
-    expect(ops).toEqual(['复制原话', '已处理', '无需回复', '转交']);
+    expect(ops).toEqual(['复制原话', '已处理', '无需回复']);
     expect(
       [...items[1]!.querySelectorAll<HTMLButtonElement>('.op')].every((op) => !op.disabled),
     ).toBe(true);
@@ -241,11 +251,38 @@ describe('待回复卡片（#148）', () => {
     expect(root.textContent).toContain('刷新失败');
   });
 
-  it('空态显示最后同步时间', () => {
+  it('刷新按钮：请求中转圈并禁用，完成后短暂显示「已刷新」', () => {
+    vi.useFakeTimers();
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: pendingData });
+    const button = root.querySelector('[data-refresh]') as HTMLButtonElement;
+    expect(button.textContent).toContain('刷新');
+
+    markRefreshBusy(root, true);
+    expect(button.disabled).toBe(true);
+    expect(button.classList.contains('is-busy')).toBe(true);
+
+    // 请求完成会重新渲染，反馈挂在新节点上
+    render(root, { kind: 'ready', data: pendingData });
+    const fresh = root.querySelector('[data-refresh]') as HTMLButtonElement;
+    flashRefreshed(root);
+    expect(fresh.textContent).toContain('已刷新');
+    expect(fresh.classList.contains('is-done')).toBe(true);
+
+    vi.advanceTimersByTime(1_500);
+    expect(fresh.textContent).toContain('刷新');
+    expect(fresh.textContent).not.toContain('已刷新');
+    expect(fresh.classList.contains('is-done')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('没有待回复时整块隐藏，第一张卡就是客户速览', () => {
     const root = document.createElement('div');
     render(root, { kind: 'ready', data });
-    expect(root.textContent).toContain('本会话没有待回复');
-    expect(root.textContent).toContain('更新于');
+    const cards = root.querySelectorAll('.card');
+    expect(cards.length).toBe(1);
+    expect(cards[0]!.textContent).toContain('客户速览');
+    expect(root.textContent).not.toContain('暂无待回复');
   });
 
   it('同步时间按分钟/小时/天分档', () => {
@@ -364,7 +401,7 @@ describe('草稿与手动处理（#149）', () => {
     );
     const itemRoot = root.querySelectorAll('.item')[0]!;
     const buttons = [...itemRoot.querySelectorAll<HTMLButtonElement>('[data-close]')];
-    expect(buttons.map((button) => button.textContent)).toEqual(['已处理', '无需回复', '转交']);
+    expect(buttons.map((button) => button.textContent)).toEqual(['已处理', '无需回复']);
 
     buttons[0]!.click();
     expect(closes).toEqual([{ id: 'p1', reason: 'handled' }]);

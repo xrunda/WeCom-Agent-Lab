@@ -16,6 +16,7 @@ import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
 
 import type { Store } from '../../src/c2/ports.ts';
+import type { PromiseRecord } from '../../src/c2/promises.ts';
 import type {
   Advisor,
   Alert,
@@ -47,12 +48,22 @@ export const wecomDomain = defineDomain({
       z.object({ kind: z.string().min(1), at: z.number() }).passthrough(),
     ),
     meta: domainTable(z.object({ value: z.unknown() }).passthrough()),
+    /** #160 承诺追踪；只存领域数据，日志不落原话 */
+    promises: domainTable(z.object({ id: z.string().min(1) }).passthrough()),
   },
 });
 
 export type WecomDomainHandle = Domain<typeof wecomDomain>;
 
-export type StoreTable = 'advisors' | 'groups' | 'drafts' | 'active' | 'audit' | 'alerts' | 'meta';
+export type StoreTable =
+  | 'advisors'
+  | 'groups'
+  | 'drafts'
+  | 'active'
+  | 'audit'
+  | 'alerts'
+  | 'meta'
+  | 'promises';
 
 interface AnyTable {
   get(key: string): unknown;
@@ -69,6 +80,7 @@ export interface StoreSnapshot {
   audit: Array<[string, AuditEvent]>;
   alerts: Array<[string, Alert]>;
   meta: Array<[string, unknown]>;
+  promises: Array<[string, PromiseRecord]>;
 }
 
 /** Store 的持久化后端；测试里用内存实现，线上用 storage-domain 实现 */
@@ -90,6 +102,7 @@ export class DomainStoreBackend implements StoreBackend {
       audit: domain.table('audit') as unknown as AnyTable,
       alerts: domain.table('alerts') as unknown as AnyTable,
       meta: domain.table('meta') as unknown as AnyTable,
+      promises: domain.table('promises') as unknown as AnyTable,
     };
   }
 
@@ -108,7 +121,10 @@ export class DomainStoreBackend implements StoreBackend {
     const meta = pairs('meta').map(
       ([key, value]) => [key, (value as { value: unknown }).value] as [string, unknown],
     );
-    return { advisors, groups, drafts, active, audit, alerts, meta };
+    const promises = pairs('promises').map(
+      ([key, value]) => [key, value as PromiseRecord] as [string, PromiseRecord],
+    );
+    return { advisors, groups, drafts, active, audit, alerts, meta, promises };
   }
 
   put(table: StoreTable, key: string, value: unknown): Promise<void> {
@@ -130,6 +146,7 @@ export class MemoryStoreBackend implements StoreBackend {
     ['audit', new Map()],
     ['alerts', new Map()],
     ['meta', new Map()],
+    ['promises', new Map()],
   ]);
 
   loadSnapshot(): StoreSnapshot {
@@ -148,6 +165,7 @@ export class MemoryStoreBackend implements StoreBackend {
       meta: pairs('meta').map(
         ([key, value]) => [key, (value as { value: unknown }).value] as [string, unknown],
       ),
+      promises: pairs('promises') as Array<[string, PromiseRecord]>,
     };
   }
 
@@ -172,6 +190,7 @@ export class DomainStore implements Store {
   private readonly audit: AuditEvent[] = [];
   private readonly alerts: Alert[] = [];
   private readonly meta = new Map<string, unknown>();
+  private readonly promises = new Map<string, PromiseRecord>();
 
   private readonly backend: StoreBackend;
   private readonly onPersistError?: (error: Error) => void;
@@ -198,6 +217,7 @@ export class DomainStore implements Store {
       this.alertSeq = Math.max(this.alertSeq, parseSeq(key));
     }
     for (const [key, value] of snapshot.meta) this.meta.set(key, value);
+    for (const [key, value] of snapshot.promises) this.promises.set(key, value);
   }
 
   /** 等待全部已排队的持久化写入 */
@@ -299,6 +319,21 @@ export class DomainStore implements Store {
 
   listAlerts(): Alert[] {
     return [...this.alerts];
+  }
+
+  // ---------- #160 承诺 ----------
+
+  savePromise(record: PromiseRecord): void {
+    this.promises.set(record.id, record);
+    this.enqueue('promises', record.id, record);
+  }
+
+  getPromise(id: string): PromiseRecord | undefined {
+    return this.promises.get(id);
+  }
+
+  listPromises(): PromiseRecord[] {
+    return [...this.promises.values()];
   }
 
   private enqueue(table: StoreTable, key: string, value: unknown, remove = false): void {

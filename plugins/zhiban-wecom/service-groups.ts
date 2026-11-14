@@ -216,3 +216,23 @@ export class ServiceGroupRegistry {
     this.save({ ...this.snapshot(), updatedAt: at });
   }
 }
+
+/**
+ * #159：患者域的服务状态是存档白名单的源头。
+ * 控制台切换状态会实时同步白名单（syncServiceGroup），但沙盒预置、
+ * 企微域离线期间的状态变更不走那条路径——每轮轮询前对齐一次，
+ * 避免界面显示「服务中」而存档不拉取。只补不允许的群，不动已有名单。
+ */
+export function reconcileServiceGroups(
+  registry: Pick<ServiceGroupRegistry, 'isAllowed' | 'activate'>,
+  groups: ReadonlyArray<{ roomId: string; status?: string }>,
+  log?: (line: string) => void,
+): void {
+  for (const group of groups) {
+    if (group.status !== 'serving' && group.status !== 'collect_only') continue;
+    const roomId = group.roomId.trim();
+    if (roomId === '' || registry.isAllowed(roomId)) continue;
+    registry.activate(roomId);
+    log?.(`服务群白名单对齐：群 ${roomId.slice(-6)} 加入存档拉取`);
+  }
+}

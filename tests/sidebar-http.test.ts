@@ -85,9 +85,22 @@ interface Captured {
   ) => unknown;
 }
 
-function boot(items = [item()]) {
+function boot(items = [item()], options: { withDraft?: boolean } = {}) {
   const captured: Captured[] = [];
   const { api, closed, events } = makeApi(items);
+  const acks: Array<{ draftId: string; action: string; advisorId: string }> = [];
+  const deps: SidebarViewDeps = options.withDraft
+    ? {
+        ...viewDeps,
+        latestDraft: () => ({
+          id: 'D1',
+          body: '建议明天上午复诊。',
+          riskLevel: 'low',
+          createdAt: NOW - 30_000,
+          status: 'PUSHED',
+        }),
+      }
+    : viewDeps;
   registerSidebarHttp(
     {
       register: (route) => {
@@ -99,9 +112,12 @@ function boot(items = [item()]) {
       api,
       sessionSecret: SECRET,
       now: () => NOW,
+      acknowledgeDraft: (advisor, draftId, action) => {
+        acks.push({ draftId, action, advisorId: advisor.id });
+      },
       buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) =>
         buildSidebarContext(
-          viewDeps,
+          deps,
           advisor,
           {
             ...(query.get('chatId') ? { chatId: query.get('chatId')! } : {}),
@@ -113,7 +129,7 @@ function boot(items = [item()]) {
         ),
     },
   );
-  return { route: captured[0]!, closed, events };
+  return { route: captured[0]!, closed, events, acks };
 }
 
 function cookie(advisorId: string, exp = NOW + 60_000): string {
@@ -252,6 +268,44 @@ test('#149 已处理与转交都能关闭', async () => {
     assert.equal(result.body.status, reason);
     assert.deepEqual(closed, [{ id: 'pend_1', actor: 'adv_1' }]);
   }
+});
+
+test('#163 侧边栏「已处理 / 忽略」推进草稿状态，转交不推进', async () => {
+  const handled = boot([item()], { withDraft: true });
+  await call(handled.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/pending/pend_1/close',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ reason: 'handled' }),
+  });
+  assert.deepEqual(handled.acks, [{ draftId: 'D1', action: 'sent', advisorId: 'adv_1' }]);
+
+  const dismissed = boot([item()], { withDraft: true });
+  await call(dismissed.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/pending/pend_1/close',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ reason: 'dismissed' }),
+  });
+  assert.deepEqual(dismissed.acks, [{ draftId: 'D1', action: 'skipped', advisorId: 'adv_1' }]);
+
+  const transferred = boot([item()], { withDraft: true });
+  await call(transferred.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/pending/pend_1/close',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ reason: 'transferred' }),
+  });
+  assert.equal(transferred.acks.length, 0);
+
+  const noDraft = boot();
+  await call(noDraft.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/pending/pend_1/close',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ reason: 'handled' }),
+  });
+  assert.equal(noDraft.acks.length, 0);
 });
 
 test('#149 埋点只收白名单事件，id 截断且不带正文', async () => {

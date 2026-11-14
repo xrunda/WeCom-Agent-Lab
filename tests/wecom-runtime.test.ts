@@ -56,6 +56,16 @@ function harness(
     roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
     patient?: PatientSink;
     staffQuality?: (message: StaffQualityMessage) => void;
+    /** #159：注入侧边栏索引 sink，验证单聊/群消息的 observe 输入 */
+    sidebar?: () =>
+      | {
+          observe: (input: unknown) => unknown;
+        }
+      | undefined;
+    /** #159：追加到首轮存档批里的额外记录（如单聊消息） */
+    extraMessages?: Array<Record<string, unknown>>;
+    /** #159：验证每轮轮询前都会对齐服务群白名单 */
+    reconcileServiceGroups?: () => void;
   } = {},
 ): Harness {
   const clock = new FakeClock(1_000_000);
@@ -83,6 +93,7 @@ function harness(
               msgtype: 'text',
               text: { content: CUSTOMER_TEXT },
             },
+            ...(options.extraMessages ?? []),
           ],
         });
       }
@@ -134,12 +145,16 @@ function harness(
     roomAgree: options.roomAgree,
     patient: options.patient,
     staffQuality: options.staffQuality,
+    ...(options.sidebar ? { sidebar: options.sidebar as never } : {}),
+    ...(options.reconcileServiceGroups
+      ? { reconcileServiceGroups: options.reconcileServiceGroups }
+      : {}),
   });
 
   return { clock, store, bot, service, runtime, events, logs };
 }
 
-test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', async () => {
+test('pollOnce 生成草稿并在侧边栏可见，事件按契约发出', async () => {
   const h = harness();
   h.runtime.start();
   try {
@@ -148,8 +163,8 @@ test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', as
     const drafts = h.store.listDrafts();
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0].status, 'PUSHED');
-    assert.equal(h.bot.cards().length, 1);
-    assert.equal(h.bot.texts().length, 1);
+    // #163：1:1 不再推送卡片或正文
+    assert.equal(h.bot.sent.length, 0);
 
     const types = h.events.map((e) => e.type);
     assert.ok(types.includes('draft.created'));
@@ -164,18 +179,19 @@ test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', as
   }
 });
 
-test('顾问点「已发送」后回读存档，核验事件发出', async () => {
+test('侧边栏处理「已发送」后回读存档，核验事件发出且不私聊回执', async () => {
   const h = harness();
   h.runtime.start();
   try {
     await h.runtime.pollOnce();
     const draft = h.store.listDrafts()[0];
     assert.equal(draft.status, 'PUSHED');
+    assert.equal(h.bot.sent.length, 0);
 
-    await h.runtime.handleButtonKey(`ack:${draft.id}:sent`);
+    await h.runtime.acknowledgeFromSidebar(draft.id, 'sent', 'adv_test');
     assert.equal(h.store.getDraft(draft.id)?.status, 'ACKNOWLEDGED');
-    const ackReceipt = h.bot.texts().at(-1)?.message;
-    assert.match(JSON.stringify(ackReceipt), /已记录「已发送」/);
+    // #163：状态推进不再私聊回执
+    assert.equal(h.bot.texts().length, 0);
 
     // 超过 verifyDelayMs（3 分钟）后再 tick
     h.clock.advance(200_000);
@@ -188,8 +204,9 @@ test('顾问点「已发送」后回读存档，核验事件发出', async () =>
     assert.equal(verified.draftId, draft.id);
     assert.equal(verified.outcome, 'VERIFIED');
     assert.equal(h.store.getDraft(draft.id)?.status, 'VERIFIED');
-    const verifyReceipt = h.bot.texts().at(-1)?.message;
-    assert.match(JSON.stringify(verifyReceipt), /✅ 校验通过/);
+    // 核验结果只写回草稿供侧边栏展示
+    assert.equal(h.store.getDraft(draft.id)?.verification?.outcome, 'VERIFIED');
+    assert.equal(h.bot.texts().length, 0);
   } finally {
     await h.runtime.stop();
   }
@@ -646,4 +663,185 @@ test('内部员工发言送质检，外部客户发言不进质检；质检异�
   } finally {
     await h.runtime.stop();
   }
+});
+
+test('#159 存档单聊进待回复索引：键按登录顾问构造，非客户对端不进索引', async () => {
+  interface ObservedInput {
+    kind?: string;
+    convKey?: string;
+    msgid?: string;
+    senderKind?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      // 客户发给顾问的单聊
+      {
+        msgid: 'msg_dm_1',
+        action: 'send',
+        from: 'wmDMCUST',
+        tolist: [ADV],
+        roomid: '',
+        msgtime: 1_000_000 - 2_000,
+        msgtype: 'text',
+        text: { content: '单聊正文' },
+      },
+      // 顾问与 AI 助手的会话：不是客户单聊，不进索引
+      {
+        msgid: 'msg_dm_ai',
+        action: 'send',
+        from: ADV,
+        tolist: ['aiAssistant1'],
+        roomid: '',
+        msgtime: 1_000_000 - 1_500,
+        msgtype: 'text',
+        text: { content: 'AI 正文' },
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+
+    const dm = observed.find((input) => input.msgid === 'msg_dm_1');
+    assert.ok(dm, '客户单聊应进入待回复索引');
+    assert.equal(dm.kind, 'dm');
+    assert.equal(dm.convKey, `dm:${ADV}:wmDMCUST`);
+    // 方向显式给出：外部成员是客户，不是按 wm 前缀推断
+    assert.equal(dm.senderKind, 'external');
+
+    assert.equal(
+      observed.some((input) => input.msgid === 'msg_dm_ai'),
+      false,
+      'AI 助手会话不进索引',
+    );
+    // 群消息链路照旧
+    assert.ok(observed.some((input) => input.convKey === 'room:wrGROUP1'));
+    assert.equal(observed.some((input) => input.msgid === 'msg_dm_1' && input.kind !== 'dm'), false);
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
+test('#160 重启后把窗口内历史消息补进待回复索引，顾问回复按员工身份入索引，且只补建一次', async () => {
+  interface ObservedInput {
+    msgid?: string;
+    senderKind?: string;
+    convKey?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      // 同一批里顾问已经回复过：补建时按员工身份入索引，用来关掉已回复的条目
+      {
+        msgid: 'msg_hist_staff',
+        action: 'send',
+        from: ADV,
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 4_000,
+        msgtype: 'text',
+        text: { content: '顾问回复' },
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+
+    // 客户提问与顾问回复都进索引：按时间顺序才能把已回复的条目关掉
+    assert.ok(observed.some((input) => input.msgid === 'msg_customer_1' && input.senderKind === 'external'));
+    // 员工/机器人身份由索引自己判定（botUserIds + 前缀），同步层不越权标记
+    const staffObserved = observed.find((input) => input.msgid === 'msg_hist_staff');
+    assert.ok(staffObserved);
+    assert.notEqual(staffObserved.senderKind, 'external');
+    assert.ok(observed.some((input) => input.convKey === 'room:wrGROUP1'));
+
+    await h.runtime.pollOnce();
+    const backfills = h.logs.filter((line) => line.includes('待回复索引补建完成'));
+    assert.equal(backfills.length, 1, '每次启动只补建一次');
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
+test('#160 客户发语音/图片没有草稿，也要进待回复索引', async () => {
+  interface ObservedInput {
+    msgid?: string;
+    senderKind?: string;
+    msgtype?: string;
+    text?: string;
+  }
+  const observed: ObservedInput[] = [];
+  const h = harness({
+    sidebar: () => ({
+      observe: (input) => {
+        observed.push(input as ObservedInput);
+        return undefined;
+      },
+    }),
+    extraMessages: [
+      {
+        msgid: 'msg_voice_1',
+        action: 'recv',
+        from: 'wmCUSTOMER',
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 3_000,
+        msgtype: 'voice',
+      },
+      {
+        msgid: 'msg_image_1',
+        action: 'recv',
+        from: 'wmCUSTOMER',
+        roomid: 'wrGROUP1',
+        msgtime: 1_000_000 - 2_000,
+        msgtype: 'image',
+      },
+    ],
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+  } finally {
+    await h.runtime.stop();
+  }
+
+  // 语音不被触发层取用（没有正文、没有草稿），但存档同步必须把它带进索引
+  assert.ok(
+    observed.some(
+      (input) =>
+        input.msgid === 'msg_voice_1' && input.senderKind === 'external' && input.msgtype === 'voice',
+    ),
+  );
+  assert.ok(
+    observed.some((input) => input.msgid === 'msg_image_1' && input.senderKind === 'external'),
+  );
+});
+
+test('#159 每轮轮询前都会对齐服务群白名单', async () => {
+  let calls = 0;
+  const h = harness({
+    reconcileServiceGroups: () => {
+      calls += 1;
+    },
+  });
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    await h.runtime.pollOnce();
+  } finally {
+    h.runtime.stop();
+  }
+  assert.equal(calls, 2);
 });

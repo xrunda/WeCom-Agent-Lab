@@ -5,6 +5,13 @@
  * 避免把判定逻辑打进 H5 包。
  */
 
+/** wx.config 用的企业身份签名；与 agentConfig 的应用身份签名不是同一张票 */
+export interface ConfigSignature {
+  timestamp: string;
+  nonceStr: string;
+  signature: string;
+}
+
 export interface AgentConfig {
   corpId: string;
   agentId: string;
@@ -12,6 +19,7 @@ export interface AgentConfig {
   nonceStr: string;
   signature: string;
   jsApiList: string[];
+  config?: ConfigSignature;
 }
 
 export interface SidebarDraftView {
@@ -20,6 +28,8 @@ export interface SidebarDraftView {
   riskLevel: 'low' | 'medium' | 'high';
   ruleNames: string[];
   createdAt: number;
+  /** #163：回读核验结果；处理后在条目上展示 */
+  verification?: { outcome: string; checkedAt: number } | null;
 }
 
 export interface SidebarPendingView {

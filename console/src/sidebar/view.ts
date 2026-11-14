@@ -61,7 +61,7 @@ function clockLabel(at: number): string {
 export interface ViewHandlers {
   onRetry?: () => void;
   onRefresh?: () => void;
-  /** 手动关闭：已处理 / 无需回复 / 转交 */
+  /** 手动关闭：已处理 / 无需回复（「转交」按钮先隐藏，暂时没有分派流程） */
   onClose?: (id: string, reason: 'handled' | 'dismissed' | 'transferred') => void;
   /** 埋点：复制、查看等；失败由 api 层吞掉 */
   onEvent?: (event: 'sidebar.open' | 'pending.view' | 'pending.copy_excerpt' | 'draft.copy', itemId?: string) => void;
@@ -69,11 +69,15 @@ export interface ViewHandlers {
   consoleUrl?: string;
 }
 
-function refreshIcon(): string {
-  return `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false">
-    <path d="M10 3a7 7 0 1 1-6.65 9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-    <path d="M3 4.5V9h4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>`;
+/** 刷新：圆环箭头 + 文字，图标单独放太小，容易被当成装饰而不是按钮 */
+function refreshButton(): string {
+  return `<button type="button" class="refresh-btn" data-refresh aria-label="刷新">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
+    <span>刷新</span>
+  </button>`;
 }
 
 function skeleton(): string {
@@ -99,6 +103,14 @@ function noticeBanner(notice: { message: string; retryable: boolean }): string {
 
 const RISK_LABEL = { low: '常规', medium: '需核对', high: '高风险' } as const;
 
+/** #163：核验结果在条目上展示，替代原来机器人 1:1 的文字回执 */
+const VERIFY_LABEL: Record<string, string> = {
+  VERIFIED: '已送达',
+  EDIT_SENT: '已送达（内容有改动）',
+  MISROUTE_ALERT: '发到了别的群，请检查',
+  UNVERIFIED: '存档里没找到，请确认',
+};
+
 /** 草稿块：正文两行、风险、规则来源、生成时间；高风险必须先展开再复制 */
 function draftHtml(item: SidebarPendingView): string {
   const draft = item.draft;
@@ -114,6 +126,10 @@ function draftHtml(item: SidebarPendingView): string {
     Math.max(0, Math.floor((Date.now() - draft.createdAt) / 1000)),
   );
   const high = draft.riskLevel === 'high';
+  const verify =
+    draft.verification && VERIFY_LABEL[draft.verification.outcome]
+      ? `<p class="draft-verify">回读核验：${escapeHtml(VERIFY_LABEL[draft.verification.outcome]!)}</p>`
+      : '';
   return `
     <div class="draft" data-draft-id="${escapeHtml(draft.id)}">
       <div class="draft-head">
@@ -123,6 +139,7 @@ function draftHtml(item: SidebarPendingView): string {
       </div>
       <p class="draft-body">${escapeHtml(draft.body)}</p>
       ${rules}
+      ${verify}
       <p class="draft-confirm" hidden>草稿涉及用药或就医建议，请先核对再发给客户。</p>
       <div class="ops">
         <button type="button" class="op" data-copy-draft="${
@@ -149,7 +166,6 @@ function itemHtml(item: SidebarPendingView): string {
         <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}" data-item="${id}">复制原话</button>
         <button type="button" class="op" data-close="handled" data-item="${id}">已处理</button>
         <button type="button" class="op" data-close="dismissed" data-item="${id}">无需回复</button>
-        <button type="button" class="op" data-close="transferred" data-item="${id}">转交</button>
       </div>
       <p class="copy-hint" hidden>复制失败，已选中原文，请手动复制</p>
       ${item.aiReplied ? '<p class="note">机器人已回应</p>' : ''}
@@ -158,21 +174,14 @@ function itemHtml(item: SidebarPendingView): string {
 
 function pendingCard(data: SidebarContextData): string {
   const { pending } = data;
+
+  // 没有待回复就整块不出现：既然没有要处理的事，就不要占着一块区域说明「没有」
+  if (pending.openCount === 0) return '';
+
   const syncedAt = data.conv.lastObservedAt;
   const sync = syncedAt === null
     ? ''
     : ` · 更新于 ${relativeLabel(Math.max(0, Math.floor((data.generatedAt - syncedAt) / 1000)))}`;
-
-  if (pending.openCount === 0) {
-    return `
-      <section class="card">
-        <div class="card-head">
-          <h2>待回复</h2>
-          <span class="meta">本会话没有待回复${sync}</span>
-        </div>
-        <p class="sub">有客户提问时会在这里提醒</p>
-      </section>`;
-  }
 
   const items = [...pending.open]
     .sort((a, b) => a.lastAt - b.lastAt)
@@ -207,10 +216,11 @@ function pendingCard(data: SidebarContextData): string {
 function profileCard(data: SidebarContextData, consoleUrl?: string): string {
   const profile = data.profile;
   if (!profile || !profile.bound) {
+    const unbound = data.conv.kind === 'dm' ? '本会话还没有绑定客户档案' : '本群还没有绑定客户档案';
     return `
       <section class="card">
         <div class="card-head"><h2>客户速览</h2></div>
-        <p class="sub">本群还没有绑定客户档案</p>
+        <p class="sub">${unbound}</p>
         ${consoleLink(consoleUrl)}
       </section>`;
   }
@@ -252,11 +262,10 @@ function ready(data: SidebarContextData, handlers: ViewHandlers, notice?: { mess
   const title = data.conv.name ? escapeHtml(data.conv.name) : '当前会话';
   return `
     <header class="top">
-      <div class="brand-row">
-        <span class="brand">知伴健康</span>
-        <button type="button" class="icon-btn" data-refresh aria-label="刷新">${refreshIcon()}</button>
+      <div class="title-row">
+        <h1>${title}</h1>
+        ${refreshButton()}
       </div>
-      <h1>${title}</h1>
     </header>
     ${notice ? noticeBanner(notice) : ''}
     ${pendingCard(data)}
@@ -346,6 +355,30 @@ function flashCopied(button: HTMLButtonElement, restore: string): void {
     button.textContent = restore;
     button.classList.remove('copied');
   }, 2_000);
+}
+
+/** 手动刷新：请求期间图标转圈并禁用，避免连点；渲染后节点会被替换，无需还原 */
+export function markRefreshBusy(root: HTMLElement, busy: boolean): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-refresh].refresh-btn');
+  if (!button) return;
+  button.classList.toggle('is-busy', busy);
+  button.disabled = busy;
+  button.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+/** 手动刷新完成：按钮短暂显示「已刷新」，否则数据没变时看不出点过 */
+export function flashRefreshed(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-refresh].refresh-btn');
+  const label = button?.querySelector('span');
+  if (!button || !label) return;
+  button.classList.add('is-done');
+  button.setAttribute('aria-label', '已刷新');
+  label.textContent = '已刷新';
+  window.setTimeout(() => {
+    button.classList.remove('is-done');
+    button.setAttribute('aria-label', '刷新');
+    label.textContent = '刷新';
+  }, 1_500);
 }
 
 export function render(
