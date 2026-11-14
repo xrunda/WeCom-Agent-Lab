@@ -32,6 +32,7 @@ import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../../src/p1/types.ts';
 
 import { parsePluginConfig } from './config.ts';
+import { AdvisorStatusService } from './advisor-status.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
 import { GroupDiscovery } from './group-discovery.ts';
 import { GroupInfoClient } from './group-info.ts';
@@ -93,6 +94,16 @@ interface StaffQualityGuard {
     riskLevel: string;
     alertId?: string;
   };
+  /** 「为什么红线」用：只读规则名与关键词，不读发言正文 */
+  getRule?(id: string): { name: string; keywords: string[] } | undefined;
+  alerts?(): Array<{
+    kind: string;
+    status?: string;
+    source?: string;
+    advisorId?: string;
+    ruleIds: string[];
+    createdAt: number;
+  }>;
 }
 
 /** 只依赖 zhiban-console 的话术只读入口；未安装控制台时查询会提示未接入 */
@@ -711,6 +722,41 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         () => clock.now(),
       );
 
+      // 「我的待办 / 我的草稿」：只读本人名下的草稿、承诺与告警，不调模型
+      const advisorStatus = new AdvisorStatusService({
+        drafts: (advisorId) =>
+          store
+            .listDrafts()
+            .filter((draft) => draft.advisorId === advisorId)
+            .map((draft) => ({
+              groupName: draft.groupName,
+              riskLevel: draft.riskLevel,
+              status: draft.status,
+              since: draft.pushedAt ?? draft.queuedAt ?? draft.createdAt,
+              ...(draft.version !== undefined ? { version: draft.version } : {}),
+            })),
+        promises: (advisorId) =>
+          store
+            .listPromises()
+            .filter((promise) => promise.advisorId === advisorId && promise.status === 'pending')
+            .map((promise) => ({
+              groupName: promise.groupName,
+              dueAt: promise.dueAt,
+              dueLabel: promise.dueLabel,
+            })),
+        alerts: (advisorId) =>
+          (ctx.get<StaffQualityGuard>('zhibanGuard')?.alerts?.() ?? [])
+            .filter(
+              (alert) =>
+                alert.advisorId === advisorId && (alert.status === undefined || alert.status === 'open'),
+            )
+            .map((alert) => ({
+              title: alert.kind === 'redline' ? '员工发言命中红线' : '已升级人工',
+              at: alert.createdAt,
+            })),
+        now: () => clock.now(),
+      });
+
       // #162：知识检索与判定解释；只读知识库与本人草稿
       const knowledgeQuery = new KnowledgeQueryService({
         source: () => ctx.get<KnowledgeApi>('zhibanKnowledge'),
@@ -732,6 +778,29 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
             hasRuleEvidence: (draft.ruleIds?.length ?? 0) > 0,
           };
         },
+        // 员工发言质检：只取本人最近一次命中，规则名与关键词来自 guard，正文不回显
+        staffRedline: (userId) => {
+          const advisor = resolveStaffAdvisor(userId);
+          if (!advisor) return undefined;
+          const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
+          const latest = (guard?.alerts?.() ?? [])
+            .filter(
+              (alert) =>
+                alert.kind === 'redline' &&
+                alert.source === 'staff' &&
+                alert.advisorId === advisor.id,
+            )
+            .sort((a, b) => b.createdAt - a.createdAt)[0];
+          if (!latest) return undefined;
+          const rules = latest.ruleIds
+            .map((id) => guard?.getRule?.(id))
+            .filter((rule): rule is { name: string; keywords: string[] } => rule !== undefined);
+          if (rules.length === 0) return { ruleNames: [], keywords: [] };
+          return {
+            ruleNames: rules.map((rule) => rule.name),
+            keywords: [...new Set(rules.flatMap((rule) => rule.keywords))],
+          };
+        },
         now: () => clock.now(),
       });
 
@@ -744,13 +813,15 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
-              // 「话术 …」「知识 …」是查询指令；看过列表后直接发编号也取全文；
+              // 「话术 …」「知识 …」「我的待办」是查询指令；看过列表后直接发编号也取全文；
               // 其余文本按改稿指令处理（#56）
+              const statusAdvisor = resolveStaffAdvisor(message.userid);
               const reply =
                 knowledgeQuery.reply(message.userid, message.text) ??
                 scriptQuery.reply(message.userid, message.text) ??
                 scriptQuery.replyToSelection(message.userid, message.text) ??
-                knowledgeQuery.replyToSelection(message.userid, message.text);
+                knowledgeQuery.replyToSelection(message.userid, message.text) ??
+                (statusAdvisor ? advisorStatus.reply(statusAdvisor.id, message.text) : undefined);
               if (reply !== undefined) {
                 const target = botRef;
                 if (target) {
