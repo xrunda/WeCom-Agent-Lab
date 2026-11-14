@@ -462,11 +462,60 @@ body {
   color: var(--muted);
 }
 
-/* 慢病档案：不另起卡片，用一条分隔线和速览的其他信息区分开 */
-.chronic {
+/* 速览固定区块：不另起卡片，用分隔线区分；标题与顺序不随数据多少变化 */
+.profile-section {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+.section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fields {
+  margin: 6px 0 0;
+  display: grid;
+  gap: 4px;
+}
+
+.field {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.field dt {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  margin: 0;
+  color: var(--muted);
+}
+
+.field dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.field .tags {
+  margin: 0;
+}
+
+.field-empty {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.field-empty a {
+  color: var(--accent);
 }
 
 .chronic-head {
@@ -478,7 +527,7 @@ body {
 
 .chronic-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
 }

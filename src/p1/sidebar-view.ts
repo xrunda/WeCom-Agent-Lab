@@ -36,6 +36,8 @@ export interface SidebarPatientRef {
   identityStatus?: 'pending' | 'confirmed';
   lastActiveAt?: number;
   advisorId?: string;
+  /** 建档 / 开始陪伴的时间，用于展示服务天数 */
+  accompaniedSince?: number;
 }
 
 /** 已生成、尚未发出的草稿（只读引用，来自 zhiban-wecom 的草稿存储） */
@@ -64,6 +66,8 @@ export interface SidebarViewDeps {
   patientForExternal?(externalUserId: string): SidebarPatientRef | undefined;
   /** 慢病档案；没有录入过时返回 undefined，视图层转成 chronic: null */
   getChronic?(patientId: string): ChronicProfile | undefined;
+  /** 患者绑定的服务群名，主群在前；未接线或查不到时返回空数组 */
+  groupsForPatient?(patientId: string): string[];
   getAdvisorName?(advisorId: string): string | undefined;
   /** 该群在 since 之后生成、还没发出的草稿；没有则空 */
   latestDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
@@ -137,12 +141,22 @@ export interface SidebarChronicView {
   updatedAt: number;
 }
 
+/**
+ * 客户速览固定带齐这些字段：前端的区块顺序与标题不随数据多少变化，
+ * 缺数据时由前端显示「未打标签 / 尚未录入」等占位，而不是整块消失。
+ */
 export interface SidebarProfileView {
   bound: boolean;
   name: string | null;
   confirmed: boolean;
   tags: string[];
-  /** 慢病档案摘要；没有档案或未授权时为 null，前端不显示该区块 */
+  /** 存档同意状态（agreed / unknown / disagreed）；无档案时为 null */
+  consent: string | null;
+  /** 已服务天数；无档案或缺少建档时间时为 null */
+  servedDays: number | null;
+  /** 已绑定的服务群名（主群在前）；无权限或无档案时为 [] */
+  groups: string[];
+  /** 慢病档案摘要；没有档案或未授权时为 null，前端仍保留区块并显示「尚未录入」 */
   chronic: SidebarChronicView | null;
   carePlan: null;
   silentDays: number | null;
@@ -223,6 +237,7 @@ export function buildSidebarContext(
         now,
         canRead ? (deps.getAdvisorName?.(advisor.id) ?? null) : null,
         canRead && patient ? deps.getChronic?.(patient.id) : undefined,
+        patient ? (deps.groupsForPatient?.(patient.id) ?? []) : [],
       ),
       generatedAt: now,
     };
@@ -302,6 +317,7 @@ export function buildSidebarContext(
     now,
     canRead ? (group.advisorId ? (deps.getAdvisorName?.(group.advisorId) ?? null) : null) : null,
     canRead && patient ? deps.getChronic?.(patient.id) : undefined,
+    patient ? (deps.groupsForPatient?.(patient.id) ?? []) : [],
   );
 
   return {
@@ -391,6 +407,7 @@ function profileView(
   now: number,
   advisorName: string | null,
   chronic?: ChronicProfile,
+  groups: string[] = [],
 ): SidebarProfileView {
   if (!patient) {
     return {
@@ -398,21 +415,31 @@ function profileView(
       name: null,
       confirmed: false,
       tags: [],
+      consent: null,
+      servedDays: null,
+      groups: [],
       chronic: null,
       carePlan: null,
       silentDays: null,
       advisorName: null,
     };
   }
+  const accompaniedSince = patient.accompaniedSince;
   return {
     bound: true,
     name: canRead ? patient.displayName : null,
     confirmed: patient.identityStatus === 'confirmed',
     tags: canRead ? [...(patient.tags ?? [])] : [],
+    consent: canRead ? (patient.consent ?? 'unknown') : null,
+    servedDays:
+      !canRead || accompaniedSince === undefined
+        ? null
+        : Math.max(0, Math.floor((now - accompaniedSince) / DAY_MS)),
+    groups: canRead ? [...groups] : [],
     chronic: canRead ? chronicView(chronic) : null,
     carePlan: null,
     silentDays:
-      patient.lastActiveAt === undefined
+      !canRead || patient.lastActiveAt === undefined
         ? null
         : Math.max(0, Math.floor((now - patient.lastActiveAt) / DAY_MS)),
     advisorName: canRead ? advisorName : null,

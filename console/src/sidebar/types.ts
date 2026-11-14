@@ -79,7 +79,13 @@ export interface SidebarProfileView {
   name: string | null;
   confirmed: boolean;
   tags: string[];
-  /** 慢病档案摘要；为 null 时不渲染该区块 */
+  /** 存档同意：agreed / unknown / disagreed；无档案时为 null */
+  consent: string | null;
+  /** 已服务天数；缺数据时为 null */
+  servedDays: number | null;
+  /** 绑定的服务群名，主群在前；没有时为 [] */
+  groups: string[];
+  /** 慢病档案摘要；为 null 时保留区块并显示「尚未录入」 */
   chronic: SidebarChronicView | null;
   carePlan: null;
   silentDays: number | null;
