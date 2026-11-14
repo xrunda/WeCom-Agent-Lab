@@ -1,12 +1,15 @@
 import { applyTransition } from './state-machine.ts';
-import { buildCard } from './message.ts';
+import { buildWaitingReminder } from './message.ts';
 import type { Advisor, Alert, AlertKind, Draft } from './types.ts';
 import type { BotPort, Clock, Store } from './ports.ts';
 
 export interface QueueConfig {
   maxPushAttempts: number;
   retryBackoffMs: number;
+  /** #163：客户等待超过该阈值时发一条聚合提醒（不带正文），默认 30 分钟 */
   remindAfterMs: number;
+  /** 同一顾问两条聚合提醒的最小间隔，默认 60 分钟，避免刷屏 */
+  remindRepeatMs: number;
   escalateAfterMs: number;
   /**
    * #39：升级时 1:1 推送的主管会话（企微 userid / 与机器人的 1:1 chatId）。
@@ -18,7 +21,8 @@ export interface QueueConfig {
 export const DEFAULT_QUEUE_CONFIG: QueueConfig = {
   maxPushAttempts: 3,
   retryBackoffMs: 60_000,
-  remindAfterMs: 15 * 60_000,
+  remindAfterMs: 30 * 60_000,
+  remindRepeatMs: 60 * 60_000,
   escalateAfterMs: 60 * 60_000,
   supervisorChatIds: [],
 };
@@ -57,6 +61,10 @@ export class SerialQueue {
     this.onAlert = deps.onAlert;
   }
 
+  /**
+   * #163：草稿不再向员工 1:1 推送卡片/正文/图片，内容只在侧边栏展示。
+   * 这里只把排队草稿标记为 PUSHED 并做「客户在等」聚合提醒。
+   */
   async tick(): Promise<PushResult[]> {
     const now = this.clock.now();
     const results: PushResult[] = [];
@@ -64,114 +72,100 @@ export class SerialQueue {
     for (const advisor of this.store.listAdvisors()) {
       if (advisor.status !== 'active') continue;
 
+      results.push(...this.markQueued(advisor, now));
+
+      const waiting = this.store
+        .listDrafts()
+        .filter((draft) => draft.advisorId === advisor.id && draft.status === 'PUSHED')
+        .sort(
+          (a, b) =>
+            (a.pushedAt ?? a.queuedAt) - (b.pushedAt ?? b.queuedAt) || a.id.localeCompare(b.id),
+        );
+      // active 只用于升级计时：上一条处理完后，交给最久未处理的 PUSHED 草稿
+      const current = this.store.getActiveDraft(advisor.id);
+      const currentDraft = current ? this.store.getDraft(current) : undefined;
+      if (currentDraft?.status !== 'PUSHED' && waiting.length > 0) {
+        this.store.setActiveDraft(advisor.id, waiting[0]!.id);
+      }
+      if (waiting.length > 0) await this.remindWaiting(advisor, waiting, now);
+
       const activeId = this.store.getActiveDraft(advisor.id);
-      if (activeId !== undefined) {
-        const active = this.store.getDraft(activeId);
-        if (active) this.handleTimeout(advisor, active, now);
-        continue;
-      }
-
-      if (!advisor.chatId) {
-        if (!advisor.noChatIdAlerted) {
-          advisor.noChatIdAlerted = true;
-          this.store.saveAdvisor(advisor);
-          this.alert(advisor.id, undefined, 'NO_CHATID', `${advisor.name} 尚未与机器人建立会话，无法推送`);
-        }
-        continue;
-      }
-
-      const queued = this.store.listQueued(advisor.id, now);
-      const next = queued[0];
-      if (!next) continue;
-
-      results.push(await this.push(advisor, next, queued.length, now));
+      const active = activeId ? this.store.getDraft(activeId) : undefined;
+      if (active) this.handleTimeout(advisor, active, now);
     }
 
     return results;
   }
 
-  private async push(
-    advisor: Advisor,
-    draft: Draft,
-    queueDepth: number,
-    now: number,
-  ): Promise<PushResult> {
-    this.store.setActiveDraft(advisor.id, draft.id);
-    draft.pushAttempts += 1;
+  /** 把排队草稿标记为 PUSHED（侧边栏据此展示）；不产生任何 1:1 内容消息 */
+  private markQueued(advisor: Advisor, now: number): PushResult[] {
+    const queued = this.store.listQueued(advisor.id, now);
+    if (queued.length === 0) return [];
 
-    try {
-      const chatId = advisor.chatId as string;
-
-      // 卡片已成功但正文失败时，重试只补正文，避免重复卡片
-      if (!draft.cardMessageId) {
-        const cardRes = await this.bot.sendCard(chatId, buildCard(draft, queueDepth));
-        draft.cardMessageId = cardRes.messageId;
-      }
-
-      // #55：先转推患者原图，再推正文；失败不阻断草稿，重试也不重复发图
-      if (
-        draft.mediaForwardedAt === undefined &&
-        this.bot.sendImage &&
-        (draft.mediaIds?.length ?? 0) > 0
-      ) {
-        draft.mediaForwardedAt = now;
-        for (const path of draft.mediaIds!.slice(0, 4)) {
-          try {
-            await this.bot.sendImage(chatId, path);
-          } catch {
-            this.audit(advisor.id, 'forward_image', draft.id, 'failed');
-          }
-        }
-      }
-
-      const bodyRes = await this.bot.sendText(chatId, draft.body);
-      draft.bodyMessageId = bodyRes.messageId;
-
+    const results: PushResult[] = [];
+    for (const draft of queued) {
       if (draft.status === 'FAILED') applyTransition(draft, 'QUEUED');
       applyTransition(draft, 'PUSHED');
-      draft.pushedAt = now;
+      draft.pushAttempts += 1;
+      // 等待时长从入队算起：标记 PUSHED 只是状态变化，不是重新计时
+      draft.pushedAt = draft.queuedAt;
       draft.nextAttemptAt = Number.MAX_SAFE_INTEGER;
       draft.errorCode = undefined;
       this.store.saveDraft(draft);
       this.audit(advisor.id, 'push', draft.id, 'ok');
+      results.push({ advisorId: advisor.id, draftId: draft.id, pushed: true });
+    }
 
-      return { advisorId: advisor.id, draftId: draft.id, pushed: true };
+    return results;
+  }
+
+  /**
+   * 「客户在等」聚合提醒：超过阈值、且距上一条提醒超过间隔才发。
+   * 只带群数、条数与最久等待时长，不带任何正文；提醒后逐条记 remindedAt，
+   * 避免重启后重复提醒同一批草稿。
+   */
+  private async remindWaiting(advisor: Advisor, waiting: Draft[], now: number): Promise<void> {
+    const oldest = waiting[0]!;
+    const since = oldest.pushedAt ?? oldest.queuedAt;
+    const oldestWait = now - since;
+    if (oldestWait < this.config.remindAfterMs) return;
+
+    const pending = waiting.filter((draft) => draft.remindedAt === undefined);
+    if (pending.length === 0) return;
+    const last = advisor.waitingRemindedAt;
+    if (last !== undefined && now - last < this.config.remindRepeatMs) return;
+
+    if (!advisor.chatId) {
+      if (!advisor.noChatIdAlerted) {
+        advisor.noChatIdAlerted = true;
+        this.store.saveAdvisor(advisor);
+        this.alert(advisor.id, undefined, 'NO_CHATID', `${advisor.name} 尚未与机器人建立会话，无法提醒`);
+      }
+      return;
+    }
+
+    const groups = new Set(waiting.map((draft) => draft.groupRoomId)).size;
+    try {
+      await this.bot.sendText(advisor.chatId, buildWaitingReminder(groups, oldestWait).text.content);
     } catch (err) {
       const errorCode = err instanceof Error ? err.message : 'UNKNOWN_PUSH_ERROR';
-      draft.errorCode = errorCode;
-
-      if (draft.pushAttempts >= this.config.maxPushAttempts) {
-        this.store.setActiveDraft(advisor.id, undefined);
-        if (draft.status === 'QUEUED' || draft.status === 'FAILED') {
-          if (draft.status === 'FAILED') applyTransition(draft, 'QUEUED');
-          applyTransition(draft, 'DEAD_LETTER');
-        }
-        this.store.saveDraft(draft);
-        this.audit(advisor.id, 'push', draft.id, 'dead_letter', errorCode);
-        this.alert(
-          advisor.id,
-          draft.id,
-          'DEAD_LETTER',
-          `草稿 ${draft.id} 连续 ${draft.pushAttempts} 次推送失败，已进入死信：${errorCode}`,
-        );
-        return { advisorId: advisor.id, draftId: draft.id, pushed: false, reason: 'DEAD_LETTER' };
-      }
-
-      if (draft.status === 'QUEUED') applyTransition(draft, 'FAILED');
-      applyTransition(draft, 'QUEUED');
-      draft.nextAttemptAt = now + this.config.retryBackoffMs * draft.pushAttempts;
-      this.store.setActiveDraft(advisor.id, undefined);
-      this.store.saveDraft(draft);
-      this.audit(advisor.id, 'push', draft.id, 'retry', errorCode);
+      this.audit(advisor.id, 'remind', pending[0]!.id, 'failed', errorCode);
       this.alert(
         advisor.id,
-        draft.id,
+        pending[0]!.id,
         'PUSH_FAILED',
-        `草稿 ${draft.id} 第 ${draft.pushAttempts} 次推送失败，将重试：${errorCode}`,
+        `等待提醒发送失败，将在下一轮重试：${errorCode}`,
       );
-
-      return { advisorId: advisor.id, draftId: draft.id, pushed: false, reason: errorCode };
+      return;
     }
+
+    for (const draft of pending) {
+      draft.remindedAt = now;
+      this.store.saveDraft(draft);
+      this.audit(advisor.id, 'remind', draft.id, 'ok');
+    }
+    advisor.waitingRemindedAt = now;
+    this.store.saveAdvisor(advisor);
   }
 
   private handleTimeout(advisor: Advisor, draft: Draft, now: number): void {
@@ -196,19 +190,7 @@ export class SerialQueue {
       return;
     }
 
-    if (elapsed >= this.config.remindAfterMs && draft.remindedAt === undefined) {
-      draft.remindedAt = now;
-      this.store.saveDraft(draft);
-      this.audit(advisor.id, 'remind', draft.id, 'ok');
-      if (advisor.chatId) {
-        void this.bot
-          .sendText(
-            advisor.chatId,
-            `提醒：还有 1 条草稿待处理（${draft.groupName} · ${draft.customerName}）`,
-          )
-          .catch(() => undefined);
-      }
-    }
+    // 「客户在等」提醒统一由 remindWaiting 聚合发送，这里只管升级
   }
 
   private alert(

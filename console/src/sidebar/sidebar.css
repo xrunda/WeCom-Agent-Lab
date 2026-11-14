@@ -571,6 +571,12 @@ body {
   color: var(--muted);
 }
 
+.draft-verify {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .draft-confirm {
   margin: 0 0 8px;
   font-size: 12px;

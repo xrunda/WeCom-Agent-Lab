@@ -154,7 +154,7 @@ function harness(
   return { clock, store, bot, service, runtime, events, logs };
 }
 
-test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', async () => {
+test('pollOnce 生成草稿并在侧边栏可见，事件按契约发出', async () => {
   const h = harness();
   h.runtime.start();
   try {
@@ -163,8 +163,8 @@ test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', as
     const drafts = h.store.listDrafts();
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0].status, 'PUSHED');
-    assert.equal(h.bot.cards().length, 1);
-    assert.equal(h.bot.texts().length, 1);
+    // #163：1:1 不再推送卡片或正文
+    assert.equal(h.bot.sent.length, 0);
 
     const types = h.events.map((e) => e.type);
     assert.ok(types.includes('draft.created'));
@@ -179,18 +179,19 @@ test('pollOnce 生成草稿并推送卡片 + 正文，事件按契约发出', as
   }
 });
 
-test('顾问点「已发送」后回读存档，核验事件发出', async () => {
+test('侧边栏处理「已发送」后回读存档，核验事件发出且不私聊回执', async () => {
   const h = harness();
   h.runtime.start();
   try {
     await h.runtime.pollOnce();
     const draft = h.store.listDrafts()[0];
     assert.equal(draft.status, 'PUSHED');
+    assert.equal(h.bot.sent.length, 0);
 
-    await h.runtime.handleButtonKey(`ack:${draft.id}:sent`);
+    await h.runtime.acknowledgeFromSidebar(draft.id, 'sent', 'adv_test');
     assert.equal(h.store.getDraft(draft.id)?.status, 'ACKNOWLEDGED');
-    const ackReceipt = h.bot.texts().at(-1)?.message;
-    assert.match(JSON.stringify(ackReceipt), /已记录「已发送」/);
+    // #163：状态推进不再私聊回执
+    assert.equal(h.bot.texts().length, 0);
 
     // 超过 verifyDelayMs（3 分钟）后再 tick
     h.clock.advance(200_000);
@@ -203,8 +204,9 @@ test('顾问点「已发送」后回读存档，核验事件发出', async () =>
     assert.equal(verified.draftId, draft.id);
     assert.equal(verified.outcome, 'VERIFIED');
     assert.equal(h.store.getDraft(draft.id)?.status, 'VERIFIED');
-    const verifyReceipt = h.bot.texts().at(-1)?.message;
-    assert.match(JSON.stringify(verifyReceipt), /✅ 校验通过/);
+    // 核验结果只写回草稿供侧边栏展示
+    assert.equal(h.store.getDraft(draft.id)?.verification?.outcome, 'VERIFIED');
+    assert.equal(h.bot.texts().length, 0);
   } finally {
     await h.runtime.stop();
   }

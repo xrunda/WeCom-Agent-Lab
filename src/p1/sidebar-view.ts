@@ -44,6 +44,8 @@ export interface SidebarDraftRef {
   ruleNames?: string[];
   createdAt: number;
   status: string;
+  /** #163：回读核验结果；处理后在侧边栏展示，不再私聊回执 */
+  verification?: { outcome: string; checkedAt: number };
 }
 
 export interface SidebarViewDeps {
@@ -78,6 +80,8 @@ export interface SidebarDraftView {
   riskLevel: 'low' | 'medium' | 'high';
   ruleNames: string[];
   createdAt: number;
+  /** #163：核验中 / 已送达 / 未匹配；没有核验结果时不返回 */
+  verification: { outcome: string; checkedAt: number } | null;
 }
 
 export interface SidebarPendingView {
@@ -242,6 +246,12 @@ export function buildSidebarContext(
         riskLevel: draftRef.riskLevel,
         ruleNames: [...(draftRef.ruleNames ?? [])],
         createdAt: draftRef.createdAt,
+        verification: draftRef.verification
+          ? {
+              outcome: draftRef.verification.outcome,
+              checkedAt: draftRef.verification.checkedAt,
+            }
+          : null,
       }
     : null;
 

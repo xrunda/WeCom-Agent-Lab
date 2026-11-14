@@ -28,6 +28,8 @@ export interface SidebarDraftView {
   riskLevel: 'low' | 'medium' | 'high';
   ruleNames: string[];
   createdAt: number;
+  /** #163：回读核验结果；处理后在条目上展示 */
+  verification?: { outcome: string; checkedAt: number } | null;
 }
 
 export interface SidebarPendingView {

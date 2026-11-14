@@ -69,6 +69,15 @@ export interface SidebarHttpOptions {
   authenticate?: (req: SidebarHttpRequest) => SidebarAdvisor | undefined;
   /** 由插件在运行时组装：群绑定、患者档案、待回复 */
   buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => unknown;
+  /**
+   * #163：侧边栏「已处理 / 忽略」同时推进草稿状态，
+   * 让「已发送 → 回读核验」在内容分发移除后仍然生效。
+   */
+  acknowledgeDraft?: (
+    advisor: SidebarAdvisor,
+    draftId: string,
+    action: 'sent' | 'skipped',
+  ) => void;
   oauth?: SidebarOAuthPort;
   /** OAuth 换到 userid 后映射顾问；未开通返回 undefined */
   resolveAdvisor?: (wecomUserId: string) => SidebarAdvisor | undefined;
@@ -371,8 +380,19 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         sendJson(res, 404, { code: 'NOT_FOUND', message: '待回复条目不存在' });
         return;
       }
+      let draftId: string | undefined;
       try {
-        options.buildContext(advisor, new URLSearchParams(itemQuery(item.convKey)));
+        const context = options.buildContext(
+          advisor,
+          new URLSearchParams(itemQuery(item.convKey)),
+        ) as {
+          pending?: {
+            open?: Array<{ id: string; draft?: { id: string } | null }>;
+          };
+        };
+        // 草稿只挂在最新一条待回复上；只有关闭这条时才推进草稿状态
+        const withDraft = context.pending?.open?.find((entry) => entry.draft);
+        if (withDraft?.id === id) draftId = withDraft.draft!.id;
       } catch (error) {
         if (isAccessError(error)) {
           sendJson(res, 403, { code: error.code, message: error.message });
@@ -381,6 +401,16 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
         throw error;
       }
       options.api.close(id, reason, advisor.id);
+      if (draftId && (reason === 'handled' || reason === 'dismissed')) {
+        try {
+          options.acknowledgeDraft?.(advisor, draftId, reason === 'handled' ? 'sent' : 'skipped');
+        } catch (error) {
+          // 草稿状态推进失败不影响关闭待回复：记录类型，不记录正文
+          options.log?.(
+            `侧边栏草稿状态推进失败：${error instanceof Error ? error.name : 'UNKNOWN'}`,
+          );
+        }
+      }
       sendJson(res, 200, { ok: true, id, status: reason });
       return;
     }

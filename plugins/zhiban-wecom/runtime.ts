@@ -12,7 +12,9 @@ import type { ComposeFn } from '../../src/c2/trigger.ts';
 import type { C2Service } from '../../src/c2/service.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
-import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { AckAction, Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { PromiseService } from '../../src/c2/promise-service.ts';
+import type { PatrolService } from './patrol-service.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
 import { isExternalCustomerId } from '../../src/c2/adapters/wecom-archive.ts';
 import { dmConvKey, groupConvKey } from '../../src/p1/sidebar.ts';
@@ -123,6 +125,10 @@ export interface WecomRuntimeDeps {
     scanOnce(): Promise<unknown>;
     intervalMs: number;
   };
+  /** #160：承诺到期提醒；缺省时跳过 */
+  promises?: PromiseService;
+  /** #161：每日巡检；缺省时跳过 */
+  patrol?: PatrolService;
 }
 
 export interface StartOptions {
@@ -156,22 +162,6 @@ function summarizeText(text: string): string {
   return flat.length <= 40 ? flat : `${flat.slice(0, 40)}…`;
 }
 
-function verificationNotice(draft: Draft, outcome: VerifyOutcome): string {
-  const quote = `客户原文「${draft.inboundSummary}」`;
-  switch (outcome) {
-    case 'VERIFIED':
-      return `✅ 校验通过：${quote} 的回复已在「${draft.groupName}」里找到，这条任务完成。`;
-    case 'EDIT_SENT':
-      return `✅ 已发送（内容有改动）：在「${draft.groupName}」里找到了相近的正文，这条任务完成。`;
-    case 'MISROUTE_ALERT':
-      return `⚠️ 错群：${quote} 的回复出现在别的群，不在「${draft.groupName}」。请检查后手动处理。`;
-    case 'UNVERIFIED':
-      return `❌ 没有在「${draft.groupName}」里找到这条正文，请确认是否真的粘贴发出去了。`;
-    default:
-      return `校验结果：${outcome}（${quote}）`;
-  }
-}
-
 export class WecomRuntime {
   private readonly store: DomainStore;
   private readonly service: C2Service;
@@ -189,6 +179,8 @@ export class WecomRuntime {
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
   private readonly discovery?: WecomRuntimeDeps['discovery'];
+  private readonly promises?: PromiseService;
+  private readonly patrol?: PatrolService;
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
@@ -220,6 +212,8 @@ export class WecomRuntime {
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
     this.discovery = deps.discovery;
+    this.promises = deps.promises;
+    this.patrol = deps.patrol;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -649,13 +643,23 @@ export class WecomRuntime {
           matchedGroupName: undefined,
           similarity: result.similarity,
         });
-        const draft = result.draftId ? this.store.getDraft(result.draftId) : undefined;
-        if (draft) await this.notify(verificationNotice(draft, result.outcome));
+        // #163：核验结果不再逐条私聊回执，只在侧边栏展示。
         // #34：核验结果作为上下文写回患者长期会话，不唤醒新回合
         if (result.draftId) {
+          const draft = this.store.getDraft(result.draftId);
+          if (
+            draft &&
+            (result.outcome === 'VERIFIED' || result.outcome === 'EDIT_SENT')
+          ) {
+            // #160：已确认发出的回复里如果答应了客户什么，入承诺账本
+            this.promises?.ingestDraft(draft);
+          }
           await this.patient?.handleDraftVerified(result.draftId, result.outcome);
         }
       }
+      // #160 / #161：到期承诺与每日巡检；未安装对应服务时跳过
+      await this.promises?.dueScan();
+      await this.patrol?.run();
       this.persistProgress();
     } catch (error) {
       this.log(
@@ -666,8 +670,24 @@ export class WecomRuntime {
     }
   }
 
-  /** 机器人卡片按钮回调 */
+  /** 机器人卡片按钮回调：#160 承诺 / #161 巡检 / 旧版草稿卡片 */
   async handleButtonKey(key: string): Promise<void> {
+    if (key.startsWith('promise:')) {
+      const result = this.promises?.handleButtonKey(key);
+      if (result) {
+        this.emit('promise.updated', {
+          action: result.action,
+          closed: result.closed.map((item) => item.id),
+          snoozed: result.snoozed.map((item) => item.id),
+        });
+      }
+      return;
+    }
+    if (key.startsWith('patrol:')) {
+      this.patrol?.handleButtonKey(key);
+      return;
+    }
+
     try {
       const draft = this.service.handleButtonCallback(key);
       this.emit('draft.acked', {
@@ -676,29 +696,36 @@ export class WecomRuntime {
         ackAction: draft.ackAction,
       });
       this.log(`顾问确认草稿 ${draft.id} → ${draft.status}`);
-      if (draft.status === 'SKIPPED') {
-        await this.notify(`已忽略这条草稿（客户原文「${draft.inboundSummary}」），不会再回读校验。`);
-      } else {
-        await this.notify(
-          `已记录「已发送」（客户原文「${draft.inboundSummary}」）。正在回读会话存档确认，稍后告诉你结果。`,
-        );
-      }
+      if (draft.status !== 'SKIPPED') this.promises?.ingestDraft(draft);
       await this.tickOnce();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.startsWith('ALREADY_ACKNOWLEDGED')) {
-        this.log(`重复点击，忽略（${message}）`);
-        await this.notify('这条草稿已经处理过了，无需重复点击。');
-        return;
-      }
-      // #56：改稿后旧卡片仍然可见，点旧卡片只提示，不当作错误
-      if (message.startsWith('STALE_CARD')) {
-        this.log(`过期卡片，忽略（${message}）`);
-        await this.notify('这条草稿已有新版本，请使用最新一条卡片操作。');
+      if (message.startsWith('ALREADY_ACKNOWLEDGED') || message.startsWith('STALE_CARD')) {
+        // 重复点击 / 旧卡片是常态：不打扰顾问，也不改变状态
+        this.log(`确认忽略（${message}）`);
         return;
       }
       this.log(`确认失败：${message}`);
     }
+  }
+
+  /**
+   * #163 侧边栏「已处理」→ 草稿确认发送，随后回读核验。
+   * 与机器人按钮共用同一状态机；核验结果只在侧边栏展示，不再私聊回执。
+   */
+  async acknowledgeFromSidebar(draftId: string, action: AckAction, actor: string): Promise<void> {
+    const draft = this.store.getDraft(draftId);
+    if (!draft) throw new Error(`DRAFT_NOT_FOUND ${draftId}`);
+    try {
+      this.service.acknowledge(draftId, action, draft.version ?? 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith('ALREADY_ACKNOWLEDGED')) throw error;
+    }
+    this.emit('draft.acked', { draftId, advisorId: draft.advisorId, ackAction: action });
+    this.log(`侧边栏处理草稿 ${draftId} → ${action} by=${tailId(actor)}`);
+    if (action === 'sent') this.promises?.ingestDraft(draft);
+    await this.tickOnce();
   }
 
   /** 顾问在机器人 1:1 里发文字：有活动草稿时作为改稿指令（#56） */
@@ -725,18 +752,6 @@ export class WecomRuntime {
     };
     this.store.emitAlert(alert);
     this.emit('alert.created', alert);
-  }
-
-  /** 把校验结果翻成顾问看得懂的一句话；卡片按钮不会变，只能补文字回执 */
-  private notify(text: string): Promise<void> {
-    return this.bot
-      .sendText(this.config.advisorChatId, text)
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this.log(
-          `回执发送失败：${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
   }
 
   /** 把存档 seq 与最后运行时刻写进领域存储，重启后从此处续拉 */

@@ -103,6 +103,14 @@ function noticeBanner(notice: { message: string; retryable: boolean }): string {
 
 const RISK_LABEL = { low: '常规', medium: '需核对', high: '高风险' } as const;
 
+/** #163：核验结果在条目上展示，替代原来机器人 1:1 的文字回执 */
+const VERIFY_LABEL: Record<string, string> = {
+  VERIFIED: '已送达',
+  EDIT_SENT: '已送达（内容有改动）',
+  MISROUTE_ALERT: '发到了别的群，请检查',
+  UNVERIFIED: '存档里没找到，请确认',
+};
+
 /** 草稿块：正文两行、风险、规则来源、生成时间；高风险必须先展开再复制 */
 function draftHtml(item: SidebarPendingView): string {
   const draft = item.draft;
@@ -118,6 +126,10 @@ function draftHtml(item: SidebarPendingView): string {
     Math.max(0, Math.floor((Date.now() - draft.createdAt) / 1000)),
   );
   const high = draft.riskLevel === 'high';
+  const verify =
+    draft.verification && VERIFY_LABEL[draft.verification.outcome]
+      ? `<p class="draft-verify">回读核验：${escapeHtml(VERIFY_LABEL[draft.verification.outcome]!)}</p>`
+      : '';
   return `
     <div class="draft" data-draft-id="${escapeHtml(draft.id)}">
       <div class="draft-head">
@@ -127,6 +139,7 @@ function draftHtml(item: SidebarPendingView): string {
       </div>
       <p class="draft-body">${escapeHtml(draft.body)}</p>
       ${rules}
+      ${verify}
       <p class="draft-confirm" hidden>草稿涉及用药或就医建议，请先核对再发给客户。</p>
       <div class="ops">
         <button type="button" class="op" data-copy-draft="${
