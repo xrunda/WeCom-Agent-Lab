@@ -549,22 +549,42 @@ body {
   margin: 6px 0 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* 指标固定两列：指标名 | 数值行；情境与来源另起一行，长文本不会挤乱数值 */
 .metric {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  gap: 0 6px;
   min-width: 0;
   font-size: 12px;
   color: var(--text);
 }
 
 .metric-label {
-  flex: 0 0 auto;
-  min-width: 5.5em;
   color: var(--muted);
+}
+
+.metric-body {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.metric-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.metric-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .metric-value {

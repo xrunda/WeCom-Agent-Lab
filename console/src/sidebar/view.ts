@@ -310,11 +310,19 @@ function chronicHtml(data: SidebarContextData, consoleUrl?: string): string {
           const context = measurement.context
             ? `<span class="metric-context">${escapeHtml(measurement.context)}</span>`
             : '';
+          // 情境（空腹 / 早晨自测…）可能很长，单独占一行，不跟数值抢位置
+          const note = context || unverified
+            ? `<div class="metric-note">${context}${unverified}</div>`
+            : '';
           return `<li class="metric">
             <span class="metric-label">${escapeHtml(measurement.label)}</span>
-            <span class="metric-value">${escapeHtml(value)}<em>${escapeHtml(measurement.unit)}</em></span>
-            ${context}${unverified}
-            <span class="metric-date">${relativeSince(measurement.measuredAt)}</span>
+            <div class="metric-body">
+              <div class="metric-line">
+                <span class="metric-value">${escapeHtml(value)}<em>${escapeHtml(measurement.unit)}</em></span>
+                <span class="metric-date">${relativeSince(measurement.measuredAt)}</span>
+              </div>
+              ${note}
+            </div>
           </li>`;
         })
         .join('')}</ul>`
