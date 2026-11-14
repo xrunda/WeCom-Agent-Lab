@@ -2073,7 +2073,9 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             advisorView(
               advisor,
               drafts.filter(
-                (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
+                (draft) =>
+                  draft.advisorId === advisor.id &&
+                  (draft.status === 'QUEUED' || draft.status === 'PUSHED'),
               ).length,
               redlineStats(advisor.id),
             ),
@@ -2110,7 +2112,9 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           }),
         );
         respond(rc, 200, advisorView(updated, consoleDrafts().filter(
-          (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
+          (draft) =>
+            draft.advisorId === advisor.id &&
+            (draft.status === 'QUEUED' || draft.status === 'PUSHED'),
         ).length, redlineStats(advisor.id)));
       },
       { permission: 'advisor.operate' },
@@ -2133,7 +2137,9 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         const updated = api.updateAdvisor?.(advisor.id, { status: 'active' }) ?? advisor;
         store.appendAudit(auditRecord(config.tenantId, actor, 'advisor.resume', 'advisor', advisor.id));
         respond(rc, 200, advisorView(updated, consoleDrafts().filter(
-          (draft) => draft.advisorId === advisor.id && draft.status === 'QUEUED',
+          (draft) =>
+            draft.advisorId === advisor.id &&
+            (draft.status === 'QUEUED' || draft.status === 'PUSHED'),
         ).length, redlineStats(advisor.id)));
       },
       { permission: 'advisor.operate' },

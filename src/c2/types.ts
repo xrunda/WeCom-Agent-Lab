@@ -53,6 +53,8 @@ export interface Advisor {
   status: AdvisorStatus;
   consecutiveMisroutes: number;
   noChatIdAlerted?: boolean;
+  /** #163：上一条「客户在等」聚合提醒的时刻，用于限频 */
+  waitingRemindedAt?: number;
 }
 
 export interface CustomerGroup {
@@ -196,7 +198,11 @@ export type AlertKind =
   /** #65：demo 实例的长连接被服务端关闭（可能被开发实例顶掉） */
   | 'BOT_DISCONNECTED'
   /** #32：领域存储写入失败 */
-  | 'PERSIST_FAILED';
+  | 'PERSIST_FAILED'
+  /** #161：巡检发现客户长期沉默 */
+  | 'PATROL_SILENT'
+  /** #161：巡检发现投诉/风险关键词 */
+  | 'PATROL_COMPLAINT';
 
 export interface Alert {
   kind: AlertKind;

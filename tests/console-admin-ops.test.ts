@@ -28,8 +28,8 @@ test('RELEASED 是终态：只能从 PUSHED 进入，之后不再转移', () => 
   assert.throws(() => applyTransition(draft, 'QUEUED'), /ILLEGAL_TRANSITION/);
 });
 
-test('releaseQueue 把阻塞草稿置为 RELEASED，并立即推下一条', async () => {
-  const { service, store } = setup();
+test('releaseQueue 把阻塞草稿置为 RELEASED，并立即交接下一条', async () => {
+  const { service, store, bot } = setup();
   bindDefaultAdvisor(service);
   service.bindGroup({ roomId: 'room_1', name: '客户群一', advisorId: 'a1' });
 
@@ -55,8 +55,11 @@ test('releaseQueue 把阻塞草稿置为 RELEASED，并立即推下一条', asyn
   });
 
   const pushed = await service.tick();
-  assert.equal(pushed.pushed.length, 1);
+  // #163：不向 1:1 推送内容，两条都标记 PUSHED，active 指向最早的一条
+  assert.equal(pushed.pushed.length, 2);
+  assert.equal(bot.sent.length, 0);
   assert.equal(store.getDraft(first.id)?.status, 'PUSHED');
+  assert.equal(store.getDraft(second.id)?.status, 'PUSHED');
   assert.equal(store.getActiveDraft('a1'), first.id);
 
   const result = await service.releaseQueue('a1', 'acc_admin');

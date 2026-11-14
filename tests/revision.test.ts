@@ -48,17 +48,15 @@ function inbound(text = '今晚吃什么？') {
   };
 }
 
-function cardOf(c2: ReturnType<typeof setupC2>) {
-  const cards = c2.bot.cards();
-  return cards[cards.length - 1]!.message as {
-    template_card: {
-      main_title: { title: string; desc: string };
-      button_list: Array<{ text: string; key: string }>;
-    };
+function draftView(c2: ReturnType<typeof setupC2>) {
+  const drafts = c2.store.listDrafts();
+  return {
+    count: drafts.length,
+    latest: drafts[drafts.length - 1],
   };
 }
 
-test('#56 顾问一句话改稿：v1 卡片 → 改稿指令 → v2 卡片，旧卡片失效', async () => {
+test('#163 顾问一句话改稿：v1 → 改稿指令 → v2，旧版本失效', async () => {
   const h = buildHarness();
   let turnCount = 0;
   h.sessions.onPrompt = async (sessionId) => {
@@ -81,12 +79,10 @@ test('#56 顾问一句话改稿：v1 卡片 → 改稿指令 → v2 卡片，旧
 
   await h.c2.service.tick();
   assert.equal(h.c2.store.getDraft(draftId)?.status, 'PUSHED');
-  const v1Card = cardOf(h.c2);
-  assert.equal(v1Card.template_card.main_title.title, '待回复 · 减重-张女士');
-  assert.deepEqual(
-    v1Card.template_card.button_list.map((button) => button.key),
-    [`ack:${draftId}:sent`, `ack:${draftId}:skipped`],
-  );
+  // #163：1:1 不再推送卡片，侧边栏直接读草稿
+  assert.equal(draftView(h.c2).count, 1);
+  assert.equal(draftView(h.c2).latest?.version, 1);
+  assert.equal(h.c2.bot.cards().length, 0);
 
   const handled = await h.runtime.handleAdvisorText('wang.guwen', '语气再温和一点，加上明天复诊');
   assert.equal(handled, true);
@@ -100,13 +96,9 @@ test('#56 顾问一句话改稿：v1 卡片 → 改稿指令 → v2 卡片，旧
 
   await h.c2.service.tick();
   assert.equal(h.c2.store.getDraft(draftId)?.status, 'PUSHED');
-  const v2Card = cardOf(h.c2);
-  assert.equal(v2Card.template_card.main_title.title, '第 2 版 · 待回复 · 减重-张女士');
-  assert.match(v2Card.template_card.main_title.desc, /按你的要求：语气再温和一点/);
-  assert.deepEqual(
-    v2Card.template_card.button_list.map((button) => button.key),
-    [`ack:${draftId}:v2:sent`, `ack:${draftId}:v2:skipped`],
-  );
+  // 侧边栏展示第 2 版；旧版本按钮仍会被判为过期
+  assert.equal(h.c2.store.getDraft(draftId)?.version, 2);
+  assert.equal(h.c2.bot.cards().length, 0);
 
   assert.throws(() => h.c2.service.handleButtonCallback(`ack:${draftId}:sent`), /STALE_CARD/);
   const acked = h.c2.service.handleButtonCallback(`ack:${draftId}:v2:sent`);

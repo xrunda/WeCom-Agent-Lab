@@ -61,6 +61,8 @@ const ALERT_KINDS = new Set<AlertKind>([
   'redline',
   'push_failed',
   'no_chat_id',
+  'patrol_silent',
+  'patrol_complaint',
 ]);
 const SEVERITIES = new Set<AlertSeverity>(['info', 'warning', 'critical']);
 const STATUSES = new Set<AlertStatus>(['open', 'acknowledged', 'resolved']);

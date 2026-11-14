@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4f6f6" />
+    <meta name="referrer" content="no-referrer" />
+    <title>知伴 · 会话侧栏</title>
+    <!--
+      企微 JS-SDK：jweixin 提供 wx.config 与 wx.invoke，jwxwork 提供 wx.agentConfig。
+      静态引入，避免部分企微客户端拦截运行时插入的脚本。
+    -->
+    <script defer src="https://res.wx.qq.com/open/js/jweixin-1.2.0.js"></script>
+    <script defer src="https://open.work.weixin.qq.com/wwopen/js/jwxwork-1.0.0.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

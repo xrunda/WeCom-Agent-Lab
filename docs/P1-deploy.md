@@ -11,6 +11,7 @@
 | 交付物 | 位置 | 本地状态 |
 |---|---|---|
 | Nginx 站点（HTTPS、静态控制台、`/zhiban/api` 反代、SSE 不缓冲） | [`deploy/nginx/zhiban.conf`](../deploy/nginx/zhiban.conf) | ✅ 配置已写；⏳ `nginx -t` 与真实访问待服务器 |
+| 侧边栏站点（`/sidebar/` 静态 + `/zhiban/sidebar/` 反代，#145） | [`deploy/nginx/zhiban-sidebar.conf`](../deploy/nginx/zhiban-sidebar.conf) | ✅ 配置与构建已写（gzip 3.2 KB）；⏳ 域名、证书与企微后台待真机 |
 | DSH Host systemd unit | [`deploy/systemd/dsh-zhiban.service`](../deploy/systemd/dsh-zhiban.service) | ✅ 已写；⏳ 服务器启停待真机（#28 已验证同类 unit） |
 | 每日备份 + 保留 14 天 | [`deploy/scripts/backup.sh`](../deploy/scripts/backup.sh) | ✅ 本地演练通过 |
 | 恢复脚本 | [`deploy/scripts/restore.sh`](../deploy/scripts/restore.sh) | ✅ 本地演练通过 |
@@ -25,6 +26,7 @@
 - 腾讯云 Ubuntu 24.04 服务器、安全组只开放 80/443（SSH 按需限制来源）。
 - #28 的 DSH 安装与 profile 已就绪；真实凭据只放服务器 `/etc/zhiban/*.env`（`0600`），**不进仓库**。
 - 企微后台：演示机器人、会话存档席位与可信 IP、主管/运维接收人。
+- 侧边栏另需一个子域名（下文 `<sidebar-domain>`）与企微应用配置，见 §13。
 
 ## 2. 目录布局
 
@@ -36,9 +38,11 @@
 | `/var/lib/zhiban/state` | 看门狗状态（仅 `zhiban` 可写） |
 | `/var/lib/zhiban/status` | 运维状态文件（存档/机器人/模型，只读给看门狗） |
 | `/var/www/zhiban/console` | 控制台静态文件（`console/dist`） |
+| `/var/www/zhiban/sidebar` | 侧边栏静态文件（`console/dist-sidebar`，#145） |
 | `/var/backups/zhiban` | 每日备份（`0700`，文件 `0600`） |
 | `/etc/zhiban/*.env` | 部署凭据（`0600 root:root`，不进 git） |
-| `/etc/nginx/sites-enabled/zhiban.conf` | Nginx 站点 |
+| `/etc/nginx/sites-enabled/zhiban.conf` | Nginx 站点（控制台） |
+| `/etc/nginx/sites-enabled/zhiban-sidebar.conf` | Nginx 站点（侧边栏，#145） |
 | `/etc/letsencrypt/live/<console-domain>/` | 证书（certbot 管理） |
 
 > 环境隔离按 [P1-environments.md](./P1-environments.md)：服务器跑 demo，另一套 `dsh-dev` 不与 demo 共用机器人或数据目录。
@@ -284,3 +288,69 @@ sudo systemctl disable --now zhiban-watchdog.timer zhiban-report.timer
 - PDF 导出需要中文字体：`apt-get install -y fonts-noto-cjk`，或配置 `pdf.fontPath` / `pdf.fontFamily`（见 [P1-data-security.md](./P1-data-security.md)）。
 - 新增依赖：本包未新增 npm 依赖；脚本只使用 `bash`、`tar`、`gzip`、`sha256sum`/`shasum`。
 - 仓库与本文不含任何真实域名、Key、Secret、Token；`<...>` 均为占位符。
+
+## 13. 侧边栏站点（#145）
+
+侧边栏是企微聊天工具栏里的 H5，与控制台分开构建、分开域名、分开会话，**不进控制台路由**。
+
+### 13.1 构建
+
+```bash
+cd console
+npm ci
+npm run build:sidebar     # tsc --noEmit && vite build --config vite.sidebar.config.ts
+# 产物：console/dist-sidebar/index.html + assets/（gzip 后 JS 约 3 KB）
+```
+
+本机构建，不在 2 GB 的 VM 上跑；上传：
+
+```bash
+rsync -a -B en0 --delete console/dist-sidebar/ ubuntu@43.167.159.74:/tmp/zhiban-sidebar/
+# 服务器上（先备份旧版本）
+sudo cp -a /var/www/zhiban/sidebar /var/www/zhiban/sidebar.bak-$(date +%Y%m%d%H%M)
+sudo rsync -a --delete /tmp/zhiban-sidebar/ /var/www/zhiban/sidebar/
+sudo chown -R www-data:www-data /var/www/zhiban/sidebar
+```
+
+### 13.2 Nginx
+
+```bash
+sudo cp /opt/zhiban/app/deploy/nginx/zhiban-sidebar.conf /etc/nginx/sites-available/
+sudo sed -i 's/<sidebar-domain>/<实际域名>/g' /etc/nginx/sites-available/zhiban-sidebar.conf
+sudo ln -sf /etc/nginx/sites-available/zhiban-sidebar.conf /etc/nginx/sites-enabled/zhiban-sidebar.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+只开放 `/sidebar/` 与 `/zhiban/sidebar/`，其余路径 404；控制台的 `/zhiban/api` 不在这个域名下。
+
+### 13.3 插件配置
+
+`zhiban-sidebar` 的 profile 配置需增加（Secret 只放服务器，不进仓库）：
+
+| 字段 | 说明 |
+|---|---|
+| `sessionSecret` | 会话 Cookie 签名密钥；未配置时所有接口 401 |
+| `corpId` / `agentId` / `agentSecret` | 自建应用凭据，用于 OAuth 与 jsapi_ticket |
+| `publicBaseUrl` | `https://<sidebar-domain>`，用于拼回调地址与限制签名 URL |
+| `botUserIds` | 机器人 userid，其发言不算顾问已回复 |
+
+三项企微凭据与 `publicBaseUrl` 缺任意一项时，侧边栏登录页显示「侧边栏未配置」，不会裸跳授权。
+
+### 13.4 企微后台 checklist（需要项目方操作）
+
+- [ ] DNS：`<sidebar-domain>` → `43.167.159.74`（`www.xruns.cn` 指向官网，不能复用）
+- [ ] 应用「网页授权及 JS-SDK」可信域名 = `<sidebar-domain>`
+- [ ] 「企业微信授权登录」回调域 = `<sidebar-domain>`
+- [ ] 应用可见范围加入试点顾问
+- [ ] 聊天工具栏页面地址改为 `https://<sidebar-domain>/sidebar/`
+- [ ] 确认顾问在患者域名册中状态为 `active`（否则回调返回 403）
+
+### 13.5 自查
+
+```bash
+curl -s https://<sidebar-domain>/zhiban/sidebar/health          # {"ok":true,...}
+curl -si https://<sidebar-domain>/zhiban/sidebar/context?chatId=x | head -1   # 401
+curl -si https://<sidebar-domain>/dsh/ | head -1                # 404
+```
+
+⏳ 真机验收见 #150：外部群、外部单聊、内部群兜底、未授权顾问 401/403、弱网首屏。

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { FakeClock } from '../src/c2/memory.ts';
 import {
   ServiceGroupRegistry,
+  reconcileServiceGroups,
   type ServiceRosterSnapshot,
 } from '../plugins/zhiban-wecom/service-groups.ts';
 
@@ -102,4 +103,37 @@ test('entries 同时包含种子与服务中 / 已发现的群，状态可读', 
   assert.equal(states.get('wrA'), 'active');
   assert.equal(states.get('wrB'), 'candidate');
   assert.equal(states.get('wrC'), 'active');
+});
+
+test('#159 白名单对齐：患者域 serving/collect_only 补进白名单，其余不动', () => {
+  const { registry, saved } = build(['wrSeed']);
+  reconcileServiceGroups(
+    registry,
+    [
+      { roomId: 'wrNew', status: 'serving' },
+      { roomId: 'wrOnly', status: 'collect_only' },
+      { roomId: 'wrPending', status: 'pending' },
+      { roomId: 'wrDisabled', status: 'disabled' },
+      { roomId: '', status: 'serving' },
+      { roomId: 'wrSeed', status: 'serving' },
+    ],
+    () => {},
+  );
+
+  assert.equal(registry.isAllowed('wrNew'), true);
+  assert.equal(registry.isAllowed('wrOnly'), true);
+  assert.equal(registry.isAllowed('wrPending'), false);
+  assert.equal(registry.isAllowed('wrDisabled'), false);
+  // 空 roomId 与已在白名单的群不触发落盘：只有 wrNew/wrOther 两次
+  assert.equal(saved.length, 2);
+});
+
+test('#159 白名单对齐：重复对齐是幂等的，不再落盘', () => {
+  const { registry, saved } = build([]);
+  const groups = [{ roomId: 'wrA', status: 'serving' }];
+  reconcileServiceGroups(registry, groups);
+  reconcileServiceGroups(registry, groups);
+  reconcileServiceGroups(registry, groups);
+  assert.equal(registry.isAllowed('wrA'), true);
+  assert.equal(saved.length, 1);
 });

@@ -1,4 +1,5 @@
 import type { CardPayload, Draft, TextPayload } from './types.ts';
+import type { PromiseRecord } from './promises.ts';
 
 export const BUTTON_ACTIONS = ['sent', 'skipped'] as const;
 export type ButtonAction = (typeof BUTTON_ACTIONS)[number];
@@ -128,6 +129,99 @@ export function buildCard(draft: Draft, queueDepth: number): CardPayload {
       button_list: [
         { text: '已发送', style: 1, key: buttonKey(draft.id, 'sent', version) },
         { text: '忽略', style: 4, key: buttonKey(draft.id, 'skipped', version) },
+      ],
+    },
+  };
+}
+
+/** 等待时长的人类可读写法；用于「客户在等」聚合提醒 */
+export function humanWait(ms: number): string {
+  const minutes = Math.max(1, Math.floor(ms / 60_000));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时`;
+  return `${Math.floor(hours / 24)} 天`;
+}
+
+/**
+ * #163 「客户在等」聚合提醒：只说有几个群、最久等了多久，不带正文。
+ * 顾问收到后去侧边栏处理，内容不经过 1:1 通道。
+ */
+export function buildWaitingReminder(groups: number, oldestWaitMs: number): TextPayload {
+  const count = Math.max(1, groups);
+  return {
+    msgtype: 'text',
+    text: {
+      content:
+        `客户在等：${count} 个群有未处理消息，最久 ${humanWait(oldestWaitMs)}。` +
+        '打开企微侧边栏查看并处理。',
+    },
+  };
+}
+
+/**
+ * #160 承诺到期卡片：引用顾问自己的原话（这是唯一事实来源），
+ * 不包含客户消息正文；按钮一次作用于卡片上列出的全部承诺。
+ */
+export function buildPromiseCard(items: PromiseRecord[], total = items.length): CardPayload {
+  const shown = items.slice(0, 3);
+  const ids = shown.map((item) => item.id).join(',');
+  const title =
+    shown.length === 1 ? `承诺到期 · ${shown[0]!.groupName}` : `承诺到期 · ${shown.length} 条`;
+  const more = total > shown.length ? `另有 ${total - shown.length} 条，请在侧边栏查看` : '这些是你答应过客户的事';
+  return {
+    msgtype: 'template_card',
+    template_card: {
+      card_type: 'button_interaction',
+      task_id: `pr-${ids.replace(/[^a-z0-9]/gi, '')}-${shown[0]?.dueAt.toString(36) ?? '0'}`.slice(0, 32),
+      main_title: {
+        title,
+        desc: shown.length === 1 ? shown[0]!.dueLabel : '按到期时间排序',
+      },
+      sub_title_text: more,
+      horizontal_content_list: shown.map((item) => ({
+        keyname: truncate(item.groupName, 30),
+        value: truncate(`${item.dueLabel} · ${item.excerpt}`, 80),
+      })),
+      button_list: [
+        { text: '已处理', style: 1, key: `promise:${ids}:done` },
+        { text: '稍后提醒', style: 2, key: `promise:${ids}:later` },
+        { text: '这不是承诺', style: 4, key: `promise:${ids}:false` },
+      ],
+    },
+  };
+}
+
+/**
+ * #161 每日巡检卡片：最多 3 条信号，只写「哪个群、什么信号、多久」。
+ * 「今天不看」只抑制当天同类推送，不改变数据。
+ */
+export function buildPatrolCard(
+  advisorId: string,
+  signals: Array<{ groupName: string; kind: 'silent' | 'complaint'; days: number }>,
+  extraCount: number,
+): CardPayload {
+  const shown = signals.slice(0, 3);
+  return {
+    msgtype: 'template_card',
+    template_card: {
+      card_type: 'button_interaction',
+      task_id: `pt-${advisorId}-${shanghaiClock(Date.now()).replace(':', '')}`.slice(0, 32),
+      main_title: {
+        title: `今日巡检 · ${shown.length} 个群需要关注`,
+        desc: '只列群与信号，不展示客户消息',
+      },
+      sub_title_text:
+        extraCount > 0
+          ? `另有 ${extraCount} 条，打开侧边栏查看`
+          : '打开侧边栏查看具体情况',
+      horizontal_content_list: shown.map((signal) => ({
+        keyname: truncate(signal.groupName, 30),
+        value: signal.kind === 'complaint' ? '出现投诉/风险信号' : `客户已沉默 ${signal.days} 天`,
+      })),
+      button_list: [
+        { text: '查看', style: 1, key: `patrol:${advisorId}:show` },
+        { text: '今天不看', style: 4, key: `patrol:${advisorId}:mute` },
       ],
     },
   };

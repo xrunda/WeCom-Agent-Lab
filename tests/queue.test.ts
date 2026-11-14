@@ -53,7 +53,7 @@ test('#37 命中规则随草稿落库，改稿后按新结果更新', () => {
   assert.equal(store.getDraft(revised.id)?.ruleNames, undefined);
 });
 
-test('同一顾问同一时间只推送一条草稿', async () => {
+test('#163 草稿不再推送卡片/正文，只标记 PUSHED 供侧边栏展示', async () => {
   const { service, store, bot } = prepare();
   enqueue(service, 'D1');
   enqueue(service, 'D2');
@@ -61,19 +61,16 @@ test('同一顾问同一时间只推送一条草稿', async () => {
 
   await service.tick();
 
-  assert.equal(bot.cards().length, 1);
-  assert.equal(bot.texts().length, 1);
+  // 不做内容分发：1:1 没有卡片、正文或图片
+  assert.equal(bot.sent.length, 0);
   assert.equal(store.getActiveDraft('a1'), 'D1');
-  assert.equal(store.getDraft('D2')?.status, 'QUEUED');
-  assert.equal(store.getDraft('D3')?.status, 'QUEUED');
-
-  // 不确认就不会推送下一条
-  await service.tick();
-  assert.equal(bot.cards().length, 1);
+  assert.equal(store.getDraft('D1')?.status, 'PUSHED');
+  assert.equal(store.getDraft('D2')?.status, 'PUSHED');
+  assert.equal(store.getDraft('D3')?.status, 'PUSHED');
 });
 
-test('确认后队列释放，下一条才推送', async () => {
-  const { service, store, bot } = prepare();
+test('确认后 active 指向下一条待处理草稿', async () => {
+  const { service, store } = prepare();
   enqueue(service, 'D1');
   enqueue(service, 'D2');
 
@@ -82,12 +79,12 @@ test('确认后队列释放，下一条才推送', async () => {
   assert.equal(store.getActiveDraft('a1'), undefined);
 
   await service.tick();
-  assert.equal(bot.cards().length, 2);
   assert.equal(store.getActiveDraft('a1'), 'D2');
+  assert.equal(store.getDraft('D2')?.status, 'PUSHED');
 });
 
-test('不同顾问互不阻塞，可以并行推送', async () => {
-  const { service, store, bot, clock } = prepare();
+test('不同顾问互不阻塞', async () => {
+  const { service, store } = prepare();
   service.addAdvisor({ id: 'a2', name: '顾问 2', chatId: 'chat_a2' });
   service.bindGroup({ roomId: 'room_2', name: '群 2', advisorId: 'a2' });
 
@@ -104,77 +101,55 @@ test('不同顾问互不阻塞，可以并行推送', async () => {
   });
 
   await service.tick();
-  assert.equal(bot.cards().length, 2);
   assert.equal(store.getActiveDraft('a1'), 'D1');
   assert.equal(store.getActiveDraft('a2'), 'E1');
-  assert.ok(clock.now() >= 0);
 });
 
-test('正文发送失败后重试，不重复发送卡片', async () => {
+test('客户等待超过阈值才发聚合提醒，且不重复刷屏', async () => {
   const { service, store, bot, clock } = prepare();
   enqueue(service, 'D1');
-
-  bot.failTextTimes = 1;
-  await service.tick();
-
-  const draft = store.getDraft('D1');
-  assert.equal(draft?.status, 'QUEUED');
-  assert.equal(draft?.pushAttempts, 1);
-  assert.ok((draft?.nextAttemptAt ?? 0) > clock.now());
-  assert.equal(bot.cards().length, 1);
-  assert.equal(bot.texts().length, 0);
-  assert.ok(store.listAlerts().some((a) => a.kind === 'PUSH_FAILED'));
-  assert.equal(store.getActiveDraft('a1'), undefined);
-
-  // 未到退避时间，不重试
+  enqueue(service, 'D2');
   await service.tick();
   assert.equal(bot.texts().length, 0);
 
-  clock.advance(DEFAULT_QUEUE_CONFIG.retryBackoffMs);
+  clock.advance(DEFAULT_QUEUE_CONFIG.remindAfterMs);
   await service.tick();
-
-  assert.equal(bot.cards().length, 1, '重试不应重复发送卡片');
   assert.equal(bot.texts().length, 1);
-  assert.equal(store.getDraft('D1')?.status, 'PUSHED');
-  assert.equal(store.getActiveDraft('a1'), 'D1');
+  const reminder = bot.texts()[0]?.message;
+  const content = reminder?.msgtype === 'text' ? reminder.text.content : '';
+  assert.match(content, /客户在等/);
+  assert.match(content, /1 个群/);
+  // 不带正文
+  assert.equal(content.includes('这是 D1 的回复正文'), false);
+  assert.ok(store.getDraft('D1')?.remindedAt);
+  assert.ok(store.getDraft('D2')?.remindedAt);
+
+  clock.advance(60_000);
+  await service.tick();
+  assert.equal(bot.texts().length, 1, '同一批草稿不重复提醒');
 });
 
-test('连续失败达到上限进入死信并告警', async () => {
-  const { service, store, bot, clock } = prepare();
-  enqueue(service, 'D1');
-  bot.failTextTimes = 10;
-
-  await service.tick();
-  clock.advance(DEFAULT_QUEUE_CONFIG.retryBackoffMs);
-  await service.tick();
-  clock.advance(DEFAULT_QUEUE_CONFIG.retryBackoffMs * 2);
-  await service.tick();
-
-  const draft = store.getDraft('D1');
-  assert.equal(draft?.status, 'DEAD_LETTER');
-  assert.equal(draft?.pushAttempts, DEFAULT_QUEUE_CONFIG.maxPushAttempts);
-  assert.equal(bot.cards().length, 1);
-  assert.equal(store.getActiveDraft('a1'), undefined);
-  assert.ok(store.listAlerts().some((a) => a.kind === 'DEAD_LETTER'));
-});
-
-test('顾问未绑定机器人会话时只告警一次，不推送', async () => {
-  const { service, store, bot } = setup();
+test('顾问未绑定机器人会话时只在需要提醒时告警一次', async () => {
+  const { service, store, bot, clock } = setup();
   service.addAdvisor({ id: 'a1', name: '顾问' });
   service.bindGroup({ roomId: 'room_1', name: '群 1', advisorId: 'a1' });
   enqueue(service, 'D1');
 
+  await service.tick();
+  assert.equal(bot.texts().length, 0);
+
+  clock.advance(DEFAULT_QUEUE_CONFIG.remindAfterMs);
   await service.tick();
   await service.tick();
 
   assert.equal(bot.cards().length, 0);
   assert.equal(bot.texts().length, 0);
   assert.equal(store.listAlerts().filter((a) => a.kind === 'NO_CHATID').length, 1);
-  assert.equal(store.getDraft('D1')?.status, 'QUEUED');
+  assert.equal(store.getDraft('D1')?.status, 'PUSHED');
 });
 
-test('暂停的顾问不再推送', async () => {
-  const { service, store, bot } = prepare();
+test('暂停的顾问不再处理队列', async () => {
+  const { service, store } = prepare();
   enqueue(service, 'D1');
   const advisor = store.getAdvisor('a1');
   assert.ok(advisor);
@@ -182,25 +157,7 @@ test('暂停的顾问不再推送', async () => {
   store.saveAdvisor(advisor);
 
   await service.tick();
-  assert.equal(bot.cards().length, 0);
-});
-
-test('超时未处理会提醒，提醒只发一次', async () => {
-  const { service, store, bot, clock } = prepare();
-  enqueue(service, 'D1');
-  await service.tick();
-  assert.equal(bot.texts().length, 1);
-
-  clock.advance(DEFAULT_QUEUE_CONFIG.remindAfterMs);
-  await service.tick();
-  assert.equal(bot.texts().length, 2);
-  const reminder = bot.texts()[1]?.message;
-  assert.match(reminder?.msgtype === 'text' ? reminder.text.content : '', /提醒/);
-  assert.ok(store.getDraft('D1')?.remindedAt);
-
-  clock.advance(60_000);
-  await service.tick();
-  assert.equal(bot.texts().length, 2);
+  assert.equal(store.getDraft('D1')?.status, 'QUEUED');
 });
 
 test('长时间未处理会升级并告警', async () => {
@@ -272,7 +229,7 @@ test('未配置主管时不额外推送，只保留 ESCALATED 告警', async () 
 });
 
 test('忽略草稿会释放队列且不进入校验', async () => {
-  const { service, store, bot } = prepare();
+  const { service, store } = prepare();
   enqueue(service, 'D1');
   enqueue(service, 'D2');
 
@@ -285,7 +242,6 @@ test('忽略草稿会释放队列且不进入校验', async () => {
   assert.equal(store.getActiveDraft('a1'), undefined);
 
   await service.tick();
-  assert.equal(bot.cards().length, 2);
   assert.equal(store.getActiveDraft('a1'), 'D2');
 });
 
@@ -338,8 +294,8 @@ test('入队时校验群归属和正文长度', () => {
   assert.equal(store.listDrafts().length, 0);
 });
 
-test('#55 先转推原图再推正文；正文失败重试不重复发图', async () => {
-  const { service, bot, store, clock } = prepare();
+test('#163 图片与正文不再转推给顾问', async () => {
+  const { service, bot, store } = prepare();
   service.enqueueDraft({
     id: 'I1',
     advisorId: 'a1',
@@ -353,42 +309,12 @@ test('#55 先转推原图再推正文；正文失败重试不重复发图', asyn
     mediaKinds: ['meal'],
   });
 
-  bot.failTextTimes = 1;
-  await service.tick();
-  assert.deepEqual(
-    bot.sent.map((item) => item.kind),
-    ['card', 'image'],
-  );
-  assert.equal(store.getDraft('I1')?.mediaForwardedAt !== undefined, true);
-
-  clock.advance(60_001);
-  await service.tick();
-  assert.deepEqual(
-    bot.sent.map((item) => item.kind),
-    ['card', 'image', 'text'],
-  );
-  assert.equal(bot.images().length, 1);
-  assert.equal(store.getDraft('I1')?.status, 'PUSHED');
-});
-
-test('#55 原图转推失败不阻断卡片与正文', async () => {
-  const { service, bot, store } = prepare();
-  bot.failImageTimes = 1;
-  service.enqueueDraft({
-    id: 'I2',
-    advisorId: 'a1',
-    groupRoomId: 'room_1',
-    customerId: 'c1',
-    customerName: '客户 1',
-    inboundMessageId: 'in_I2',
-    inboundSummary: '发来一张化验单',
-    body: '报告已收到，我请顾问看过后回复您。',
-    mediaIds: ['/tmp/media/report.jpg'],
-    mediaKinds: ['report'],
-  });
-
   await service.tick();
   assert.equal(bot.images().length, 0);
-  assert.equal(bot.texts().length, 1);
-  assert.equal(store.getDraft('I2')?.status, 'PUSHED');
+  assert.equal(bot.texts().length, 0);
+  assert.equal(bot.cards().length, 0);
+  assert.equal(store.getDraft('I1')?.mediaForwardedAt, undefined);
+  // 草稿仍在侧边栏可见，媒体信息保留在草稿上
+  assert.deepEqual(store.getDraft('I1')?.mediaKinds, ['meal']);
+  assert.equal(store.getDraft('I1')?.status, 'PUSHED');
 });

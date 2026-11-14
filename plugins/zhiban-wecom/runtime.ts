@@ -12,8 +12,13 @@ import type { ComposeFn } from '../../src/c2/trigger.ts';
 import type { C2Service } from '../../src/c2/service.ts';
 import { tailId } from '../../src/c2/redact.ts';
 import type { BotPort, Clock } from '../../src/c2/ports.ts';
-import type { Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { AckAction, Alert, ArchivedInbound, Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import type { PromiseService } from '../../src/c2/promise-service.ts';
+import type { PatrolService } from './patrol-service.ts';
 import type { WeComArchiveAdapter } from '../../src/c2/adapters/wecom-archive.ts';
+import { isExternalCustomerId } from '../../src/c2/adapters/wecom-archive.ts';
+import { dmConvKey, groupConvKey } from '../../src/p1/sidebar.ts';
+import type { SidebarSink } from '../../src/p1/sidebar.ts';
 import type {
   ConsentStatus,
   InboundMessage as PatientInboundMessage,
@@ -23,6 +28,15 @@ import type { WecomPluginConfig } from './config.ts';
 import type { DomainStore } from './domain.ts';
 import type { GroupInfoClient, RoomInfo } from './group-info.ts';
 import type { RoomAgreeClient } from './room-agree.ts';
+
+/**
+ * #159 单聊摄取的回看窗口：每轮都拉最近 24h 的存档单聊，
+ * 靠待回复索引的 msgid 幂等去重。回看窗口大于轮询间隔即可。
+ */
+const DM_INGEST_LOOKBACK_MS = 24 * 60 * 60_000;
+
+/** #160 待回复索引增量同步的重叠窗口：归档回放可能晚于轮询到达 */
+const SIDEBAR_SYNC_OVERLAP_MS = 5 * 60_000;
 
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
@@ -88,6 +102,18 @@ export interface WecomRuntimeDeps {
    * 只把原文交给质检方做关键词匹配；本运行时日志不会打正文。
    */
   staffQuality?: (message: StaffQualityMessage) => void;
+  /**
+   * #146：顾问侧边栏的待回复索引。
+   * 用 getter 而不是实例：插件装载顺序不同，zhiban-sidebar 可能晚于本插件就绪。
+   * 未安装时静默跳过，不影响草稿链路。
+   */
+  sidebar?: () => SidebarSink | undefined;
+  /**
+   * #159：每轮轮询前从患者域对齐存档白名单。控制台切状态会实时同步，
+   * 但沙盒预置 / 企微域离线期间的状态变更不走那条路径——由轮询兜底，
+   * 避免界面显示「服务中」而存档不拉取。
+   */
+  reconcileServiceGroups?: () => void;
   /** 患者域（可选）：存在时由它接管服务群消息 */
   patient?: PatientSink;
   /** 群名与群昵称查询（可选）：未配置凭据或查询失败时静默保留原值 */
@@ -99,6 +125,10 @@ export interface WecomRuntimeDeps {
     scanOnce(): Promise<unknown>;
     intervalMs: number;
   };
+  /** #160：承诺到期提醒；缺省时跳过 */
+  promises?: PromiseService;
+  /** #161：每日巡检；缺省时跳过 */
+  patrol?: PatrolService;
 }
 
 export interface StartOptions {
@@ -132,22 +162,6 @@ function summarizeText(text: string): string {
   return flat.length <= 40 ? flat : `${flat.slice(0, 40)}…`;
 }
 
-function verificationNotice(draft: Draft, outcome: VerifyOutcome): string {
-  const quote = `客户原文「${draft.inboundSummary}」`;
-  switch (outcome) {
-    case 'VERIFIED':
-      return `✅ 校验通过：${quote} 的回复已在「${draft.groupName}」里找到，这条任务完成。`;
-    case 'EDIT_SENT':
-      return `✅ 已发送（内容有改动）：在「${draft.groupName}」里找到了相近的正文，这条任务完成。`;
-    case 'MISROUTE_ALERT':
-      return `⚠️ 错群：${quote} 的回复出现在别的群，不在「${draft.groupName}」。请检查后手动处理。`;
-    case 'UNVERIFIED':
-      return `❌ 没有在「${draft.groupName}」里找到这条正文，请确认是否真的粘贴发出去了。`;
-    default:
-      return `校验结果：${outcome}（${quote}）`;
-  }
-}
-
 export class WecomRuntime {
   private readonly store: DomainStore;
   private readonly service: C2Service;
@@ -159,10 +173,14 @@ export class WecomRuntime {
   private readonly emit: (type: string, data: unknown) => void;
   private readonly logger?: (line: string) => void;
   private readonly staffQuality?: (message: StaffQualityMessage) => void;
+  private readonly sidebar?: () => SidebarSink | undefined;
+  private readonly reconcileServiceGroups?: () => void;
   private readonly patient?: PatientSink;
   private readonly groupInfo?: Pick<GroupInfoClient, 'memberNames' | 'roomInfo'>;
   private readonly roomAgree?: Pick<RoomAgreeClient, 'roomConsent'>;
   private readonly discovery?: WecomRuntimeDeps['discovery'];
+  private readonly promises?: PromiseService;
+  private readonly patrol?: PatrolService;
 
   private pollTimer?: ReturnType<typeof setInterval>;
   private tickTimer?: ReturnType<typeof setInterval>;
@@ -171,6 +189,11 @@ export class WecomRuntime {
   private polling = false;
   private ticking = false;
   private lastRunPersistAt = 0;
+  /**
+   * #160：待回复索引上次同步到哪个时刻。undefined 表示本进程还没同步过，
+   * 第一次同步按 sidebarBackfillHours 回看补建；之后每轮只扫增量。
+   */
+  private sidebarSyncedAt?: number;
 
   constructor(deps: WecomRuntimeDeps) {
     this.store = deps.store;
@@ -183,10 +206,14 @@ export class WecomRuntime {
     this.emit = deps.emit;
     this.logger = deps.logger;
     this.staffQuality = deps.staffQuality;
+    this.sidebar = deps.sidebar;
+    this.reconcileServiceGroups = deps.reconcileServiceGroups;
     this.patient = deps.patient;
     this.groupInfo = deps.groupInfo;
     this.roomAgree = deps.roomAgree;
     this.discovery = deps.discovery;
+    this.promises = deps.promises;
+    this.patrol = deps.patrol;
   }
 
   /** 启动轮询与队列；effect 清理时调用 stop() */
@@ -257,8 +284,27 @@ export class WecomRuntime {
     if (!this.running || this.polling) return;
     this.polling = true;
     try {
+      // #159：患者域的服务状态是白名单源头；每轮轮询前对齐（幂等）
+      try {
+        this.reconcileServiceGroups?.();
+      } catch (error) {
+        this.log(
+          `服务群白名单对齐失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
+      }
       const result = await this.trigger.pollWithContext();
       this.patient?.observeRooms(await this.enrichRooms(result.rooms));
+
+      // #160：每轮先按时间顺序把存档消息同步进待回复索引，再处理本轮草稿，
+      // 保证「客户提问 → 顾问已回复」按真实先后落到同一条目上；
+      // 重启后第一次同步回看 sidebarBackfillHours 补建停机期间漏掉的条目
+      try {
+        await this.syncSidebarHistory();
+      } catch (error) {
+        this.log(
+          `待回复索引同步失败：${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
+      }
 
       // #63：内部员工发言与外部发言按时间交错交给患者域，保证上下文顺序
       const ordered: Array<{ message: ArchivedInbound; event?: (typeof result.events)[number] }> = [
@@ -289,6 +335,27 @@ export class WecomRuntime {
               );
             }
           }
+        }
+        // #146：每条存档消息都进待回复索引。单聊目前被存档适配器过滤
+        // （roomid 为空直接丢弃），因此这里只有群会话；单聊支持见 #146 的说明。
+        try {
+          this.sidebar?.()?.observe({
+            msgid: message.msgid,
+            convKey: groupConvKey(message.roomid),
+            kind: 'group',
+            roomId: message.roomid,
+            senderId: message.from,
+            ...(event ? { senderKind: 'external' as const } : {}),
+            msgtype: message.msgtype ?? 'text',
+            text: message.text,
+            at: message.msgtime,
+          });
+        } catch (error) {
+          // 索引失败不影响主链路；日志只带 msgid
+          this.log(
+            `待回复索引失败 msgid=${tailId(message.msgid)}：` +
+              `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
         }
         if (this.patient) {
           const routed = this.patient.routeInbound({
@@ -336,6 +403,7 @@ export class WecomRuntime {
           status: draft.status,
         });
       }
+      await this.observeDmMessages();
       this.persistProgress();
       await this.tickOnce();
     } catch (error) {
@@ -344,6 +412,130 @@ export class WecomRuntime {
       );
     } finally {
       this.polling = false;
+    }
+  }
+
+  /**
+   * #160 重启后补建待回复索引：把窗口内的服务群与受服务单聊记录按时间顺序
+   * 交给侧边栏。外部消息开条目、员工消息关条目，顺序对了重建结果才和群里的
+   * 真实状态一致。只读存档，不生成草稿；索引按 msgid 幂等，重复补建无副作用。
+   */
+  /**
+   * #160：把存档里的群消息与受服务单聊按时间顺序同步进待回复索引。
+   *
+   * 为什么每轮都做、而不是只用本轮触发结果：语音/文件等消息没有正文，
+   * 触发层不会给它们生成草稿，但客户发了东西就是欠一个回应；另外顾问
+   * 在存档里回复后，条目必须按真实时间关闭，而不是按本轮处理顺序。
+   * 索引按 msgid 幂等，重复同步没有副作用。
+   */
+  private async syncSidebarHistory(): Promise<void> {
+    const sink = this.sidebar?.();
+    if (!sink || !this.archive.listSidebarHistory) {
+      this.sidebarSyncedAt = this.clock.now();
+      return;
+    }
+
+    const until = this.clock.now();
+    const first = this.sidebarSyncedAt === undefined;
+    // 增量同步带一段重叠：归档回放可能比轮询晚到，重叠部分靠 msgid 去重
+    const since = first
+      ? until - this.config.sidebarBackfillHours * 60 * 60_000
+      : Math.max(0, this.sidebarSyncedAt! - SIDEBAR_SYNC_OVERLAP_MS);
+    // 先记窗口：即使本次失败也不重复回看同一段历史，下一轮的重叠会补上
+    this.sidebarSyncedAt = until;
+
+    const records = await this.archive.listSidebarHistory({ since, until });
+    const staffUserIds = [this.config.advisorChatId];
+    let observed = 0;
+    for (const record of records) {
+      const external = isExternalCustomerId(record.from);
+      try {
+        if (record.roomId !== '') {
+          sink.observe({
+            msgid: record.msgid,
+            convKey: groupConvKey(record.roomId),
+            kind: 'group',
+            roomId: record.roomId,
+            senderId: record.from,
+            // 只显式标记外部客户；其余交给索引按 botUserIds / 前缀区分员工与机器人
+            ...(external ? { senderKind: 'external' as const } : {}),
+            msgtype: record.msgtype ?? 'text',
+            text: record.text,
+            at: record.msgtime,
+          });
+        } else {
+          const fromStaff = staffUserIds.includes(record.from);
+          const externalId = fromStaff ? (record.tolist?.[0] ?? '') : record.from;
+          // 只覆盖顾问 ↔ 客户单聊；AI 助手/应用会话不进待回复
+          if (externalId === '' || !isExternalCustomerId(externalId)) continue;
+          sink.observe({
+            msgid: record.msgid,
+            convKey: dmConvKey(staffUserIds[0]!, externalId),
+            kind: 'dm',
+            senderId: record.from,
+            ...(external ? { senderKind: 'external' as const } : {}),
+            msgtype: record.msgtype ?? 'text',
+            text: record.text,
+            at: record.msgtime,
+          });
+        }
+        observed += 1;
+      } catch (error) {
+        // 单条失败不影响整体同步；日志只带 msgid
+        this.log(
+          `待回复索引同步失败 msgid=${tailId(record.msgid)}：` +
+            `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+        );
+      }
+    }
+    if (first) {
+      this.log(
+        `待回复索引补建完成：窗口 ${this.config.sidebarBackfillHours}h，` +
+          `候选 ${records.length} 条，入索引 ${observed} 条`,
+      );
+    }
+  }
+
+  /**
+   * #159 单聊接入：顾问与客户之间的存档单聊进待回复索引。
+   * 只读展示——不生成草稿、不进患者域；待回复索引按 msgid 幂等。
+   * 重启后存档缓存清空，停机期间到达的单聊不回补（P1 已知限制）。
+   */
+  private async observeDmMessages(): Promise<void> {
+    const staffUserIds = [this.config.advisorChatId];
+    try {
+      const until = this.clock.now();
+      const dms = await this.archive.listDmMessages({
+        staffUserIds,
+        since: until - DM_INGEST_LOOKBACK_MS,
+        until,
+        includeMedia: true,
+      });
+      for (const message of dms) {
+        const fromStaff = staffUserIds.includes(message.from);
+        const externalId = fromStaff ? (message.tolist?.[0] ?? '') : message.from;
+        if (externalId === '') continue;
+        try {
+          this.sidebar?.()?.observe({
+            msgid: message.msgid,
+            convKey: dmConvKey(staffUserIds[0]!, externalId),
+            kind: 'dm',
+            senderId: message.from,
+            // 方向显式给出：classify 的 wm 前缀推断会把 wo 开头的客户误判成员工
+            senderKind: fromStaff ? 'staff' : 'external',
+            msgtype: message.msgtype ?? 'text',
+            text: message.text,
+            at: message.msgtime,
+          });
+        } catch (error) {
+          this.log(
+            `单聊待回复索引失败 msgid=${tailId(message.msgid)}：` +
+              `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.log(`单聊索引拉取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -451,13 +643,23 @@ export class WecomRuntime {
           matchedGroupName: undefined,
           similarity: result.similarity,
         });
-        const draft = result.draftId ? this.store.getDraft(result.draftId) : undefined;
-        if (draft) await this.notify(verificationNotice(draft, result.outcome));
+        // #163：核验结果不再逐条私聊回执，只在侧边栏展示。
         // #34：核验结果作为上下文写回患者长期会话，不唤醒新回合
         if (result.draftId) {
+          const draft = this.store.getDraft(result.draftId);
+          if (
+            draft &&
+            (result.outcome === 'VERIFIED' || result.outcome === 'EDIT_SENT')
+          ) {
+            // #160：已确认发出的回复里如果答应了客户什么，入承诺账本
+            this.promises?.ingestDraft(draft);
+          }
           await this.patient?.handleDraftVerified(result.draftId, result.outcome);
         }
       }
+      // #160 / #161：到期承诺与每日巡检；未安装对应服务时跳过
+      await this.promises?.dueScan();
+      await this.patrol?.run();
       this.persistProgress();
     } catch (error) {
       this.log(
@@ -468,8 +670,24 @@ export class WecomRuntime {
     }
   }
 
-  /** 机器人卡片按钮回调 */
+  /** 机器人卡片按钮回调：#160 承诺 / #161 巡检 / 旧版草稿卡片 */
   async handleButtonKey(key: string): Promise<void> {
+    if (key.startsWith('promise:')) {
+      const result = this.promises?.handleButtonKey(key);
+      if (result) {
+        this.emit('promise.updated', {
+          action: result.action,
+          closed: result.closed.map((item) => item.id),
+          snoozed: result.snoozed.map((item) => item.id),
+        });
+      }
+      return;
+    }
+    if (key.startsWith('patrol:')) {
+      this.patrol?.handleButtonKey(key);
+      return;
+    }
+
     try {
       const draft = this.service.handleButtonCallback(key);
       this.emit('draft.acked', {
@@ -478,29 +696,36 @@ export class WecomRuntime {
         ackAction: draft.ackAction,
       });
       this.log(`顾问确认草稿 ${draft.id} → ${draft.status}`);
-      if (draft.status === 'SKIPPED') {
-        await this.notify(`已忽略这条草稿（客户原文「${draft.inboundSummary}」），不会再回读校验。`);
-      } else {
-        await this.notify(
-          `已记录「已发送」（客户原文「${draft.inboundSummary}」）。正在回读会话存档确认，稍后告诉你结果。`,
-        );
-      }
+      if (draft.status !== 'SKIPPED') this.promises?.ingestDraft(draft);
       await this.tickOnce();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.startsWith('ALREADY_ACKNOWLEDGED')) {
-        this.log(`重复点击，忽略（${message}）`);
-        await this.notify('这条草稿已经处理过了，无需重复点击。');
-        return;
-      }
-      // #56：改稿后旧卡片仍然可见，点旧卡片只提示，不当作错误
-      if (message.startsWith('STALE_CARD')) {
-        this.log(`过期卡片，忽略（${message}）`);
-        await this.notify('这条草稿已有新版本，请使用最新一条卡片操作。');
+      if (message.startsWith('ALREADY_ACKNOWLEDGED') || message.startsWith('STALE_CARD')) {
+        // 重复点击 / 旧卡片是常态：不打扰顾问，也不改变状态
+        this.log(`确认忽略（${message}）`);
         return;
       }
       this.log(`确认失败：${message}`);
     }
+  }
+
+  /**
+   * #163 侧边栏「已处理」→ 草稿确认发送，随后回读核验。
+   * 与机器人按钮共用同一状态机；核验结果只在侧边栏展示，不再私聊回执。
+   */
+  async acknowledgeFromSidebar(draftId: string, action: AckAction, actor: string): Promise<void> {
+    const draft = this.store.getDraft(draftId);
+    if (!draft) throw new Error(`DRAFT_NOT_FOUND ${draftId}`);
+    try {
+      this.service.acknowledge(draftId, action, draft.version ?? 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith('ALREADY_ACKNOWLEDGED')) throw error;
+    }
+    this.emit('draft.acked', { draftId, advisorId: draft.advisorId, ackAction: action });
+    this.log(`侧边栏处理草稿 ${draftId} → ${action} by=${tailId(actor)}`);
+    if (action === 'sent') this.promises?.ingestDraft(draft);
+    await this.tickOnce();
   }
 
   /** 顾问在机器人 1:1 里发文字：有活动草稿时作为改稿指令（#56） */
@@ -527,18 +752,6 @@ export class WecomRuntime {
     };
     this.store.emitAlert(alert);
     this.emit('alert.created', alert);
-  }
-
-  /** 把校验结果翻成顾问看得懂的一句话；卡片按钮不会变，只能补文字回执 */
-  private notify(text: string): Promise<void> {
-    return this.bot
-      .sendText(this.config.advisorChatId, text)
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this.log(
-          `回执发送失败：${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
   }
 
   /** 把存档 seq 与最后运行时刻写进领域存储，重启后从此处续拉 */

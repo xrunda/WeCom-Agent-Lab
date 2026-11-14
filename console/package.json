@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:sidebar": "tsc --noEmit && vite build --config vite.sidebar.config.ts",
+    "dev:sidebar": "vite --config vite.sidebar.config.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",

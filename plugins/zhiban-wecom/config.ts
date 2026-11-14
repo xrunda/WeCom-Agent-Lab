@@ -53,6 +53,8 @@ export interface WecomPluginConfigInput {
   pollIntervalMs?: unknown;
   tickIntervalMs?: unknown;
   downtimeThresholdMs?: unknown;
+  /** #160 重启后补建待回复索引的回看窗口（小时） */
+  sidebarBackfillHours?: unknown;
   composeTemplate?: unknown;
 }
 
@@ -92,6 +94,8 @@ export interface WecomPluginConfig {
   pollIntervalMs: number;
   tickIntervalMs: number;
   downtimeThresholdMs: number;
+  /** #160 重启后补建待回复索引的回看窗口（小时） */
+  sidebarBackfillHours: number;
   composeTemplate?: string;
 }
 
@@ -114,6 +118,7 @@ const DEFAULTS = {
   cacheLimit: 2000,
   discoveryIntervalMs: 5 * 60_000,
   discoveryMaxPerScan: 50,
+  sidebarBackfillHours: 24,
 };
 
 function requiredString(value: unknown, field: string): string {
@@ -299,6 +304,14 @@ export function parsePluginConfig(
       60_000,
       24 * 60 * 60_000,
       DEFAULTS.downtimeThresholdMs,
+    ),
+    // #160：重启后把窗口内的历史消息补进待回复索引；上限一周，避免补拉过重
+    sidebarBackfillHours: boundedInt(
+      input.sidebarBackfillHours,
+      'sidebarBackfillHours',
+      1,
+      24 * 7,
+      DEFAULTS.sidebarBackfillHours,
     ),
     composeTemplate: optionalString(input.composeTemplate, 'composeTemplate'),
   };

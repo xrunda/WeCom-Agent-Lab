@@ -453,9 +453,18 @@ export class C2Service {
     return { pushed, verified };
   }
 
+  /**
+   * 待处理草稿数（#163）：1:1 不再逐条推送，排队与已就绪都算等待顾问处理，
+   * 控制台/CLI 的「队列深度」按这个口径展示。
+   */
   queueDepth(advisorId: string): number {
-    const active = this.store.getActiveDraft(advisorId) ? 1 : 0;
-    return active + this.store.listQueued(advisorId, this.clock.now()).length;
+    return this.store
+      .listDrafts()
+      .filter(
+        (draft) =>
+          draft.advisorId === advisorId &&
+          (draft.status === 'QUEUED' || draft.status === 'PUSHED'),
+      ).length;
   }
 
   private nextDraftId(): string {
