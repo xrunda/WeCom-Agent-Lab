@@ -17,3 +17,12 @@
   font-size: 13px;
   line-height: 1.7;
 }
+
+/* 触发告警的原文关键词：给一个明确的底色，扫一眼就能定位 */
+.alert-hit {
+  padding: 0 2px;
+  background: #fde68a;
+  border-radius: 3px;
+  color: inherit;
+  font-weight: 600;
+}

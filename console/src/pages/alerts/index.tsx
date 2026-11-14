@@ -43,8 +43,15 @@ import {
   type AlertStatus,
 } from '../../mock/alerts.ts';
 import { listPatients } from '../../mock/patients.ts';
+import { listRiskRules } from '../../mock/rules.ts';
 import { formatDateTime, formatRelative } from '../../utils/format.ts';
-import { alertGuidance, alertReason, alertSourceLabel, relatedFlowTarget } from './alert-insights.ts';
+import {
+  alertGuidance,
+  alertReason,
+  alertSourceLabel,
+  relatedFlowTarget,
+} from './alert-insights.ts';
+import { splitByKeywords, splitStaffQuote } from './alert-text.ts';
 import './alerts.css';
 
 const { Text } = Typography;
@@ -158,6 +165,27 @@ export default function AlertsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [resolveTarget, setResolveTarget] = useState<AlertItem | null>(null);
   const [note, setNote] = useState('');
+  /** 红线关键词：详情里把触发告警的原文词加底色 */
+  const [hitKeywords, setHitKeywords] = useState<string[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    listRiskRules({ enabled: true })
+      .then(({ items }) => {
+        if (!alive) return;
+        setHitKeywords(
+          items
+            .filter((rule) => rule.action === 'flag')
+            .flatMap((rule) => rule.keywords),
+        );
+      })
+      .catch(() => {
+        // 高亮只是辅助：规则接口不可用时按普通文本展示
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 工作台「团队关注」深链：kind / status / advisorId 都从 URL 恢复。
   useEffect(() => {
@@ -472,7 +500,28 @@ export default function AlertsPage() {
                   message="为什么告警"
                   description={
                     <Space direction="vertical" size={4}>
-                      <Text>{alert.message || alert.title}</Text>
+                      <Text>
+                        {(() => {
+                          const text = alert.message || alert.title;
+                          const parts = splitStaffQuote(text);
+                          if (parts.quote === undefined) return text;
+                          return (
+                            <>
+                              {parts.before}
+                              {splitByKeywords(parts.quote, hitKeywords).map((segment, index) =>
+                                segment.hit ? (
+                                  <mark className="alert-hit" key={index}>
+                                    {segment.text}
+                                  </mark>
+                                ) : (
+                                  <span key={index}>{segment.text}</span>
+                                ),
+                              )}
+                              {parts.after}
+                            </>
+                          );
+                        })()}
+                      </Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {alertReason(alert.kind, alert.source)}
                       </Text>
