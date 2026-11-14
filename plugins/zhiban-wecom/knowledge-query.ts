@@ -32,10 +32,18 @@ export interface ExplainableDraft {
   hasRuleEvidence?: boolean;
 }
 
+/** 员工发言质检的最近一次命中；不含发言正文 */
+export interface StaffRedlineExplain {
+  ruleNames: string[];
+  keywords: string[];
+}
+
 export interface KnowledgeQueryDeps {
   source: () => KnowledgeQuerySource | undefined;
   /** 只返回发问顾问本人的最近草稿 */
   latestDraft: (userId: string) => ExplainableDraft | undefined;
+  /** 只返回发问顾问本人的最近一次员工发言质检；未安装 guard 时为空 */
+  staffRedline?: (userId: string) => StaffRedlineExplain | undefined;
   now?: () => number;
   /** 单顾问每分钟上限，默认 20 */
   rateLimitPerMinute?: number;
@@ -46,13 +54,30 @@ const SESSION_TTL_MS = 30 * 60_000;
 const SESSION_MAX = 2000;
 
 const KNOWLEDGE_COMMAND = /^知识(?:库)?/;
-const EXPLAIN_COMMAND = /^(为什么高风险|为什么标红|解释草稿)\s*$/;
+const EXPLAIN_WORDS = /(为什么高风险|为什么标红|为什么红线|为什么质检|解释草稿)\s*[?？!！.。…]*$/;
 const HELP_COMMAND = /^(帮助|指令|能做什么)\s*$/;
+
+type ExplainCommand = 'draft' | 'redline';
+
+/**
+ * 解释指令允许在引用原文后追问，例如粘贴质检提醒再问「为什么红线」。
+ * 短语前必须是开头或分隔符，避免把「改成为什么高风险」这类改稿当成提问。
+ */
+export function explainCommandOf(text: string): ExplainCommand | undefined {
+  const trimmed = text.trim();
+  const match = EXPLAIN_WORDS.exec(trimmed);
+  if (!match) return undefined;
+  if (match.index > 0 && !/[\s」』\]】）)]/.test(trimmed[match.index - 1]!)) return undefined;
+  const word = match[1]!;
+  return word === '为什么红线' || word === '为什么质检' ? 'redline' : 'draft';
+}
 
 export function isKnowledgeCommand(text: string): boolean {
   const trimmed = text.trim();
   return (
-    KNOWLEDGE_COMMAND.test(trimmed) || EXPLAIN_COMMAND.test(trimmed) || HELP_COMMAND.test(trimmed)
+    KNOWLEDGE_COMMAND.test(trimmed) ||
+    explainCommandOf(trimmed) !== undefined ||
+    HELP_COMMAND.test(trimmed)
   );
 }
 
@@ -127,13 +152,16 @@ export class KnowledgeQueryService {
   /** 是问答指令时返回回复文本；不是指令返回 undefined，交给改稿流程 */
   reply(userId: string, text: string): string | undefined {
     const trimmed = text.trim();
+    const explain = explainCommandOf(trimmed);
     const command = HELP_COMMAND.test(trimmed)
       ? 'help'
-      : EXPLAIN_COMMAND.test(trimmed)
-        ? 'explain'
-        : KNOWLEDGE_COMMAND.test(trimmed)
-          ? 'knowledge'
-          : undefined;
+      : explain === 'redline'
+        ? 'redline'
+        : explain === 'draft'
+          ? 'explain'
+          : KNOWLEDGE_COMMAND.test(trimmed)
+            ? 'knowledge'
+            : undefined;
     if (!command) return undefined;
 
     if (this.overLimit(userId)) {
@@ -145,13 +173,17 @@ export class KnowledgeQueryService {
         '可用指令：\n' +
         '· 话术 关键词 / 话术 1 —— 查机构话术\n' +
         '· 知识 关键词 / 知识 1 —— 查知识库条目\n' +
-        '· 为什么高风险 —— 解释你最近一条草稿判定的原因\n' +
+        '· 我的待办 / 今天待办 —— 未完成草稿、今日到期承诺、未处理告警\n' +
+        '· 我的草稿 —— 列出你名下未完成的草稿\n' +
+        '· 为什么高风险 / 解释草稿 —— 解释你最近一条草稿判定的原因\n' +
+        '· 为什么红线 —— 解释最近一次员工发言质检\n' +
         '· 其他文字会作为改稿指令处理（有待处理草稿时）\n\n' +
         '机器人只回复你本人，不会向客户群发送任何内容。'
       );
     }
 
-    if (command === 'explain') return this.explain(userId);
+    if (command === 'redline') return this.explainRedline(userId);
+    if (command === 'explain') return this.explainDraft(userId);
     return this.knowledge(userId, text);
   }
 
@@ -263,9 +295,14 @@ export class KnowledgeQueryService {
     );
   }
 
-  private explain(userId: string): string {
+  private explainDraft(userId: string): string {
     const draft = this.deps.latestDraft(userId);
-    if (!draft) return '你最近没有待处理的草稿可解释。';
+    if (!draft) {
+      if (this.deps.staffRedline?.(userId)) {
+        return '你最近没有待处理的草稿。如果是问刚才的质检提醒，发「为什么红线」。';
+      }
+      return '你最近没有待处理的草稿可解释。';
+    }
     const rules = draft.ruleNames?.filter((name) => name.trim() !== '') ?? [];
     if (rules.length === 0) {
       return (
@@ -278,6 +315,23 @@ export class KnowledgeQueryService {
       `命中规则：${rules.join('、')}\n` +
       '说明：草稿或客户消息命中了机构设置的风险关键词。\n' +
       '目前只有规则名，没有原文命中片段；请按规则要求调整措辞后再发，拿不准时先问主管。'
+    );
+  }
+
+  /** 员工发言质检：只解释规则与关键词，不回显发言人原文 */
+  private explainRedline(userId: string): string {
+    const redline = this.deps.staffRedline?.(userId);
+    if (!redline) {
+      return '没有找到你最近的质检记录。质检提醒只在发言命中红线规则时发送，没命中就没有记录。';
+    }
+    const rules = redline.ruleNames.length > 0 ? redline.ruleNames.join('、') : '规则已删除或停用';
+    const keywords =
+      redline.keywords.length > 0 ? redline.keywords.join('、') : '规则未配置关键词';
+    return (
+      `你最近一次命中的红线规则：${rules}\n` +
+      `触发关键词：${keywords}\n` +
+      '说明：这是对员工在服务群发言的质检，提醒只发给你本人，不会发送到客户群。\n' +
+      '处理建议：在群里撤回或更正该条发言；拿不准时先问主管。'
     );
   }
 }

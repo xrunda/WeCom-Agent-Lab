@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { KnowledgeQueryService } from '../plugins/zhiban-wecom/knowledge-query.ts';
-import type { ExplainableDraft, QueryableKnowledge } from '../plugins/zhiban-wecom/knowledge-query.ts';
+import type {
+  ExplainableDraft,
+  QueryableKnowledge,
+  StaffRedlineExplain,
+} from '../plugins/zhiban-wecom/knowledge-query.ts';
 
 const RECORDS: QueryableKnowledge[] = [
   {
@@ -45,11 +49,12 @@ const RECORDS: QueryableKnowledge[] = [
   },
 ];
 
-function setup(options: { draft?: ExplainableDraft } = {}) {
+function setup(options: { draft?: ExplainableDraft; redline?: StaffRedlineExplain } = {}) {
   const now = { value: Date.UTC(2026, 10, 11, 2) };
   const service = new KnowledgeQueryService({
     source: () => ({ list: () => RECORDS }),
     latestDraft: (userId) => (userId === 'wang.guwen' ? options.draft : undefined),
+    staffRedline: (userId) => (userId === 'wang.guwen' ? options.redline : undefined),
     now: () => now.value,
   });
   return { service, now };
@@ -173,4 +178,45 @@ test('#162 每分钟 20 条软上限，超出提示稍后再试', () => {
   assert.match(service.reply('wang.guwen', '帮助') ?? '', /请求太频繁/);
   // 另一位顾问不受影响
   assert.match(service.reply('other.user', '帮助') ?? '', /可用指令/);
+});
+
+test('#162 引用质检提醒后追问「为什么红线」也能解释，只报规则与关键词', () => {
+  const { service } = setup({
+    redline: { ruleNames: ['不诊断'], keywords: ['诊断', '确诊'] },
+  });
+  const quoted =
+    '群「客户-汪女士-20261108」李光的发言命中规则：不诊断。发言内容：「粥不是完全不能喝……」为什么红线?';
+  const text = service.reply('wang.guwen', quoted) ?? '';
+  assert.match(text, /红线规则：不诊断/);
+  assert.match(text, /触发关键词：诊断、确诊/);
+  assert.match(text, /不会发送到客户群/);
+  assert.match(text, /撤回或更正/);
+  // 不回显发言原文
+  assert.equal(text.includes('粥不是完全不能喝'), false);
+});
+
+test('#162 「为什么红线」没有质检记录时如实说明', () => {
+  const { service } = setup();
+  const text = service.reply('wang.guwen', '为什么红线?') ?? '';
+  assert.match(text, /没有找到你最近的质检记录/);
+});
+
+test('#162 没有草稿但有质检记录时，「为什么高风险」指向「为什么红线」', () => {
+  const { service } = setup({ redline: { ruleNames: ['不诊断'], keywords: ['诊断'] } });
+  const text = service.reply('wang.guwen', '为什么高风险') ?? '';
+  assert.match(text, /没有待处理的草稿/);
+  assert.match(text, /为什么红线/);
+});
+
+test('#162 改稿句子以解释词结尾时不当成提问', () => {
+  const { service } = setup({ draft: { id: 'draft_1', riskLevel: 'high', ruleNames: ['不诊断'] } });
+  assert.equal(service.reply('wang.guwen', '把结尾改成为什么高风险'), undefined);
+});
+
+test('#162 帮助里列出待办、草稿与红线解释', () => {
+  const { service } = setup();
+  const text = service.reply('wang.guwen', '帮助') ?? '';
+  assert.match(text, /我的待办/);
+  assert.match(text, /我的草稿/);
+  assert.match(text, /为什么红线/);
 });
