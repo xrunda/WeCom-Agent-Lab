@@ -184,16 +184,42 @@ function isNegated(text: string, index: number): boolean {
   });
 }
 
-/** 员工发言里是否出现「未被否定的」关键词；导出便于单测与规则预览复用。 */
-export function staffKeywordHit(text: string, keyword: string): boolean {
+/** 员工发言里「未被否定的」关键词首次出现位置；没有则返回 -1。 */
+export function staffKeywordIndex(text: string, keyword: string): number {
   let cursor = 0;
   while (cursor <= text.length) {
     const index = text.indexOf(keyword, cursor);
-    if (index < 0) return false;
-    if (!isNegated(text, index)) return true;
+    if (index < 0) return -1;
+    if (!isNegated(text, index)) return index;
     cursor = index + keyword.length;
   }
-  return false;
+  return -1;
+}
+
+/** 员工发言里是否出现「未被否定的」关键词；导出便于单测与规则预览复用。 */
+export function staffKeywordHit(text: string, keyword: string): boolean {
+  return staffKeywordIndex(text, keyword) >= 0;
+}
+
+/** 摘录窗口：命中词前后各取多少字 */
+const EXCERPT_WINDOW = 80;
+
+/**
+ * 告警摘录：以命中词为中心截取，而不是固定取开头。
+ *
+ * 长发言里命中词常出现在后半段，从头截 300 字会让复核者看不到触发的那句话：
+ * 告警的目的是让人核对，不是存档全文。
+ */
+export function excerptAroundHit(
+  text: string,
+  index: number,
+  length: number,
+  window = EXCERPT_WINDOW,
+): string {
+  const start = Math.max(0, index - window);
+  const end = Math.min(text.length, index + length + window);
+  const slice = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  return `${start > 0 ? '…' : ''}${slice}${end < text.length ? '…' : ''}`;
 }
 
 export const RISK_RULE_NAME_MAX = 40;
@@ -538,6 +564,51 @@ export class GuardService {
   // ---------- 员工发言质检 ----------
 
   /**
+   * 关键词初筛：只判断命中，不写告警、不计数、不落审计。
+   *
+   * 给「关键词初筛 + 语义复核」用：先看有没有可疑词，再决定要不要交给模型判断。
+   * 这样复核为不违规时，不会留下任何告警痕迹。
+   */
+  checkStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult {
+    const text = typeof input.text === 'string' ? input.text : '';
+    if (text.trim() === '') return { hits: [], hitNames: [], riskLevel: 'low' };
+    const { hits } = this.matchStaffRules(text);
+    let riskLevel: RiskLevel = 'low';
+    for (const rule of hits) riskLevel = maxRisk(riskLevel, rule.riskLevel);
+    return {
+      hits: hits.map((rule) => rule.id),
+      hitNames: hits.map((rule) => rule.name),
+      riskLevel,
+    };
+  }
+
+  /** 按 action=flag 的规则做关键词匹配，并记下最早命中位置（供告警摘录取用） */
+  private matchStaffRules(text: string): {
+    hits: RiskRuleRecord[];
+    hitIndex: number;
+    hitLength: number;
+  } {
+    const hits: RiskRuleRecord[] = [];
+    let hitIndex = -1;
+    let hitLength = 0;
+    for (const rule of this.rules.values()) {
+      if (!rule.enabled || rule.action !== 'flag') continue;
+      let ruleHit = false;
+      for (const keyword of rule.keywords) {
+        const index = staffKeywordIndex(text, keyword);
+        if (index < 0) continue;
+        ruleHit = true;
+        if (hitIndex < 0 || index < hitIndex) {
+          hitIndex = index;
+          hitLength = keyword.length;
+        }
+      }
+      if (ruleHit) hits.push(rule);
+    }
+    return { hits, hitIndex, hitLength };
+  }
+
+  /**
    * 员工（顾问 / 客服）在服务群里的发言质检。
    *
    * 与草稿校验的区别：
@@ -561,11 +632,8 @@ export class GuardService {
       }
     }
 
-    const hits: RiskRuleRecord[] = [];
-    for (const rule of this.rules.values()) {
-      if (!rule.enabled || rule.action !== 'flag') continue;
-      if (rule.keywords.some((keyword) => staffKeywordHit(text, keyword))) hits.push(rule);
-    }
+    // 命中位置用于告警摘录：围绕最早出现的关键词截取，不能只截开头
+    const { hits, hitIndex, hitLength } = this.matchStaffRules(text);
     if (hits.length === 0) return empty;
 
     let riskLevel: RiskLevel = 'low';
@@ -595,10 +663,12 @@ export class GuardService {
       typeof input.advisorName === 'string' && input.advisorName.trim() !== ''
         ? input.advisorName.trim()
         : '员工';
-    // 告警详情给人工复核看：带上发言人和原文摘要（最长 300 字）。
+    // 告警详情给人工复核看：带上发言人，原文摘录围绕命中词截取。
     // 日志、审计与 risk_rule.hit 事件仍然不带正文。
-    const normalized = text.trim().replace(/\s+/g, ' ');
-    const excerpt = normalized.length > 300 ? `${normalized.slice(0, 300)}…` : normalized;
+    const excerpt =
+      hitIndex >= 0
+        ? excerptAroundHit(text, hitIndex, hitLength)
+        : text.trim().replace(/\s+/g, ' ').slice(0, 300);
     const alert = this.createAlert({
       kind: 'redline',
       severity: 'warning',
@@ -620,6 +690,29 @@ export class GuardService {
       riskLevel,
       alertId: alert.id,
     };
+  }
+
+  /**
+   * 语义复核判定为不违规时留痕：不产生告警，只记审计与事件。
+   *
+   * 关键词仍然命中，但告警会打扰顾问；留下 dismiss 记录，规则调优时能看到误报率。
+   * 与告警一样，审计和事件都不带发言正文。
+   */
+  dismissStaffMessage(input: {
+    ruleIds: string[];
+    advisorId?: string;
+    groupId?: string;
+    messageId?: string;
+  }): void {
+    for (const ruleId of input.ruleIds) {
+      this.audit('system', 'risk_rule.dismiss', ruleId, 'ok', 'staff_message');
+    }
+    this.emit('risk_rule.dismissed', {
+      ruleIds: input.ruleIds,
+      advisorId: input.advisorId,
+      groupId: input.groupId,
+      source: 'staff',
+    });
   }
 
   // ---------- 告警 ----------

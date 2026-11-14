@@ -5,6 +5,8 @@ node_modules/
 !.env.example
 *.log
 tmp/
+# start.sh --bg 的 PID 与日志
+.run/
 .archive-seq
 .advisor-userid
 .zhiban-console-media/

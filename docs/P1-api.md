@@ -838,7 +838,13 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。响应 `200`：`{ "items": [alert], ... }`。
 
-员工在服务群里的发言也会过红线质检：命中时生成 `kind=redline`、`title="员工发言命中红线"`、`source="staff"` 的告警，`advisorId` 指向发言人，`groupId` 指向群。`message` 带发言人、群名、命中规则与**发言原文摘录**（压成一行后最多 300 字），供人工复核；日志与审计仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
+员工在服务群里的发言也会过红线质检，分两层：关键词初筛负责「不漏」，命中后交模型做语义复核，负责「不误报」。
+
+- 没有可疑词：直接结束，不调模型；
+- 命中且复核判定不违规（科普、建议就医、转述医生意见）：只写审计 `risk_rule.dismiss` 并发出 `risk_rule.dismissed`，**不产生告警**；
+- 复核判定违规，或复核不可用（未接入 / 超时 / 报错）：生成 `kind=redline`、`title="员工发言命中红线"`、`source="staff"` 的告警，`advisorId` 指向发言人，`groupId` 指向群。
+
+告警的 `message` 带发言人、群名、命中规则与**发言原文摘录**：以最早命中词为中心截取前后各 80 字，压成一行，超长时首尾标 `…`，保证触发告警的那句话一定在摘录里。日志、审计（含 `dismiss`）与规则命中事件仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
 ### `GET /alerts/unresolved-count`
 

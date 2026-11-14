@@ -59,6 +59,15 @@ export interface GuardRuntimeApi {
   review(input: DraftReviewInput): DraftReviewResult;
   /** 员工（顾问 / 客服）在服务群里的发言质检；命中时返回 alertId */
   reviewStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult;
+  /** 关键词初筛：只判断命中，不产生告警（语义复核前用） */
+  checkStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult;
+  /** 语义复核判定不违规时留痕：不产生告警，只记审计与事件 */
+  dismissStaffMessage(input: {
+    ruleIds: string[];
+    advisorId?: string;
+    groupId?: string;
+    messageId?: string;
+  }): void;
   linkDraft(alertId: string, draftId: string): void;
   listRules(query?: { kind?: RuleKind; enabled?: boolean }): RiskRuleRecord[];
   getRule(id: string): RiskRuleRecord | undefined;
@@ -122,6 +131,8 @@ export function apply(ctx: DshGuardContext, rawConfig: unknown): void {
       const api: GuardRuntimeApi = {
         review: (input) => service.review(input),
         reviewStaffMessage: (input) => service.reviewStaffMessage(input),
+        checkStaffMessage: (input) => service.checkStaffMessage(input),
+        dismissStaffMessage: (input) => service.dismissStaffMessage(input),
         linkDraft: (alertId, draftId) => service.linkDraft(alertId, draftId),
         listRules: (query) => service.list(query),
         getRule: (id) => service.get(id),
