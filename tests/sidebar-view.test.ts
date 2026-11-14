@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { PendingItem } from '../src/p1/sidebar.ts';
+import type { ChronicProfile } from '../src/p1/chronic.ts';
 import {
   SidebarAccessError,
   buildSidebarContext,
@@ -298,4 +299,97 @@ test('#149 没有草稿或未接入草稿源时字段为空，不假装有草稿
     { chatId: 'chat_1' },
   );
   assert.equal(empty.pending.open[0]!.draft, null);
+});
+
+const DAY = 24 * 60 * 60_000;
+
+function chronicProfile(overrides: Partial<ChronicProfile> = {}): ChronicProfile {
+  return {
+    patientId: 'pat_1',
+    tenantId: 'tenant_demo',
+    conditions: ['高血压', '2 型糖尿病'],
+    medications: [
+      { name: '氨氯地平', dose: '5mg', frequency: '每日一次', source: 'advisor', updatedAt: NOW },
+      { name: '二甲双胍', dose: '0.5g', frequency: '每日两次', source: 'agent', updatedAt: NOW },
+      { name: '阿托伐他汀', source: 'advisor', updatedAt: NOW },
+      { name: '阿司匹林', source: 'advisor', updatedAt: NOW },
+    ],
+    measurements: [
+      // 最新在前；同一指标多条时只取最先出现的一条
+      { id: 'm_bp_new', metric: 'bp', value: 138, secondaryValue: 86, measuredAt: NOW - 2 * DAY, source: 'advisor', recordedAt: NOW - 2 * DAY },
+      { id: 'm_weight', metric: 'weight', value: 68, measuredAt: NOW - DAY, source: 'agent', recordedAt: NOW - DAY },
+      { id: 'm_bp_old', metric: 'bp', value: 145, secondaryValue: 92, measuredAt: NOW - 10 * DAY, source: 'advisor', recordedAt: NOW - 10 * DAY },
+      { id: 'm_hr', metric: 'heart_rate', value: 76, measuredAt: NOW - 3 * DAY, source: 'advisor', recordedAt: NOW - 3 * DAY },
+      { id: 'm_glucose', metric: 'glucose', value: 7.2, context: '空腹', measuredAt: NOW - 5 * DAY, source: 'agent', recordedAt: NOW - 5 * DAY },
+      { id: 'm_hba1c', metric: 'hba1c', value: 6.8, measuredAt: NOW - 20 * DAY, source: 'advisor', recordedAt: NOW - 20 * DAY },
+    ],
+    updatedAt: NOW - DAY,
+    ...overrides,
+  };
+}
+
+test('#144 速览带慢病档案：每指标取最新，最多 3 项，按测量时间倒序', () => {
+  const view = buildSidebarContext(
+    deps({ getChronic: () => chronicProfile() }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  const chronic = view.profile?.chronic;
+  assert.ok(chronic);
+  assert.deepEqual(chronic.conditions, ['高血压', '2 型糖尿病']);
+  assert.equal(chronic.updatedAt, NOW - DAY);
+
+  // weight(1 天) → bp(2 天) → heart_rate(3 天)；血糖、糖化更早，被截断
+  assert.deepEqual(chronic.measurements.map((row) => row.metric), ['weight', 'bp', 'heart_rate']);
+  const bp = chronic.measurements[1]!;
+  assert.equal(bp.label, '血压');
+  assert.equal(bp.value, 138);
+  assert.equal(bp.secondaryValue, 86);
+  assert.equal(bp.unit, 'mmHg');
+  assert.equal(bp.measuredAt, NOW - 2 * DAY);
+  assert.equal(bp.source, 'advisor');
+  assert.equal(chronic.measurements[0]!.secondaryValue, null);
+
+  // 用药最多 3 条，剂量/频次缺失时为 null
+  assert.equal(chronic.medications.length, 3);
+  assert.deepEqual(chronic.medications[0], { name: '氨氯地平', dose: '5mg', frequency: '每日一次' });
+  assert.deepEqual(chronic.medications[2], { name: '阿托伐他汀', dose: null, frequency: null });
+});
+
+test('#144 没有慢病档案或档案为空时为 null，不返回空壳', () => {
+  const none = buildSidebarContext(deps(), ADVISOR, { chatId: 'chat_1' });
+  assert.equal(none.profile?.chronic, null);
+
+  const empty = buildSidebarContext(
+    deps({
+      getChronic: () => ({
+        patientId: 'pat_1',
+        tenantId: 'tenant_demo',
+        conditions: [],
+        medications: [],
+        measurements: [],
+        updatedAt: 0,
+      }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  assert.equal(empty.profile?.chronic, null);
+});
+
+test('#144 没有 patient.read 时不读取也不返回慢病档案', () => {
+  let called = 0;
+  const view = buildSidebarContext(
+    deps({
+      getChronic: () => {
+        called += 1;
+        return chronicProfile();
+      },
+    }),
+    { id: 'adv_1', permissions: [] },
+    { chatId: 'chat_1' },
+  );
+  assert.equal(view.profile?.bound, true);
+  assert.equal(view.profile?.chronic, null);
+  assert.equal(called, 0);
 });

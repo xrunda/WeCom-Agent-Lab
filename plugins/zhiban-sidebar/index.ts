@@ -11,6 +11,7 @@
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import type { AuditEvent } from '../../src/c2/types.ts';
+import type { ChronicProfile } from '../../src/p1/chronic.ts';
 import { SidebarService } from '../../src/p1/sidebar.ts';
 import type {
   ObserveResult,
@@ -110,6 +111,8 @@ interface PatientApiLike {
     wecomUserId?: string;
     status?: string;
   }>;
+  /** 慢病档案；旧版本 zhiban-patient 没有这个方法，调用处按可选处理 */
+  getChronicProfile?(patientId: string): ChronicProfile | undefined;
 }
 
 /** 患者记录 → 侧边栏速览引用；群（按 id）与单聊（按外部 id）共用一份映射 */
@@ -265,6 +268,8 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
               },
               getAdvisorName: (advisorId) =>
                 patient?.listAdvisors().find((item) => item.id === advisorId)?.name,
+              // 慢病档案随速览一起返回；老版本插件没有该方法时为 undefined
+              getChronic: (patientId) => patient?.getChronicProfile?.(patientId),
               // 只读：草稿由患者运行时生成，侧边栏不触发模型调用
               ...(admin?.latestSidebarDraft
                 ? {

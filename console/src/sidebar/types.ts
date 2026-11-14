@@ -48,12 +48,39 @@ export interface SidebarPendingView {
   draft: SidebarDraftView | null;
 }
 
+export interface SidebarChronicMeasurementView {
+  metric: string;
+  label: string;
+  unit: string;
+  value: number;
+  /** 血压的舒张压，其他指标为 null */
+  secondaryValue: number | null;
+  /** 血糖测量情境（空腹 / 餐后 2 小时…） */
+  context: string | null;
+  measuredAt: number;
+  source: 'advisor' | 'agent';
+}
+
+export interface SidebarChronicMedicationView {
+  name: string;
+  dose: string | null;
+  frequency: string | null;
+}
+
+export interface SidebarChronicView {
+  conditions: string[];
+  measurements: SidebarChronicMeasurementView[];
+  medications: SidebarChronicMedicationView[];
+  updatedAt: number;
+}
+
 export interface SidebarProfileView {
   bound: boolean;
   name: string | null;
   confirmed: boolean;
   tags: string[];
-  chronic: null;
+  /** 慢病档案摘要；为 null 时不渲染该区块 */
+  chronic: SidebarChronicView | null;
   carePlan: null;
   silentDays: number | null;
   advisorName: string | null;
