@@ -490,6 +490,48 @@ describe('慢病档案（#144）', () => {
     expect(root.textContent).toContain('去控制台补录');
   });
 
+  it('情境与来源另起一行，不跟数值抢位置', () => {
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: chronicData() });
+    const metrics = root.querySelectorAll('.metric');
+    // 血糖：有情境（空腹）且是对话提取
+    const glucose = metrics[0]!;
+    const line = glucose.querySelector('.metric-line')!;
+    expect(line.textContent).toContain('7.2');
+    expect(line.textContent).toContain('1 小时前');
+    expect(line.textContent).not.toContain('空腹');
+    const note = glucose.querySelector('.metric-note')!;
+    expect(note.textContent).toContain('空腹');
+    expect(note.textContent).toContain('对话提取');
+    // 血压：顾问录入，没有「对话提取」，情境也没有时不渲染注释行
+    expect(metrics[1]!.querySelector('.metric-note')).toBeNull();
+  });
+
+  it('血糖的「随机」显示成「随机时点」，避免被当成随机数据', () => {
+    const root = document.createElement('div');
+    render(root, {
+      kind: 'ready',
+      data: {
+        ...data,
+        profile: {
+          ...data.profile!,
+          chronic: {
+            ...chronic,
+            measurements: [
+              {
+                ...chronic.measurements[0]!,
+                context: '随机',
+              },
+            ],
+          },
+        },
+      },
+    });
+    const note = root.querySelector('.metric-note')!;
+    expect(note.textContent).toContain('随机时点');
+    expect(note.textContent).not.toContain('随机对话');
+  });
+
   it('档案里的动态文本一律转义', () => {
     const root = document.createElement('div');
     render(root, {
