@@ -626,3 +626,64 @@ test('员工发言质检：否定句、症状复述不算违规；同一 msgid �
   assert.equal(again.hits.length, 0);
   assert.equal(h.service.alerts().length, 3); // 两条「特别」+ 换药；否定句与症状复述不告警
 });
+
+test('员工发言告警：摘录围绕命中词截取，长文不丢掉触发句', () => {
+  const h = harness();
+  const filler = '这边建议先调整饮食结构，主食粗细搭配，注意餐后血糖的变化，';
+  const text = `${filler.repeat(8)}这就是典型的诊断。后面还有很多叮嘱。`;
+
+  const result = h.service.reviewStaffMessage({ text, messageId: 'msg_long' });
+  assert.ok(result.hits.includes('rul_builtin_no_diagnosis'));
+
+  const alert = h.service.alerts()[0]!;
+  // 命中词在第 300 字之后，摘录仍必须包含它，并标出前后有省略
+  assert.equal(alert.message.includes('诊断'), true);
+  assert.equal(alert.message.includes('…'), true);
+  assert.equal(alert.message.length < 300, true);
+});
+
+test('员工发言初筛：只返回命中，不告警、不计数、不落审计', () => {
+  const h = harness();
+  const text = '这就是典型的诊断。';
+
+  const pre = h.service.checkStaffMessage({ text, advisorId: 'LiGuang' });
+  assert.deepEqual(pre.hits, ['rul_builtin_no_diagnosis']);
+  assert.deepEqual(pre.hitNames, ['不诊断']);
+  assert.equal(pre.riskLevel, 'high');
+  assert.equal(pre.alertId, undefined);
+
+  assert.equal(h.service.alerts().length, 0);
+  assert.equal(h.service.get('rul_builtin_no_diagnosis')?.hitCount, 0);
+  assert.equal(h.service.audits().length, 0);
+  assert.equal(h.events.length, 0);
+
+  // 初筛不会占用 msgid：后续真告警仍能正常产生
+  const result = h.service.reviewStaffMessage({ text, messageId: 'msg_pre' });
+  assert.ok(result.alertId);
+});
+
+test('语义复核判定合规：dismiss 只留痕，不产生告警也不带正文', () => {
+  const h = harness();
+  const text = '这就是典型的诊断。';
+
+  h.service.dismissStaffMessage({
+    ruleIds: ['rul_builtin_no_diagnosis'],
+    advisorId: 'LiGuang',
+    groupId: 'wr_test_1',
+    messageId: 'msg_dismiss',
+  });
+
+  assert.equal(h.service.alerts().length, 0);
+  const audits = h.service.audits();
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0]!.action, 'risk_rule.dismiss');
+  assert.equal(audits[0]!.target, 'rul_builtin_no_diagnosis');
+  assert.equal(JSON.stringify(audits).includes(text), false);
+
+  const dismissed = h.events.find((event) => event.type === 'risk_rule.dismissed')!;
+  const data = dismissed.data as Record<string, unknown>;
+  assert.deepEqual(data.ruleIds, ['rul_builtin_no_diagnosis']);
+  assert.equal(data.advisorId, 'LiGuang');
+  assert.equal(data.source, 'staff');
+  assert.equal(JSON.stringify(data).includes(text), false);
+});

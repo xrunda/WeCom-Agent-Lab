@@ -79,8 +79,36 @@ export function maxDraftSeq(drafts: Draft[]): number {
   return max;
 }
 
+/** 只依赖 zhiban-patient 的语义复核入口；未安装时退回纯关键词告警 */
+interface StaffJudgeApi {
+  judgeStaffMessage?(input: {
+    text: string;
+    ruleNames: string[];
+  }): Promise<'violation' | 'ok' | 'unknown'>;
+}
+
 /** 只依赖 zhiban-guard 的质检入口；未安装 guard 时静默跳过 */
 interface StaffQualityGuard {
+  /** 关键词初筛：不产生告警 */
+  checkStaffMessage?(input: {
+    text: string;
+    advisorId?: string;
+    advisorName?: string;
+    groupId?: string;
+    groupName?: string;
+    messageId?: string;
+  }): {
+    hits: string[];
+    hitNames: string[];
+    riskLevel: string;
+  };
+  /** 语义复核判定不违规时留痕：不产生告警 */
+  dismissStaffMessage?(input: {
+    ruleIds: string[];
+    advisorId?: string;
+    groupId?: string;
+    messageId?: string;
+  }): void;
   reviewStaffMessage?(input: {
     text: string;
     advisorId?: string;
@@ -104,6 +132,65 @@ interface StaffQualityGuard {
     ruleIds: string[];
     createdAt: number;
   }>;
+}
+
+export type StaffQualityOutcome = 'clean' | 'alerted' | 'dismissed';
+
+export interface StaffQualityDecisionDeps {
+  /** 关键词初筛；guard 没提供时返回 undefined */
+  precheck?(): { hits: string[]; hitNames: string[] } | undefined;
+  /** 语义复核；不可用时直接告警 */
+  judge?(input: { text: string; ruleNames: string[] }): Promise<'violation' | 'ok' | 'unknown'>;
+  raiseAlert(): void;
+  /** 语义复核判为合规时的留痕（不产生告警） */
+  dismiss?(ruleIds: string[]): void;
+}
+
+/**
+ * 员工发言质检的两层判断：关键词负责不漏，模型负责不误报。
+ *
+ * - 没有可疑词：直接结束，不进模型；
+ * - 命中但模型判合规：留痕不留告警；
+ * - 模型判违规、或复核不可用（未安装 / 超时 / 报错）：照常告警。
+ *   宁可多看一眼，也不能因为模型抖动漏掉真正的违规。
+ */
+export async function decideStaffQuality(
+  input: { text: string },
+  deps: StaffQualityDecisionDeps,
+): Promise<StaffQualityOutcome> {
+  let pre: { hits: string[]; hitNames: string[] } | undefined;
+  try {
+    pre = deps.precheck?.();
+  } catch {
+    // 初筛异常：退回纯关键词告警链路
+    pre = undefined;
+  }
+  if (!pre) {
+    deps.raiseAlert();
+    return 'alerted';
+  }
+  if (pre.hits.length === 0) return 'clean';
+  if (!deps.judge) {
+    deps.raiseAlert();
+    return 'alerted';
+  }
+
+  let verdict: 'violation' | 'ok' | 'unknown';
+  try {
+    verdict = await deps.judge({ text: input.text, ruleNames: pre.hitNames });
+  } catch {
+    verdict = 'unknown';
+  }
+  if (verdict !== 'ok') {
+    deps.raiseAlert();
+    return 'alerted';
+  }
+  try {
+    deps.dismiss?.(pre.hits);
+  } catch {
+    // 留痕失败不改变判断：这句话已经复核为合规，不回头补告警
+  }
+  return 'dismissed';
 }
 
 /** 只依赖 zhiban-console 的话术只读入口；未安装控制台时查询会提示未接入 */
@@ -212,23 +299,65 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
     if (!guard?.reviewStaffMessage) return;
     const advisor = resolveStaffAdvisor(message.from);
-    const result = guard.reviewStaffMessage({
+    const input = {
       text: message.text,
       ...(advisor ? { advisorId: advisor.id, advisorName: advisor.name } : {}),
       groupId: message.roomId,
       ...(message.groupName ? { groupName: message.groupName } : {}),
       messageId: message.msgid,
-    });
-    if (!result?.alertId) return;
-    log(
-      `员工发言命中红线：advisor=${tailId(advisor?.id ?? message.from)} ` +
-        `group=${tailId(message.roomId)} rules=${result.hits.join(',')}（正文不落日志）`,
-    );
-    void notifyStaffQuality({
-      chatId: advisor?.chatId ?? message.from,
-      groupName: message.groupName ?? '服务群',
-      hitNames: result.hitNames,
-    });
+    };
+
+    const raiseAlert = (): void => {
+      const result = guard.reviewStaffMessage!(input);
+      if (!result?.alertId) return;
+      log(
+        `员工发言命中红线：advisor=${tailId(advisor?.id ?? message.from)} ` +
+          `group=${tailId(message.roomId)} rules=${result.hits.join(',')}（正文不落日志）`,
+      );
+      void notifyStaffQuality({
+        chatId: advisor?.chatId ?? message.from,
+        groupName: message.groupName ?? '服务群',
+        hitNames: result.hitNames,
+      });
+    };
+
+    // 关键词初筛 → 语义复核：没有可疑词不进模型；判为合规就不告警。
+    // 复核链路异常一律按保守策略告警，且异常不能逃逸到宿主。
+    const judge = ctx.get<StaffJudgeApi>('zhibanPatient')?.judgeStaffMessage;
+    void decideStaffQuality(
+      { text: message.text },
+      {
+        precheck: () => guard.checkStaffMessage?.(input),
+        ...(judge ? { judge: (payload: { text: string; ruleNames: string[] }) => judge(payload) } : {}),
+        raiseAlert,
+        dismiss: (ruleIds) => {
+          guard.dismissStaffMessage?.({
+            ruleIds,
+            ...(advisor ? { advisorId: advisor.id } : {}),
+            groupId: message.roomId,
+            messageId: message.msgid,
+          });
+        },
+      },
+    )
+      .then((outcome) => {
+        if (outcome !== 'dismissed') return;
+        log(
+          `员工发言关键词命中、语义复核为合规：advisor=${tailId(advisor?.id ?? message.from)} ` +
+            `group=${tailId(message.roomId)}（正文不落日志）`,
+        );
+      })
+      .catch((error: unknown) => {
+        // 兜底：告警本身失败也要留日志，且不带发言正文
+        try {
+          raiseAlert();
+        } catch {
+          log(
+            `员工发言质检失败 msgid=${tailId(message.msgid)}：` +
+              `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+          );
+        }
+      });
   };
   const wecomBridge: PatientBridge = {
     async enqueueDraft(input) {

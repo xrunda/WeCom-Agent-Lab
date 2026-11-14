@@ -50,12 +50,15 @@ import type {
   RouteDecision,
 } from '../../src/p1/types.ts';
 import type { Draft, VerifyOutcome } from '../../src/c2/types.ts';
+import { StaffJudge } from '../../src/p1/staff-judge.ts';
+import type { StaffVerdict } from '../../src/p1/staff-judge.ts';
 
 import { parsePatientConfig } from './config.ts';
 import type { PatientPluginConfig } from './config.ts';
 import { DomainPatientBackend, patientDomain } from './domain.ts';
 import { DshPatientSessions } from './sessions.ts';
 import type { SessionControllerLike } from './sessions.ts';
+import { StaffJudgeSession } from './staff-judge.ts';
 
 export const name = 'zhiban-patient';
 
@@ -78,6 +81,8 @@ export interface DshPatientContext {
     open<S extends DomainSpec>(spec: S): Promise<Domain<S>>;
   };
   sessionController: SessionControllerLike;
+  /** 会话事件订阅：语义复核靠它拿助手回复 */
+  on?(event: string, handler: (...args: unknown[]) => void): unknown;
   tools: {
     register(definition: unknown): unknown;
   };
@@ -140,6 +145,8 @@ export interface PatientRuntimeApi {
   stats(): RuntimeStats;
   /** #37：给 zhiban-guard 的 escalate_to_human 反查患者 */
   patientForSession(sessionId: string): string | undefined;
+  /** 员工发言语义复核：关键词命中后判断是否真的违规；不可用时返回 unknown */
+  judgeStaffMessage(input: { text: string; ruleNames: string[] }): Promise<StaffVerdict>;
   systemPrompt(): string;
   /** #41：租户人设修改后立即应用到下一轮 */
   applySettings(patch: { agentName?: string; patientTerm?: string; tone?: string }): void;
@@ -371,6 +378,16 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
         logger: log,
       });
 
+      // 员工发言语义复核：复用同一条长会话，逐条判断关键词命中是不是误报
+      const staffJudgeSession = new StaffJudgeSession(ctx, {
+        workspaceRoot: config.workspaceRoot,
+        agentPreset: config.agentPreset,
+        log,
+      });
+      const staffJudge = new StaffJudge({
+        ask: (prompt) => staffJudgeSession.ask(prompt),
+      });
+
       const bridge = new LazyPatientBridge(
         () => ctx.get<PatientBridge>('zhibanWecom'),
       );
@@ -483,6 +500,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           runtime!.patientContextForSession(sessionId),
         stats: () => runtime!.stats(),
         patientForSession: (sessionId) => runtime!.patientForSession(sessionId),
+        judgeStaffMessage: (input) => staffJudge.judge(input),
         systemPrompt: () => runtime!.systemPrompt(),
         applySettings: (patch) => {
           runtime!.applySettings(patch);

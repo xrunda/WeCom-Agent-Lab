@@ -88,23 +88,28 @@ DSH 现有 hook 无法在 `reply_draft` 入队前改写参数（`tools/pre-execu
 ```
 
 - 领域：`zhiban_guard`（`rules` / `alerts` / `audit`）。
-- 提供 `zhibanGuard` 服务：`review`、`reviewStaffMessage`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
-- 事件：`risk_rule.created|updated|deleted|hit`、`alert.created`、`draft.guard.hit`、`audit`。
+- 提供 `zhibanGuard` 服务：`review`、`checkStaffMessage`、`reviewStaffMessage`、`dismissStaffMessage`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
+- 事件：`risk_rule.created|updated|deleted|hit|dismissed`、`alert.created`、`draft.guard.hit`、`audit`。
 
 ### 2.7 员工发言质检（人工消息也过红线）
 
-服务群里顾问 / 客服自己发出的消息，与 AI 草稿走同一套关键词规则：
+服务群里顾问 / 客服自己发出的消息，与 AI 草稿走同一套关键词规则，命中后再由模型复核语义：
 
-- 入口：`zhiban-wecom` 轮询到「非 `wm` 开头」的内部员工发言时，调用 `zhibanGuard.reviewStaffMessage({ text, advisorId, advisorName, groupId, groupName, messageId })`，再照常把消息交给患者域做上下文。
+- 入口：`zhiban-wecom` 轮询到「非 `wm` 开头」的内部员工发言时，先调 `zhibanGuard.checkStaffMessage(...)` 做关键词初筛，再照常把消息交给患者域做上下文。
 - 只匹配 `action=flag` 的规则（内置三条 + 自定义关键词规则）。急症规则是「患者说症状 → 引导就医」，员工复述症状属于正常沟通，不判违规。
 - 否定句不命中：关键词前 4 字出现「不要 / 不能 / 请勿 / 别 / 未 / 避免 …」时视为合规提醒（如「不要自行加量」「请勿停药」）；「特别加量」这类不含否定的仍会命中。
-- 命中后：
+- 两层判断：
+  1. **关键词初筛**（`checkStaffMessage`）：只返回命中，不告警、不计数、不落审计；没有命中直接结束，不调模型。
+  2. **语义复核**（`zhibanPatient.judgeStaffMessage`）：把发言与命中规则名送进固定的复核会话（`zhiban-guard-review`），要求只回一行 JSON `{"violation": true/false}`。判为合规（科普、解释原理、建议就医、转述医生意见）时只留痕、不告警。
+- 复核不可用（未安装 `zhiban-patient`、会话起不来、20 秒超时、返回格式不对）一律按保守策略告警——宁可多看一眼，不漏真正违规。
+- 判定违规后：
   - 规则 `hitCount += 1`，写审计 `risk_rule.hit`（`errorCode=staff_message`），发 `risk_rule.hit`（`source=staff`）；
-  - 生成 `kind=redline / severity=warning` 告警，带 `advisorId` / `groupId` / `source=staff` / `messageId`，标题固定「员工发言命中红线」；`message` 含发言人、群名、规则名与原文摘录（压成一行后最多 300 字），供人工复核；
+  - 生成 `kind=redline / severity=warning` 告警，带 `advisorId` / `groupId` / `source=staff` / `messageId`，标题固定「员工发言命中红线」；`message` 含发言人、群名、规则名与原文摘录——以最早命中词为中心前后各 80 字，超长时标 `…`，保证触发句一定在摘录里；
   - 告警事件与控制台 `AlertService.ingest` 字段对齐（`id` / `advisorId` / `groupId` 等），管理后台「质检与告警」可见；
   - `zhiban-wecom` 通过机器人 1:1 给发言人推送提醒（只含群名和规则名），并计入「顾问 → 红线命中」个人留痕。
-- 同一条 `msgid` 只质检一次（进程内去重），避免重启或重复轮询产生重复告警。
-- 审计与日志不带员工发言正文；只有告警详情（人工复核用）保存原文摘录。
+- 判定合规后：写审计 `risk_rule.dismiss`（`errorCode=staff_message`）并发 `risk_rule.dismissed`，不生成告警、不推送提醒，便于日后看误报率调词表。
+- 同一条 `msgid` 只告警一次（进程内去重），避免重启或重复轮询产生重复告警。
+- 审计、日志与复核链路都不带员工发言正文；只有告警详情（人工复核用）保存原文摘录。
 
 ## 3. #38 知识库
 
