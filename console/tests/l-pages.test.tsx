@@ -82,12 +82,14 @@ describe('WP-L 工作台与报表', () => {
 });
 
 describe('团队关注深链', () => {
-  it('质检与告警按服务人员与类型筛选，并显示可清除提示', async () => {
-    await renderAt('/alerts?advisorId=adv_03&kind=unverified');
+  it('质检与告警只显示员工发言红线，并按服务人员筛选', async () => {
+    await renderAt('/alerts?advisorId=adv_02');
 
-    expect(await screen.findByText('已按服务人员筛选：赵顾问')).toBeInTheDocument();
+    expect(await screen.findByText('已按服务人员筛选：王顾问')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '清除人员筛选' })).toBeInTheDocument();
-    expect(screen.getAllByText('未核验').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/减重-刘先生/).length).toBeGreaterThan(0);
+    // 运维类告警不在本页
+    expect(screen.queryByText('草稿未核验')).not.toBeInTheDocument();
   });
 
   it('患者深链直接打开对话时间线', async () => {

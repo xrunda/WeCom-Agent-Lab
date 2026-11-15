@@ -161,7 +161,7 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
             waitMinutes: 26,
           },
         ],
-        suggestion: '去实时服务流查看阻塞草稿，必要时在告警台账释放队列',
+        suggestion: '去实时服务流查看阻塞草稿，必要时释放队列',
         oldestWaitMinutes: 42,
         lastActivityAt: now - 42 * 60_000,
       },

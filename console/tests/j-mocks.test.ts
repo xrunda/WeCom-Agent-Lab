@@ -80,7 +80,9 @@ describe('WP-J mock：实时服务流', () => {
 
 describe('WP-J mock：质检与告警', () => {
   it('未处理数、必填备注、重复处理与详情', async () => {
-    expect(await unresolvedCount()).toEqual({ open: 4, acknowledged: 1, total: 5 });
+    expect(await unresolvedCount()).toEqual({ open: 6, acknowledged: 1, total: 7 });
+    // 菜单角标只算员工群发言红线
+    expect(await unresolvedCount('staff')).toEqual({ open: 2, acknowledged: 0, total: 2 });
 
     await expect(resolveAlert('alt_01', '   ')).rejects.toThrow('处理备注不能为空');
     const resolved = await resolveAlert('alt_01', '已电话确认顾问补发');
@@ -89,7 +91,12 @@ describe('WP-J mock：质检与告警', () => {
     await expect(resolveAlert('alt_01', '再处理一次')).rejects.toThrow('该告警已处理');
 
     const remaining = await unresolvedCount();
-    expect(remaining).toEqual({ open: 3, acknowledged: 1, total: 4 });
+    expect(remaining).toEqual({ open: 5, acknowledged: 1, total: 6 });
+
+    const staff = await listAlerts({ source: 'staff' });
+    expect(staff.items.map((item) => item.id)).toEqual(['alt_06', 'alt_07', 'alt_08']);
+    // 处理后员工发言口径不受其他类型告警影响
+    expect(await unresolvedCount('staff')).toEqual({ open: 2, acknowledged: 0, total: 2 });
 
     const misroute = await listAlerts({ kind: 'misroute' });
     expect(misroute.items.map((item) => item.id)).toEqual(['alt_02']);

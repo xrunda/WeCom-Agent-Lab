@@ -58,13 +58,15 @@ function attentionTarget(person: TeamAttentionPerson): string {
   const params = new URLSearchParams({ advisorId: person.advisorId });
   switch (reason.code) {
     case 'redline':
+      // 质检与告警只收员工群发言红线，按顾问筛选即可
+      params.set('source', 'staff');
+      return `/alerts?${params.toString()}`;
     case 'misroute':
+      return `/service-flow?advisorId=${encodeURIComponent(person.advisorId)}&status=MISROUTE_ALERT`;
     case 'unverified':
-      params.set('kind', reason.code);
-      return `/alerts?${params.toString()}`;
+      return `/service-flow?advisorId=${encodeURIComponent(person.advisorId)}&status=UNVERIFIED`;
     case 'advisor_paused':
-      if (reason.draftId || reason.patientId) params.set('kind', 'advisor_paused');
-      return `/alerts?${params.toString()}`;
+      return '/advisors';
     case 'no_reply':
       if (!reason.patientId) return '/patients';
       return `/patients?patientId=${encodeURIComponent(reason.patientId)}&tab=timeline`;
@@ -423,13 +425,13 @@ export default function DashboardPage() {
             </span>
           </div>
           <button type="button" className="zb-kpi-card kpi-alert-card" onClick={() => navigate('/alerts')}>
-            <span className="zb-kpi-label">未处理告警</span>
+            <span className="zb-kpi-label">未处理红线</span>
             <span className={`zb-kpi-value ${kpis.openAlerts > 0 ? 'kpi-alert-value' : ''}`}>
               {kpis.openAlerts}
               <span className="zb-kpi-unit">条</span>
             </span>
             <span className="zb-kpi-hint">
-              <AlertOutlined /> 去质检与告警处理
+              <AlertOutlined /> 员工群发言命中 · 去复核
             </span>
           </button>
         </div>

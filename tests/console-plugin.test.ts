@@ -673,6 +673,37 @@ test('告警事件入库、列表、详情、处理；重复处理 409，已解�
   assert.deepEqual(after.json(), { open: 0, acknowledged: 0, total: 0 });
 });
 
+test('告警列表与未解决计数支持按来源筛选：角标只算员工群发言', async () => {
+  const { ctx, call } = await start();
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  ctx.emitTo('alert.created', { kind: 'remind' });
+  ctx.emitTo('alert.created', {
+    kind: 'redline',
+    source: 'staff',
+    title: '员工发言命中红线',
+    advisorId: 'adv_1',
+  });
+
+  const staff = await call('GET', '/zhiban/api/alerts?source=staff', { cookie });
+  assert.equal(staff.status, 200);
+  const staffBody = staff.json() as { total: number; items: Array<{ source?: string }> };
+  assert.equal(staffBody.total, 1);
+  assert.equal(staffBody.items[0]!.source, 'staff');
+
+  const staffCount = await call('GET', '/zhiban/api/alerts/unresolved-count?source=staff', {
+    cookie,
+  });
+  assert.deepEqual(staffCount.json(), { open: 1, acknowledged: 0, total: 1 });
+
+  const allCount = await call('GET', '/zhiban/api/alerts/unresolved-count', { cookie });
+  assert.deepEqual(allCount.json(), { open: 2, acknowledged: 0, total: 2 });
+
+  // 拼错的 source 不改变筛选条件，仍返回全部
+  const bogus = await call('GET', '/zhiban/api/alerts?source=bogus', { cookie });
+  assert.equal((bogus.json() as { total: number }).total, 2);
+});
+
 test('Idempotency-Key 使重复的写操作返回缓存结果', async () => {
   const { ctx, call } = await start();
   const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
@@ -2005,6 +2036,7 @@ test('顾问：队列深度来自真实草稿，暂停/恢复同时落到企微�
     message: '群「服务群」的员工发言命中规则：不调药',
     advisorId: 'adv_1',
     groupId: 'grp_1',
+    source: 'staff',
     createdAt: Date.now(),
   });
   const redlineAlerts = await call('GET', '/zhiban/api/alerts?kind=redline&advisorId=adv_1', {

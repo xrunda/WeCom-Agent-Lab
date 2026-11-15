@@ -32,10 +32,10 @@ async function renderPage(node: ReactNode, initialEntries: string[] = ['/']) {
   );
 }
 
-function rowOf(text: string): HTMLElement {
-  const node = screen.getAllByText(text).find((element) => element.closest('tr'));
-  if (!node?.closest('tr')) throw new Error(`找不到包含「${text}」的表格行`);
-  return node.closest('tr') as HTMLElement;
+function cardOf(text: string | RegExp): HTMLElement {
+  const node = screen.getAllByText(text).find((element) => element.closest('.alert-card'));
+  if (!node?.closest('.alert-card')) throw new Error(`找不到包含「${String(text)}」的告警卡片`);
+  return node.closest('.alert-card') as HTMLElement;
 }
 
 beforeEach(() => {
@@ -62,40 +62,46 @@ describe('WP-J 页面', () => {
     expect(screen.getByRole('tab', { name: /引用依据/ })).toBeInTheDocument();
   });
 
-  it('告警页可以写备注标记已处理', async () => {
+  it('告警页只显示员工群发言红线，并可写备注标记已处理', async () => {
     const user = userEvent.setup();
     await renderPage(<AlertsPage />);
 
-    await screen.findByText('草稿未核验');
-    expect(screen.getAllByText('发错群').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('顾问被暂停').length).toBeGreaterThan(0);
+    // 只收 source=staff 的发言告警：李顾问在「糖友-张女士」群里的原话
+    expect(await screen.findAllByText('李顾问')).not.toHaveLength(0);
+    expect(screen.getAllByText(/糖友-张女士/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('不诊断').length).toBeGreaterThan(0);
+    // 发错群、未核验、顾问暂停等运维告警不在本页
+    expect(screen.queryByText('草稿未核验')).not.toBeInTheDocument();
+    expect(screen.queryByText('顾问被暂停')).not.toBeInTheDocument();
 
-    const row = rowOf('草稿未核验');
-    await user.click(within(row).getByText('标记已处理'));
+    const card = cardOf(/糖友-张女士/);
+    await user.click(within(card).getByText('标记已处理'));
 
     const textarea = await screen.findByPlaceholderText('填写处理备注（必填，≤200 字）');
-    await user.type(textarea, '已电话确认顾问补发');
+    await user.type(textarea, '已在群里更正并提醒顾问');
     await user.click(screen.getByText('确认处理'));
 
     await waitFor(() => {
-      expect(within(rowOf('草稿未核验')).getByText('已处理')).toBeInTheDocument();
+      expect(within(cardOf(/糖友-张女士/)).getByText('已处理')).toBeInTheDocument();
     });
   });
 
-  it('告警详情抽屉说明原因、处理情况与关联入口', async () => {
+  it('告警详情抽屉按「发言 → 规则 → 告警」说明因果链', async () => {
     const user = userEvent.setup();
     await renderPage(<AlertsPage />);
 
-    await screen.findByText('草稿未核验');
-    const row = rowOf('发错群');
-    await user.click(within(row).getByText('查看'));
+    await screen.findAllByText('李顾问');
+    const card = cardOf(/糖友-张女士/);
+    await user.click(within(card).getByText('查看详情'));
 
-    expect(await screen.findByText('告警详情')).toBeInTheDocument();
-    expect(await screen.findByText('为什么告警')).toBeInTheDocument();
-    expect(screen.getByText('处理情况')).toBeInTheDocument();
+    expect(await screen.findByText('发言告警详情')).toBeInTheDocument();
+    expect(await screen.findByText('员工发言')).toBeInTheDocument();
+    expect(screen.getAllByText('命中规则').length).toBeGreaterThan(0);
+    expect(screen.getByText('生成告警')).toBeInTheDocument();
+    // 明确标出原话里触发告警的关键词
+    expect(screen.getByText(/命中词/)).toBeInTheDocument();
     expect(screen.getByText('怎么处理')).toBeInTheDocument();
-    // 有关联草稿时按钮直接指向该草稿，而不是服务流列表首页
-    expect(await screen.findByText('打开关联草稿')).toBeInTheDocument();
+    expect(screen.getByText('处理情况')).toBeInTheDocument();
   });
 
   it('深链 ?draftId= 直接打开服务流详情抽屉', async () => {

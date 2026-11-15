@@ -111,6 +111,7 @@ export default function AdvisorsPage() {
       const result = await listAlerts({
         advisorId: advisor.id,
         kind: 'redline',
+        source: 'staff',
         pageSize: 20,
       });
       setRedlineRows(result.items);

@@ -1,21 +1,145 @@
-.alert-stat-row .ant-card {
-  min-width: 160px;
+/* 质检与告警：员工群发言红线信息流 */
+
+.alert-summary {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  padding: 14px 20px;
+  background: var(--zb-surface);
+  border: 1px solid var(--zb-line);
+  border-radius: var(--zb-radius);
 }
 
-.alerts-table .ant-table-cell {
-  vertical-align: top;
+.alert-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
 }
 
-.alert-unresolved-row > td {
-  background: #fff7f5 !important;
+.alert-summary-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--zb-ink);
+  font-variant-numeric: tabular-nums;
 }
 
-.alert-detail-message {
-  padding: 10px 12px;
-  background: #f8fafc;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.7;
+.alert-summary-value.is-danger {
+  color: var(--zb-danger);
+}
+
+.alert-summary-label {
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+.alert-summary-divider {
+  width: 1px;
+  background: var(--zb-line);
+}
+
+.alert-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---- 信息流 ---- */
+
+.alert-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.alert-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--zb-surface);
+  border: 1px solid var(--zb-line);
+  border-radius: var(--zb-radius);
+}
+
+.alert-card.is-resolved {
+  background: var(--zb-surface-2);
+  border-color: var(--zb-line);
+}
+
+.alert-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.alert-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--zb-brand-tint);
+  color: var(--zb-primary-deep);
+  font-weight: 600;
+}
+
+.alert-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.alert-name {
+  font-weight: 600;
+  color: var(--zb-ink);
+}
+
+.alert-where {
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+.alert-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin-left: auto;
+}
+
+.alert-time {
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+/* 发言原文是每条告警的主角：左边一条红线，浅底，字号比正文大 */
+.alert-quote {
+  margin: 0;
+  padding: 12px 16px;
+  background: #fff6f4;
+  border-left: 3px solid var(--zb-danger);
+  border-radius: 0 var(--zb-radius-sm) var(--zb-radius-sm) 0;
+  color: var(--zb-ink);
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.alert-quote.is-detail {
+  margin-top: 8px;
+}
+
+.alert-card.is-resolved .alert-quote {
+  background: var(--zb-surface-2);
+  border-left-color: var(--zb-line-strong);
+  color: var(--zb-ink-2);
 }
 
 /* 触发告警的原文关键词：给一个明确的底色，扫一眼就能定位 */
@@ -25,4 +149,196 @@
   border-radius: 3px;
   color: inherit;
   font-weight: 600;
+}
+
+.alert-note {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+.alert-note-label {
+  flex: none;
+  color: var(--zb-muted-2);
+}
+
+.alert-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.alert-rules {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+.alert-rules-label {
+  color: var(--zb-muted-2);
+}
+
+.alert-rule-tag {
+  margin: 0;
+  background: var(--zb-brand-tint);
+  color: var(--zb-primary-deep);
+}
+
+.alert-card-actions {
+  margin-left: auto;
+}
+
+.alert-loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.alert-pagination {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---- 空状态 ---- */
+
+.alert-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 56px 24px;
+  text-align: center;
+  background: var(--zb-surface);
+  border: 1px dashed var(--zb-line-strong);
+  border-radius: var(--zb-radius);
+}
+
+.alert-empty-icon {
+  font-size: 28px;
+  color: var(--zb-positive);
+}
+
+.alert-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--zb-ink);
+}
+
+.alert-empty-hint {
+  max-width: 44ch;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--zb-muted);
+}
+
+/* ---- 详情抽屉：发言 → 规则 → 告警 的因果链 ---- */
+
+.alert-chain {
+  display: flex;
+  flex-direction: column;
+}
+
+.alert-step {
+  position: relative;
+  padding: 0 0 20px 34px;
+}
+
+.alert-step::before {
+  content: '';
+  position: absolute;
+  top: 26px;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: var(--zb-line);
+}
+
+.alert-step:last-child {
+  padding-bottom: 0;
+}
+
+.alert-step:last-child::before {
+  display: none;
+}
+
+.alert-step-index {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--zb-brand-tint);
+  color: var(--zb-primary-deep);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.alert-step-title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zb-ink);
+}
+
+.alert-step-meta {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--zb-muted);
+}
+
+.alert-step-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--zb-muted);
+}
+
+.alert-step-hint .alert-hit {
+  margin: 0 2px;
+}
+
+@media (max-width: 640px) {
+  /* 窄屏标题和副标题并排会把「质检与告警」挤成省略号，改成上下两行 */
+  .alerts-page .ant-page-header-heading-left {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .alerts-page .ant-page-header-heading-sub-title {
+    width: 100%;
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  .alert-summary {
+    gap: 16px;
+    padding: 12px 16px;
+  }
+
+  .alert-card {
+    padding: 14px;
+  }
+
+  .alert-card-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .alert-meta {
+    width: 100%;
+    margin-left: 42px;
+  }
+
+  .alert-card-actions {
+    margin-left: 0;
+  }
 }

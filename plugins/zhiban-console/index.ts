@@ -15,7 +15,7 @@ import {
   SESSION_COOKIE,
 } from '../../src/p1/console-auth.ts';
 import { CaptchaService } from '../../src/p1/captcha.ts';
-import { AlertService } from '../../src/p1/console-alerts.ts';
+import { AlertService, parseAlertSource } from '../../src/p1/console-alerts.ts';
 import { ConsoleError } from '../../src/p1/console-error.ts';
 import { ConsoleStore } from '../../src/p1/console-store.ts';
 import {
@@ -937,6 +937,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       status: rc.query.get('status') ?? undefined,
       advisorId: rc.query.get('advisorId') ?? undefined,
       patientId: rc.query.get('patientId') ?? undefined,
+      source: parseAlertSource(rc.query.get('source')),
       from: parseTime(rc.query.get('from'), 'from'),
       to: parseTime(rc.query.get('to'), 'to'),
       sandbox: rc.query.get('sandbox') === 'true',
@@ -948,10 +949,17 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     const redlineStats = (
       advisorId: string,
     ): { hits: number; open: number; lastAt: number | null } => {
-      const latest = alerts.list({ kind: 'redline', advisorId, pageSize: 1 });
+      const latest = alerts.list({ kind: 'redline', source: 'staff', advisorId, pageSize: 1 });
       const open =
-        alerts.list({ kind: 'redline', advisorId, status: 'open', pageSize: 1 }).total +
-        alerts.list({ kind: 'redline', advisorId, status: 'acknowledged', pageSize: 1 }).total;
+        alerts.list({ kind: 'redline', source: 'staff', advisorId, status: 'open', pageSize: 1 })
+          .total +
+        alerts.list({
+          kind: 'redline',
+          source: 'staff',
+          advisorId,
+          status: 'acknowledged',
+          pageSize: 1,
+        }).total;
       return {
         hits: latest.total,
         open,
@@ -974,7 +982,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       '/alerts/unresolved-count',
       (rc) => {
         tenantActor(rc);
-        respond(rc, 200, alerts.unresolvedCount());
+        respond(rc, 200, alerts.unresolvedCount(parseAlertSource(rc.query.get('source'))));
       },
       { permission: 'alert.read' },
     );
@@ -1530,7 +1538,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             drafts: consoleDrafts(),
             advisors: patientReadApi()?.listAdvisors?.() ?? [],
             memories: consoleMemories(),
-            openAlerts: alerts.unresolvedCount().open,
+            openAlerts: alerts.unresolvedCount('staff').open,
           }),
         );
       },

@@ -44,11 +44,18 @@ export interface AlertQuery {
   status?: string;
   advisorId?: string;
   patientId?: string;
+  /** 告警来源：staff（员工群发言）/ draft（AI 草稿） */
+  source?: string;
   from?: number;
   to?: number;
   sandbox?: boolean;
   page?: number;
   pageSize?: number;
+}
+
+/** 只接受已知来源，避免拼错参数时静默返回空列表却看不出原因 */
+export function parseAlertSource(raw: unknown): 'staff' | 'draft' | undefined {
+  return raw === 'staff' || raw === 'draft' ? raw : undefined;
 }
 
 const ALERT_KINDS = new Set<AlertKind>([
@@ -162,16 +169,22 @@ export class AlertService {
       .filter((alert) => (query.status ? alert.status === query.status : true))
       .filter((alert) => (query.advisorId ? alert.advisorId === query.advisorId : true))
       .filter((alert) => (query.patientId ? alert.patientId === query.patientId : true))
+      .filter((alert) => (query.source ? alert.source === query.source : true))
       .filter((alert) => (from === undefined ? true : alert.createdAt >= from))
       .filter((alert) => (to === undefined ? true : alert.createdAt < to))
       .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
     return paginate(items, query.page, query.pageSize);
   }
 
-  unresolvedCount(): { open: number; acknowledged: number; total: number } {
+  /**
+   * 未解决告警计数。传 `source` 时只算该来源——控制台菜单角标只关心
+   * 员工群发言红线，避免超时、推送失败等运维告警把数字冲高。
+   */
+  unresolvedCount(source?: 'staff' | 'draft'): { open: number; acknowledged: number; total: number } {
     const items = this.store
       .listAlerts()
-      .filter((alert) => alert.tenantId === this.tenantId && !alert.sandbox);
+      .filter((alert) => alert.tenantId === this.tenantId && !alert.sandbox)
+      .filter((alert) => (source ? alert.source === source : true));
     const open = items.filter((alert) => alert.status === 'open').length;
     const acknowledged = items.filter((alert) => alert.status === 'acknowledged').length;
     return { open, acknowledged, total: open + acknowledged };
