@@ -60,12 +60,22 @@ export function fetchContext(query: string): Promise<SidebarContextData> {
 
 export type CloseReason = 'handled' | 'dismissed' | 'transferred';
 
-/** 手动关闭：已处理 / 无需回复 / 转交。服务端会做同一条权限判断 */
+/** 关闭待回复：侧边栏只发「跳过」（dismissed）；服务端会做同一条权限判断 */
 export function postClose(id: string, reason: CloseReason): Promise<{ ok: boolean }> {
   return requestJson<{ ok: boolean }>(`/pending/${encodeURIComponent(id)}/close`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ reason }),
+  });
+}
+
+/**
+ * 跳过一条没有待回复条目的草稿：这条不发，释放顾问队列。
+ * 已发送不需要手动标记，由服务端从存档里本人发言自动判定。
+ */
+export function postSkipDraft(id: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/drafts/${encodeURIComponent(id)}/skip`, {
+    method: 'POST',
   });
 }
 

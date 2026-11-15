@@ -26,6 +26,14 @@ export type DraftStatus = (typeof DRAFT_STATUS)[keyof typeof DRAFT_STATUS];
  */
 export type AckAction = 'sent' | 'skipped';
 
+/**
+ * 确认动作来自哪里：
+ * - card    机器人卡片按钮（历史链路）
+ * - sidebar 顾问在侧边栏点的「跳过」
+ * - archive 存档里检测到顾问自己在本群发言，自动标记已发送
+ */
+export type AckSource = 'card' | 'sidebar' | 'archive';
+
 export type RiskLevel = 'low' | 'medium' | 'high';
 
 /** 草稿来源：#34 服务流据此区分「患者提问」与「Agent 主动」 */
@@ -125,6 +133,8 @@ export interface Draft {
   escalatedAt?: number;
   ackAt?: number;
   ackAction?: AckAction;
+  /** 确认来源；旧数据没有这个字段，按卡片处理 */
+  ackSource?: AckSource;
   verifyAttempts: number;
   nextVerifyAt?: number;
   verification?: VerificationResult;

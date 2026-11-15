@@ -38,6 +38,9 @@ const DM_INGEST_LOOKBACK_MS = 24 * 60 * 60_000;
 /** #160 待回复索引增量同步的重叠窗口：归档回放可能晚于轮询到达 */
 const SIDEBAR_SYNC_OVERLAP_MS = 5 * 60_000;
 
+/** 存档时间与服务器时钟可能差几秒；判定「草稿推送后顾问才回复」时留容差 */
+const AUTO_ACK_GRACE_MS = 5_000;
+
 /**
  * #33/#34/#63/#56：由 zhiban-patient 提供的可选能力。
  * wecom 只负责把存档消息转交过去，不依赖患者域实现。
@@ -370,7 +373,11 @@ export class WecomRuntime {
           // 患者域接管（合并窗口 / 上下文 / 未启用）时不走模板草稿
           if (routed.handled) continue;
         }
-        if (!event) continue;
+        if (!event) {
+          // 顾问已经在群里回了，草稿不该再挂着等人点「已处理」
+          this.acknowledgeByStaffReply(message.roomid, message.msgtime, message.from);
+          continue;
+        }
 
         let draft: Draft;
         try {
@@ -463,6 +470,10 @@ export class WecomRuntime {
             text: record.text,
             at: record.msgtime,
           });
+          // 停机期间顾问已经回了的，补建索引时一并把草稿标记掉，不必等回读核验
+          if (!external) {
+            this.acknowledgeByStaffReply(record.roomId, record.msgtime, record.from);
+          }
         } else {
           const fromStaff = staffUserIds.includes(record.from);
           const externalId = fromStaff ? (record.tolist?.[0] ?? '') : record.from;
@@ -710,19 +721,82 @@ export class WecomRuntime {
   }
 
   /**
-   * #163 侧边栏「已处理」→ 草稿确认发送，随后回读核验。
-   * 与机器人按钮共用同一状态机；核验结果只在侧边栏展示，不再私聊回执。
+   * 顾问在本群发言后，把此前推送的草稿标记为已发送，释放串行队列。
+   * 只认绑定顾问本人（id 或 chatId）；改字、分条发、从手机发都算已回——
+   * 正文能否匹配交给回读核验，判定送达与错群，不拿它决定「回没回」。
+   */
+  private acknowledgeByStaffReply(roomId: string, msgtime: number, from: string): void {
+    if (roomId === '') return;
+    const group = this.store.getGroup(roomId);
+    if (!group) return;
+    const advisor = this.store.getAdvisor(group.advisorId);
+    if (!advisor) return;
+    if (from !== advisor.id && from !== advisor.chatId) return;
+
+    const drafts = this.store
+      .listDrafts()
+      .filter(
+        (draft) =>
+          draft.advisorId === advisor.id &&
+          draft.groupRoomId === roomId &&
+          draft.status === 'PUSHED' &&
+          (draft.pushedAt ?? draft.createdAt) <= msgtime + AUTO_ACK_GRACE_MS,
+      )
+      .sort((a, b) => (a.pushedAt ?? a.createdAt) - (b.pushedAt ?? b.createdAt));
+
+    for (const draft of drafts) {
+      try {
+        const acked = this.service.acknowledge(
+          draft.id,
+          'sent',
+          draft.version ?? 1,
+          'archive',
+        );
+        this.promises?.ingestDraft(acked);
+        this.emit('draft.acked', {
+          draftId: draft.id,
+          advisorId: advisor.id,
+          ackAction: 'sent',
+          source: 'archive',
+        });
+        this.log(`存档检测到顾问已回复，草稿 ${draft.id} 标记为已发送`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // 同一批存档消息会重复回放，已确认过是常态
+        if (!message.startsWith('ALREADY_ACKNOWLEDGED')) {
+          this.log(`自动标记已发送失败 ${draft.id}：${message}`);
+        }
+      }
+    }
+  }
+
+  /** 草稿归属：本人或本人负责的群；侧边栏动作必须过这一道 */
+  private ownsDraft(draft: Draft, actor: string): boolean {
+    if (draft.advisorId === actor) return true;
+    return this.store.getGroup(draft.groupRoomId)?.advisorId === actor;
+  }
+
+  /**
+   * 侧边栏动作：现在只有「跳过」（这条不发）。
+   * 已发送不再需要顾问点按钮，由存档里本人发言自动判定（见 acknowledgeByStaffReply）；
+   * 仍走同一状态机做审计与核验，核验结果只回侧边栏。
    */
   async acknowledgeFromSidebar(draftId: string, action: AckAction, actor: string): Promise<void> {
     const draft = this.store.getDraft(draftId);
     if (!draft) throw new Error(`DRAFT_NOT_FOUND ${draftId}`);
+    if (!this.ownsDraft(draft, actor)) throw new Error(`FORBIDDEN_DRAFT ${draftId}`);
     try {
-      this.service.acknowledge(draftId, action, draft.version ?? 1);
+      this.service.acknowledge(draftId, action, draft.version ?? 1, 'sidebar');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.startsWith('ALREADY_ACKNOWLEDGED')) throw error;
     }
-    this.emit('draft.acked', { draftId, advisorId: draft.advisorId, ackAction: action });
+    this.emit('draft.acked', {
+      draftId,
+      advisorId: draft.advisorId,
+      ackAction: action,
+      source: 'sidebar',
+    });
     this.log(`侧边栏处理草稿 ${draftId} → ${action} by=${tailId(actor)}`);
     if (action === 'sent') this.promises?.ingestDraft(draft);
     await this.tickOnce();

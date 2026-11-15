@@ -81,7 +81,7 @@ interface WecomAdminLike {
   }>;
   /** #149：已生成、未发出的草稿；群服务未就绪时返回空 */
   latestSidebarDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
-  /** #163：侧边栏「已处理 / 忽略」推进草稿状态，随后回读核验 */
+  /** #163：侧边栏「跳过」推进草稿状态并释放队列；已发送由存档自动判定 */
   acknowledgeDraft?(
     draftId: string,
     action: 'sent' | 'skipped',
@@ -228,14 +228,11 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
         oauth,
         ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
         sessionTtlMs: config.sessionTtlMs,
-        // #163：关闭待回复时同步推进草稿状态（已发送 / 忽略）
-        acknowledgeDraft: (advisor, draftId, action) => {
-          const admin = ctx.get<WecomAdminLike>('zhibanWecomAdmin');
-          const pending = admin?.acknowledgeDraft?.(draftId, action, advisor.id);
-          void pending?.catch((error: unknown) => {
-            log(`草稿状态推进失败：${error instanceof Error ? error.message : 'UNKNOWN'}`);
-          });
-        },
+        // #163：跳过待回复时同步推进草稿状态；返回 Promise 让跳过接口能回真实错误
+        acknowledgeDraft: (advisor, draftId, action) =>
+          ctx
+            .get<WecomAdminLike>('zhibanWecomAdmin')
+            ?.acknowledgeDraft?.(draftId, action, advisor.id) ?? Promise.resolve(),
         log,
         resolveAdvisor: (wecomUserId) =>
           advisorView(

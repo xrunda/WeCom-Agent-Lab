@@ -6,7 +6,7 @@
  * 轮询 30 秒，页面隐藏时暂停，切回立即刷新。
  */
 import './sidebar.css';
-import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext, postClose, postEvent } from './api.ts';
+import { AUTH_START_PATH, SidebarApiError, fetchAgentConfig, fetchContext, postClose, postEvent, postSkipDraft } from './api.ts';
 import { flashRefreshed, markRefreshBusy, render } from './view.ts';
 import type { ViewHandlers } from './view.ts';
 import { WxConfigError, configureAgent, contextQuery, resolveConversation } from './wecom.ts';
@@ -289,11 +289,31 @@ async function closeItem(
   }
 }
 
+async function skipDraft(rootEl: HTMLElement, id: string): Promise<void> {
+  try {
+    await postSkipDraft(id);
+    await refresh(rootEl);
+  } catch (error) {
+    if (error instanceof SidebarApiError && error.status === 401) {
+      handleAuthFailure();
+      return;
+    }
+    if (lastData) {
+      render(
+        rootEl,
+        { ...lastData, notice: { message: '操作没成功，请重试', retryable: true } },
+        handlers(rootEl, () => void refresh(rootEl)),
+      );
+    }
+  }
+}
+
 function handlers(rootEl: HTMLElement, redraw: () => void): ViewHandlers {
   return {
     onRefresh: redraw,
     onRetry: () => void start(rootEl),
     onClose: (id, reason) => void closeItem(rootEl, id, reason),
+    onSkipDraft: (id) => void skipDraft(rootEl, id),
     onEvent: (event, itemId) => void postEvent(event, itemId),
     consoleUrl: consoleUrl(),
   };

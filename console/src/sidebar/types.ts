@@ -118,6 +118,8 @@ export interface SidebarContextData {
     openCount: number;
     oldestWaitSeconds: number | null;
   };
+  /** 没挂到待回复条目上的未发出草稿（主动关怀 / 同事已回复 / 队列里还是上一份）；否则为 null */
+  draft: SidebarDraftView | null;
   profile: SidebarProfileView | null;
   generatedAt: number;
 }

@@ -382,6 +382,8 @@ test('客户又发了新消息：上一轮的旧草稿不再挂在新问题下�
   // 旧草稿答的是上一条消息，不能拿来当新问题的回答
   assert.equal(stale.pending.open[0]!.draft, null);
   assert.equal(stale.pending.open[0]!.hasDraft, false);
+  // 但它还没发出、仍占着队列：单独展示，顾问才能看见并跳过
+  assert.equal(stale.draft?.id, 'draft_old');
 
   const fresh = buildSidebarContext(
     deps({
@@ -392,6 +394,34 @@ test('客户又发了新消息：上一轮的旧草稿不再挂在新问题下�
     { chatId: 'chat_1' },
   );
   assert.equal(fresh.pending.open[0]!.draft?.id, 'draft_new');
+  // 草稿已挂在条目上，不重复展示
+  assert.equal(fresh.draft, null);
+});
+
+test('没有待回复条目时，未发出的草稿单独返回', () => {
+  // 主动关怀没有客户消息；同事先回复后待回复条目也会关闭
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [],
+      latestDraft: () => ({
+        id: 'draft_proactive',
+        body: '最近血压怎么样？',
+        riskLevel: 'low',
+        ruleNames: [],
+        createdAt: NOW - 60_000,
+        status: 'PUSHED',
+      }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  assert.equal(view.pending.openCount, 0);
+  assert.equal(view.draft?.id, 'draft_proactive');
+  assert.equal(view.draft?.body, '最近血压怎么样？');
+});
+
+test('没有草稿时单独草稿字段为 null', () => {
+  assert.equal(buildSidebarContext(deps(), ADVISOR, { chatId: 'chat_1' }).draft, null);
 });
 
 test('草稿还没出来时给出生成进度，只挂在最新一条上', () => {

@@ -129,7 +129,7 @@ export class Verifier {
           draft.advisorId,
           draft.id,
           'UNVERIFIED',
-          `草稿 ${draft.id} 已确认发送，但 ${this.config.maxVerifyAttempts} 次回读均未在存档中匹配到`,
+          `草稿 ${draft.id} 已标记为已发送，但 ${this.config.maxVerifyAttempts} 次回读均未在存档中匹配到正文`,
         );
         return res;
       }

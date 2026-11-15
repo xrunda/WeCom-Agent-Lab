@@ -70,14 +70,14 @@ export interface SidebarHttpOptions {
   /** 由插件在运行时组装：群绑定、患者档案、待回复 */
   buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) => unknown;
   /**
-   * #163：侧边栏「已处理 / 忽略」同时推进草稿状态，
-   * 让「已发送 → 回读核验」在内容分发移除后仍然生效。
+   * #163：侧边栏「跳过」推进草稿状态，让待回复条目与草稿队列同步释放。
+   * 已发送不再由顾问手点，运行时从存档里本人发言自动判定。
    */
   acknowledgeDraft?: (
     advisor: SidebarAdvisor,
     draftId: string,
     action: 'sent' | 'skipped',
-  ) => void;
+  ) => Promise<void> | void;
   oauth?: SidebarOAuthPort;
   /** OAuth 换到 userid 后映射顾问；未开通返回 undefined */
   resolveAdvisor?: (wecomUserId: string) => SidebarAdvisor | undefined;
@@ -232,6 +232,11 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
       });
     },
   });
+
+  // 草稿状态推进失败不进响应文案，也不影响关闭待回复：只记录错误类型，不记录正文
+  function logDraftFailure(action: string, error: unknown): void {
+    options.log?.(`${action}失败：${error instanceof Error ? error.name : 'UNKNOWN'}`);
+  }
 
   async function handle(req: SidebarHttpRequest, res: SidebarHttpResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://sidebar.local');
@@ -403,15 +408,54 @@ export function registerSidebarHttp(webServer: SidebarWebServer, options: Sideba
       options.api.close(id, reason, advisor.id);
       if (draftId && (reason === 'handled' || reason === 'dismissed')) {
         try {
-          options.acknowledgeDraft?.(advisor, draftId, reason === 'handled' ? 'sent' : 'skipped');
-        } catch (error) {
-          // 草稿状态推进失败不影响关闭待回复：记录类型，不记录正文
-          options.log?.(
-            `侧边栏草稿状态推进失败：${error instanceof Error ? error.name : 'UNKNOWN'}`,
+          // 等草稿状态落定再响应：侧边栏关闭后会立即刷新，不能让它再看到旧草稿
+          await options.acknowledgeDraft?.(
+            advisor,
+            draftId,
+            reason === 'handled' ? 'sent' : 'skipped',
           );
+        } catch (error) {
+          logDraftFailure('推进侧边栏草稿状态', error);
         }
       }
       sendJson(res, 200, { ok: true, id, status: reason });
+      return;
+    }
+
+    // 没有待回复条目的草稿（主动关怀 / 同事已回复）只有「跳过」一个动作。
+    // 归属由运行时再判一次：侧边栏的顾问身份与草稿的负责群必须一致。
+    const skipMatch = /^\/drafts\/([^/]+)\/skip$/.exec(path);
+    if (skipMatch && method === 'POST') {
+      if (!options.acknowledgeDraft) {
+        sendJson(res, 503, { code: 'ACK_UNAVAILABLE', message: '草稿状态暂时不可用' });
+        return;
+      }
+      const draftId = decodeURIComponent(skipMatch[1]!);
+      try {
+        await options.acknowledgeDraft(advisor, draftId, 'skipped');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('FORBIDDEN_DRAFT')) {
+          sendJson(res, 403, { code: 'FORBIDDEN', message: '不在该会话的服务范围内' });
+          return;
+        }
+        if (message.startsWith('DRAFT_NOT_FOUND')) {
+          sendJson(res, 404, { code: 'NOT_FOUND', message: '草稿不存在' });
+          return;
+        }
+        if (message.startsWith('DRAFT_NOT_PUSHED')) {
+          sendJson(res, 409, { code: 'DRAFT_NOT_PUSHED', message: '草稿已经处理过了' });
+          return;
+        }
+        if (message === 'WECOM_RUNTIME_NOT_READY') {
+          sendJson(res, 503, { code: 'ACK_UNAVAILABLE', message: '草稿状态暂时不可用' });
+          return;
+        }
+        logDraftFailure('跳过侧边栏草稿', error);
+        sendJson(res, 500, { code: 'INTERNAL', message: '操作没成功，请重试' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, id: draftId, status: 'skipped' });
       return;
     }
 

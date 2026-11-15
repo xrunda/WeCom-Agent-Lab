@@ -487,6 +487,7 @@ media：文件在磁盘，元数据随消息保存
 | `remindedAt` | number | 是 | 15 分钟提醒时间 |
 | `escalatedAt` | number | 是 | 60 分钟升级时间 |
 | `ackAction` | enum | 是 | `sent` / `skipped` |
+| `ackSource` | enum | 是 | 确认来源：`archive`（存档里本人发言自动判定）/ `sidebar`（跳过）/ `card`（旧版卡片）；旧数据缺省按 `card` |
 | `verificationId` | string | 是 | 最近一次核验结果 |
 | `errorCode` | string | 是 | 最后失败原因 |
 
@@ -725,9 +726,9 @@ Agent 的「办事记录」（患者主页 Tab）。每次工具调用一条。
 ### 4.1 draft.status（沿用 C2）
 
 ```text
-QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> ACKNOWLEDGED ──回读匹配──> VERIFIED
+QUEUED ──推送成功──> PUSHED ──顾问在群里回复（存档自动判定）──> ACKNOWLEDGED ──回读匹配──> VERIFIED
   │                    │                              │
-  │                    ├──顾问点「忽略」──────────────> SKIPPED
+  │                    ├──侧边栏「跳过」───────────────> SKIPPED
   │                    ├──回读匹配到别的群────────────> MISROUTE_ALERT
   │                    └──超过回读次数───────────────> UNVERIFIED
   ├──推送失败（重试耗尽）──> FAILED ──> DEAD_LETTER
@@ -739,8 +740,8 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 | `QUEUED` | 排队中 | |
 | `PUSHED` | 已推送，待顾问处理 | |
 | `FAILED` | 推送失败，等待重试 | |
-| `ACKNOWLEDGED` | 顾问已点发送，等待回读核验 | |
-| `SKIPPED` | 顾问已忽略 | |
+| `ACKNOWLEDGED` | 顾问已回复（存档自动判定），等待回读核验 | |
+| `SKIPPED` | 顾问已跳过 | 侧边栏「跳过」；释放队列 |
 | `VERIFIED` | ✅ 已核验 | 与 `sentVersion` 共同判断原样/改稿后采纳 |
 | `EDIT_SENT` | ✏️ 改后发送 | |
 | `MISROUTE_ALERT` | ⚠️ 发错群 | |

@@ -539,7 +539,12 @@ export function serviceFlowDetail(draft: Draft, ctx: FlowDetailContext): Service
       at: draft.ackAt,
       type: 'ack',
       actor: advisor?.name ?? draft.advisorId,
-      title: draft.ackAction === 'skipped' ? '已跳过' : '点击已发送',
+      title:
+        draft.ackAction === 'skipped'
+          ? '已跳过'
+          : draft.ackSource === 'archive'
+            ? '系统检测到顾问已回复'
+            : '点击已发送',
     });
   }
   if (verification) {

@@ -6,6 +6,7 @@ import { Verifier, DEFAULT_VERIFIER_CONFIG } from './verifier.ts';
 import type { VerifierConfig } from './verifier.ts';
 import type {
   AckAction,
+  AckSource,
   Advisor,
   Alert,
   CustomerGroup,
@@ -231,7 +232,12 @@ export class C2Service {
     return draft;
   }
 
-  acknowledge(draftId: string, action: AckAction, version?: number): Draft {
+  acknowledge(
+    draftId: string,
+    action: AckAction,
+    version?: number,
+    source: AckSource = 'card',
+  ): Draft {
     const draft = this.store.getDraft(draftId);
     if (!draft) throw new Error(`DRAFT_NOT_FOUND ${draftId}`);
     // #56：旧版卡片按钮失效。没有版本段的旧 key 按 v1 处理。
@@ -253,6 +259,7 @@ export class C2Service {
 
     draft.status = target;
     draft.ackAction = action;
+    draft.ackSource = source;
     draft.ackAt = now;
 
     if (action !== 'skipped') {

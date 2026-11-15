@@ -192,6 +192,12 @@ export interface SidebarContextView {
     openCount: number;
     oldestWaitSeconds: number | null;
   };
+  /**
+   * 没有挂到待回复条目上的未发出草稿：主动关怀没有客户消息、同事先回复后条目
+   * 会关闭，或客户又发来新消息而队列里还是上一份草稿。这类草稿仍占着队列，
+   * 必须能看见并能跳过；挂到条目上时为 null。
+   */
+  draft: SidebarDraftView | null;
   profile: SidebarProfileView | null;
   generatedAt: number;
 }
@@ -209,6 +215,23 @@ export class SidebarAccessError extends Error {
 }
 
 const DAY_MS = 24 * 60 * 60_000;
+
+/** 草稿引用 → 侧边栏视图；只带顾问需要看的字段，不带发送链路内部 id */
+function toDraftView(ref: SidebarDraftRef): SidebarDraftView {
+  return {
+    id: ref.id,
+    body: ref.body,
+    riskLevel: ref.riskLevel,
+    ruleNames: [...(ref.ruleNames ?? [])],
+    createdAt: ref.createdAt,
+    verification: ref.verification
+      ? {
+          outcome: ref.verification.outcome,
+          checkedAt: ref.verification.checkedAt,
+        }
+      : null,
+  };
+}
 
 /** 草稿与最新一条消息的时间比对容差：存档 msgtime 与服务器时钟可能差几秒 */
 const DRAFT_MATCH_GRACE_MS = 5_000;
@@ -247,6 +270,8 @@ export function buildSidebarContext(
         openCount: open.length,
         oldestWaitSeconds: maxWaitSeconds(open),
       },
+      // 单聊目前不出草稿
+      draft: null,
       profile: profileView(
         patient,
         canRead,
@@ -280,6 +305,7 @@ export function buildSidebarContext(
         lastObservedAt: null,
       },
       pending: { open: [], recentlyClosed: [], openCount: 0, oldestWaitSeconds: null },
+      draft: null,
       profile: null,
       generatedAt: now,
     };
@@ -305,21 +331,7 @@ export function buildSidebarContext(
   const draftRef = newest && deps.latestDraft
     ? deps.latestDraft(group.roomId, newest.lastAt - DRAFT_MATCH_GRACE_MS)
     : undefined;
-  const draft: SidebarDraftView | null = draftRef
-    ? {
-        id: draftRef.id,
-        body: draftRef.body,
-        riskLevel: draftRef.riskLevel,
-        ruleNames: [...(draftRef.ruleNames ?? [])],
-        createdAt: draftRef.createdAt,
-        verification: draftRef.verification
-          ? {
-              outcome: draftRef.verification.outcome,
-              checkedAt: draftRef.verification.checkedAt,
-            }
-          : null,
-      }
-    : null;
+  const draft: SidebarDraftView | null = draftRef ? toDraftView(draftRef) : null;
 
   // 草稿已经有了就不再显示占位：两者是同一件事的前后状态。
   // 无论有没有草稿都问一次，运行时据此清理已经推到顾问侧的进度记录。
@@ -335,6 +347,13 @@ export function buildSidebarContext(
     draft,
     draftState,
   );
+
+  // 草稿没挂到最新一条待回复上时单独展示：主动关怀没有客户消息，同事先回复后
+  // 条目会关闭，客户又发来新消息时队列里也可能还是上一份草稿。草稿没发出就一直
+  // 占着顾问队列，不能既看不见又卡在那里。
+  const standaloneRef =
+    !draft && deps.latestDraft ? deps.latestDraft(group.roomId, 0) : undefined;
+  const standaloneDraft = standaloneRef ? toDraftView(standaloneRef) : null;
 
   const oldest = maxWaitSeconds(open);
 
@@ -366,6 +385,7 @@ export function buildSidebarContext(
       openCount: open.length,
       oldestWaitSeconds: oldest,
     },
+    draft: standaloneDraft,
     profile,
     generatedAt: now,
   };
@@ -383,6 +403,7 @@ function dmNotSupported(now: number): SidebarContextView {
       lastObservedAt: null,
     },
     pending: { open: [], recentlyClosed: [], openCount: 0, oldestWaitSeconds: null },
+    draft: null,
     profile: null,
     generatedAt: now,
   };
