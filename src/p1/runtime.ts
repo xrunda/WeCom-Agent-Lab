@@ -33,6 +33,8 @@ import type {
   Speaker,
   TenantAgentSettings,
 } from './types.ts';
+import { riskLabel } from '../c2/message.ts';
+import { ReminderThrottle } from '../c2/reminders.ts';
 import type { RiskLevel, VerifyOutcome } from '../c2/types.ts';
 import type { ChronicProfile, ChronicRecordInput } from './chronic.ts';
 import {
@@ -61,6 +63,9 @@ interface RevisionRequest {
 
 /** 侧边栏「草稿生成中」状态；超过这个时间没等到草稿就认为已经结束，避免异常路径卡住占位 */
 const DRAFT_ACTIVITY_STALE_MS = 3 * 60_000;
+
+/** 同一份草稿的风险提醒最短间隔：改稿可能逐版命中，提醒只发一次，由顾问看侧边栏 */
+const GUARD_NOTIFY_REPEAT_MS = 30 * 60_000;
 
 export interface DraftActivity {
   state: 'queued' | 'generating';
@@ -230,6 +235,8 @@ export class PatientAgentRuntime {
   private readonly groupContext = new Map<string, GroupContextItem[]>();
   /** #36：顾问 → 最近一小时内已入队的主动草稿时间 */
   private readonly proactiveFiredAt = new Map<string, number[]>();
+  /** 风险提醒按草稿去重：改稿逐版命中时不连发，事件与告警照旧 */
+  private readonly guardThrottle = new ReminderThrottle(GUARD_NOTIFY_REPEAT_MS);
   private readonly localStats = {
     mergedBatches: 0,
     contextMessages: 0,
@@ -1147,9 +1154,13 @@ export class PatientAgentRuntime {
       guideOnly: review.guideOnly,
       escalated: review.escalate,
     });
-    const suffix = review.guideOnly ? '；正文已改为就医引导' : '';
+    // 事件与告警每次都记；1:1 提醒按草稿去重，改稿逐版命中时不连续轰炸顾问
+    if (!this.guardThrottle.allow(draftId, this.now())) return;
+
+    const suffix = review.guideOnly ? '；正文已改为就医引导版' : '';
     void this.notify(
-      `⚠️ 草稿命中风险规则：${review.hitNames.join('、')}；风险等级 ${review.riskLevel}${suffix}。请重点审核。`,
+      `【风险草稿】命中「${review.hitNames.join('、')}」，` +
+        `风险等级 ${riskLabel(review.riskLevel)}${suffix}。请重点审核，打开企微侧边栏处理。`,
     );
   }
 

@@ -16,6 +16,7 @@ import {
 } from '../../src/c2/adapters/wecom-archive.ts';
 import { WeComBotAdapter } from '../../src/c2/adapters/wecom-bot.ts';
 import { tailId } from '../../src/c2/redact.ts';
+import { ReminderThrottle } from '../../src/c2/reminders.ts';
 import { C2Service } from '../../src/c2/service.ts';
 import { tencentAsrFromEnv } from '../../src/c2/tencent-asr.ts';
 import { ArchiveTrigger } from '../../src/c2/trigger.ts';
@@ -257,20 +258,29 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     return undefined;
   };
 
+  /** 同一群里同一组红线连续命中时，30 分钟内只提醒一次；告警与审计每次都记 */
+  const STAFF_QUALITY_REMIND_REPEAT_MS = 30 * 60_000;
+  const staffQualityThrottle = new ReminderThrottle(STAFF_QUALITY_REMIND_REPEAT_MS);
+
   /** 命中后 1:1 提醒本人；提醒里只有群名与规则名，不含发言正文 */
   const notifyStaffQuality = async (input: {
     chatId: string;
+    roomId: string;
     groupName: string;
     hitNames: string[];
   }): Promise<void> => {
     if (!botRef) return;
+    const key = `${input.chatId}|${input.roomId}|${[...input.hitNames].sort().join(',')}`;
+    if (!staffQualityThrottle.allow(key, Date.now())) return;
     try {
       await botRef.sendText(
         input.chatId,
         `【质检提醒】你在群「${input.groupName}」的发言命中了红线规则「${input.hitNames.join('、')}」。\n` +
-          '这条已记录到「质检与告警」，并计入个人质检记录。请及时撤回或更正，必要时向主管说明。',
+          '这条已记录到控制台「质检与告警」，并计入个人质检记录。请及时撤回或更正，必要时向主管说明。',
       );
     } catch (error) {
+      // 发送失败不占用去重窗口：下一次命中还要提醒
+      staffQualityThrottle.release(key);
       log(`质检提醒推送失败：${error instanceof Error ? error.message : 'UNKNOWN'}`);
     }
   };
@@ -316,6 +326,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       );
       void notifyStaffQuality({
         chatId: advisor?.chatId ?? message.from,
+        roomId: message.roomId,
         groupName: message.groupName ?? '服务群',
         hitNames: result.hitNames,
       });
