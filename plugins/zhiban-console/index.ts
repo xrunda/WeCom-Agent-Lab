@@ -162,6 +162,8 @@ interface PatientGroupViewLike {
 /** zhiban-patient 暴露给控制台的最小沙盒接口 */
 interface PatientApiLike {
   applySettings?(patch: { agentName?: string; patientTerm?: string; tone?: string }): void;
+  /** Agent 设定页展示当前注入的系统提示词（只读） */
+  systemPrompt?(): string;
   sandboxEnsure(patient: SandboxPatient): Promise<string>;
   sandboxReset(patient: SandboxPatient): Promise<string>;
   sandboxTurn(input: SandboxAgentTurnInput): Promise<void>;
@@ -928,6 +930,26 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         respond(rc, 200, publicTenant(updated));
       },
       { permission: 'tenant.write' },
+    );
+
+    // Agent 设定页展示当前注入的系统提示词：说话方式与红线由平台维护，
+    // 机构能改的只有名字、称谓、语气；展示出来才知道「语气说明」进了哪里。
+    router.add(
+      'GET',
+      '/settings/agent/prompt',
+      (rc) => {
+        tenantActor(rc);
+        const patient = ctx.get<PatientApiLike>('zhibanPatient');
+        const prompt = patient?.systemPrompt?.();
+        if (!prompt) {
+          throw new ConsoleError(
+            'UPSTREAM_UNAVAILABLE',
+            '患者 Agent 未运行，暂时读不到系统提示词',
+          );
+        }
+        respond(rc, 200, { prompt });
+      },
+      { permission: 'tenant.read' },
     );
 
     // ---------- 告警中心（#39） ----------

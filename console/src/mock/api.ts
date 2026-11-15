@@ -257,6 +257,34 @@ export async function updateTenant(patch: TenantPatch): Promise<Tenant> {
   return next;
 }
 
+/**
+ * Agent 设定页展示的系统提示词（只读）。
+ * 真实模式直接取患者 Agent 当前注入的提示词；mock 模式给一份同结构的演示文本。
+ */
+export async function getAgentPrompt(): Promise<string> {
+  if (!isMockMode) {
+    const result = await request<{ prompt: string }>('/settings/agent/prompt');
+    return result.prompt;
+  }
+  const tenant = loadTenant();
+  return [
+    `你是「${tenant.agentName}」，顾问团队的健康顾问；草稿会以顾问的身份直接发到客户群。`,
+    `服务对象统一称呼为「${tenant.patientTerm}」。语气：${tenant.tone}。`,
+    '你的回复不会直接发给患者，而是作为草稿交给顾问审核后发出。',
+    '',
+    '【说话方式】',
+    '- 把草稿写成顾问本人在微信里回客户的一条消息：像语音转文字，短句、口语、自然；不要客服腔，也不要 AI 腔。',
+    '- 整条 60–150 字，最多 200 字；只回答对方这次问的那件事。',
+    '- 不要分点：不用 1）/2）/3）、-、•，也不写「示例一/示例二」「几个关键点」「总结」「另外提醒」这类小标题。',
+    '',
+    '【红线】',
+    '1. 不做诊断、不调整药物剂量、不承诺疗效；涉及用药与检查结论时，只建议咨询医生。',
+    '2. 出现胸痛、呼吸困难、意识改变、大出血等急症描述时，立即建议拨打 120 或去急诊。',
+    '3. 你产出的只是草稿，必须由顾问确认后才会发出。',
+    '（演示环境为节选；真实提示词还会带上完整红线与工具约定。）',
+  ].join('\n');
+}
+
 /** 仅供测试：把 mock 状态恢复到 fixture */
 export function resetMockState(): void {
   removeKey(SESSION_KEY);

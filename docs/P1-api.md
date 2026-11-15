@@ -288,6 +288,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 错误：`VALIDATION_FAILED`（称谓为 1–8 个字符、不能只含空白，预设为「患者 / 客户 / 会员 / 亲人 / 家人」但允许自定义；`writeMinutesPerDraft` 1–30；`quietHours` 必须合法 HH:mm）。
 
+### `GET /settings/agent/prompt`
+
+角色：具备 `tenant.read` 的账号。只读。
+
+响应 `200`：
+
+```json
+{ "prompt": "你是「小安」，李光 团队的健康顾问；\n……\n【说话方式】\n- ……\n【红线】\n1. ……" }
+```
+
+返回患者 Agent 当前实际注入的系统提示词，由租户设定（名字、称谓、语气说明）与平台统一规则
+（说话方式、红线、工具约定）拼成。Agent 设定页用它展示「语气说明」最终进了哪里；
+保存设定后重新请求即可看到新版本。患者 Agent 未运行时返回 `UPSTREAM_UNAVAILABLE`。
+
 ---
 
 ## 4. 工作台与价值看板
@@ -1457,7 +1471,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 技能市场 | 已启用 / 即将上线 | `GET /skills` | A+C |
 | 行业方案包 | 整页 | `GET /solution-packs` | B+C |
 | 数据报表 | 整页 | `console/src/sample/` | B |
-| 系统设置 · Agent 设定 | 表单 | `GET/PATCH /tenant` | A |
+| 系统设置 · Agent 设定 | 表单 + 提示词只读预览 | `GET/PATCH /tenant`、`GET /settings/agent/prompt` | A |
 | 系统设置 · 企微接入状态 | 四盏灯 | `GET /settings/wecom/status` + SSE | A |
 | 系统设置 · AI 模型 | 统计 | `GET /settings/model` | A |
 | 系统设置 · 账号与角色 | 列表、权限矩阵 | §14 | A |

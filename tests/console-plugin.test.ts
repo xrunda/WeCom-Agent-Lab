@@ -172,6 +172,8 @@ interface FakeRoute {
 
 interface PatientApi {
   applySettings(patch: Record<string, unknown>): void;
+  /** Agent 设定页展示的系统提示词 */
+  systemPrompt?(): string;
   sandboxEnsure(patient: unknown): Promise<string>;
   sandboxReset(patient: unknown): Promise<string>;
   sandboxTurn(input: unknown): Promise<void>;
@@ -288,6 +290,7 @@ class FakeConsoleContext {
 
   patientApi: PatientApi = {
     applySettings: (patch) => this.appliedSettings.push(patch),
+    systemPrompt: () => '你是「小安」。【说话方式】\n- 像语音转文字。',
     sandboxEnsure: async () => 'sess_sandbox_1',
     sandboxReset: async () => 'sess_sandbox_2',
     sandboxTurn: async (input) => {
@@ -420,6 +423,15 @@ test('登录 → 会话 → 租户读取/修改（保存即生效到患者运行
   const audited = await call('GET', '/zhiban/api/audit?action=tenant.update', { cookie });
   assert.equal(audited.status, 200);
   assert.equal((audited.json() as { total: number }).total, 1);
+
+  // Agent 设定页要能看到当前注入的提示词（只读）
+  const prompt = await call('GET', '/zhiban/api/settings/agent/prompt', { cookie });
+  assert.equal(prompt.status, 200);
+  const promptBody = prompt.json() as { prompt: string };
+  assert.match(promptBody.prompt, /【说话方式】/);
+
+  const unauthorized = await call('GET', '/zhiban/api/settings/agent/prompt');
+  assert.equal(unauthorized.status, 401);
 });
 
 test('#60 群管理：列表过滤/排序、状态更新、审计与写权限', async () => {
