@@ -329,7 +329,8 @@ test('#149 草稿只挂在最新一条上，旧条目不再重复展示', () => 
     { chatId: 'chat_1' },
   );
 
-  assert.deepEqual(seen, [{ roomId: ROOM, since: newer.firstAt }]);
+  // 以最新一条消息的时间为界（留 5 秒容差），不是条目首次进入待回复的时间
+  assert.deepEqual(seen, [{ roomId: ROOM, since: newer.lastAt - 5_000 }]);
   const old = view.pending.open.find((row) => row.id === 'pend_old')!;
   const fresh = view.pending.open.find((row) => row.id === 'pend_new')!;
   assert.equal(old.hasDraft, false);
@@ -350,6 +351,47 @@ test('#149 没有草稿或未接入草稿源时字段为空，不假装有草稿
     { chatId: 'chat_1' },
   );
   assert.equal(empty.pending.open[0]!.draft, null);
+});
+
+test('客户又发了新消息：上一轮的旧草稿不再挂在新问题下面', () => {
+  // 同一会话里客户先问血压，草稿已经生成；几分钟后又问「要不要吃降压药」
+  const ongoing = item({ lastAt: NOW - 5_000, firstAt: NOW - 20 * 60_000 });
+  const latestDraftWith =
+    (...drafts: Array<{ id: string; createdAt: number }>): SidebarViewDeps['latestDraft'] =>
+    (_roomId, since) =>
+      drafts
+        .filter((draft) => draft.createdAt >= since)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((draft) => ({
+          id: draft.id,
+          body: '草稿正文',
+          riskLevel: 'medium' as const,
+          ruleNames: [],
+          createdAt: draft.createdAt,
+          status: 'PUSHED',
+        }))[0];
+
+  const stale = buildSidebarContext(
+    deps({
+      openItems: () => [ongoing],
+      latestDraft: latestDraftWith({ id: 'draft_old', createdAt: NOW - 10 * 60_000 }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  // 旧草稿答的是上一条消息，不能拿来当新问题的回答
+  assert.equal(stale.pending.open[0]!.draft, null);
+  assert.equal(stale.pending.open[0]!.hasDraft, false);
+
+  const fresh = buildSidebarContext(
+    deps({
+      openItems: () => [ongoing],
+      latestDraft: latestDraftWith({ id: 'draft_new', createdAt: NOW - 1_000 }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+  assert.equal(fresh.pending.open[0]!.draft?.id, 'draft_new');
 });
 
 test('草稿还没出来时给出生成进度，只挂在最新一条上', () => {

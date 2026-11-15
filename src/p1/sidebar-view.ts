@@ -210,6 +210,9 @@ export class SidebarAccessError extends Error {
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/** 草稿与最新一条消息的时间比对容差：存档 msgtime 与服务器时钟可能差几秒 */
+const DRAFT_MATCH_GRACE_MS = 5_000;
+
 export function buildSidebarContext(
   deps: SidebarViewDeps,
   advisor: SidebarAdvisor | undefined,
@@ -296,8 +299,11 @@ export function buildSidebarContext(
     (latest, item) => (!latest || item.lastAt > latest.lastAt ? item : latest),
     undefined,
   );
+  // 只认「客户最后一条消息之后生成」的草稿。按 firstAt 会让同一会话里新问题
+  // 沿用上一轮的旧草稿：客户刚问「要不要吃降压药」，卡片里还是十分钟前那段
+  // 回答复测血压的草稿，看起来像系统答非所问。留几秒容差抵消存档时间与服务器时钟的差。
   const draftRef = newest && deps.latestDraft
-    ? deps.latestDraft(group.roomId, newest.firstAt)
+    ? deps.latestDraft(group.roomId, newest.lastAt - DRAFT_MATCH_GRACE_MS)
     : undefined;
   const draft: SidebarDraftView | null = draftRef
     ? {
