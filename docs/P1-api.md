@@ -381,14 +381,14 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
         {
           "code": "queue_blocked",
           "level": "L1",
-          "text": "草稿已推送 42 分钟未处理，队列可能阻塞",
+          "text": "1 条草稿已推给顾问，42 分钟未确认",
           "waitMinutes": 42,
           "draftId": "draft_...",
           "patientId": "pat_...",
           "groupId": "grp_..."
         }
       ],
-      "suggestion": "去实时服务流查看阻塞草稿，必要时在告警台账释放队列",
+      "suggestion": "提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列",
       "oldestWaitMinutes": 42,
       "lastActivityAt": 1762643880000
     }
@@ -410,7 +410,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 - `L2`（今日跟进）：客户消息 30–60 分钟无人跟进；`QUEUED + PUSHED` 超过 3 条；今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍；今日改稿或忽略率 ≥40%（至少 4 条草稿）。
 - 未解决告警 = `status` 为 `open` 或 `acknowledged`；告警归属依次取 `advisorId` → 草稿顾问 → 患者顾问。
 - 排序：`L1` 先于 `L2`；同级别按原因优先级（客户安全 → 服务履约 → 人员状态）→ 最久等待 → 姓名。同一服务人员只出现一次，原因最多由前端展示 2 条。
-- 只做发现与跳转；催办、释放队列、恢复顾问仍在质检与告警台账处理。沙盒数据不计入。
+- 只做发现与跳转；草稿阻塞的释放队列在实时服务流按顾问处理，员工发言红线在质检与告警复核，恢复顾问在顾问页处理。`draftId` 用于深链直接打开最久未确认的那条草稿。沙盒数据不计入。
 
 ### B 档图表数据
 

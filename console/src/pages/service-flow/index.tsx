@@ -48,6 +48,7 @@ import {
   SOURCE_LABELS,
   getServiceFlowDetail,
   listServiceFlow,
+  releaseAdvisorQueue,
   subscribeServiceFlow,
   type FlowDetail,
   type FlowEvent,
@@ -108,7 +109,7 @@ function totalDuration(row: ServiceFlowRow): number | undefined {
 }
 
 export default function ServiceFlowPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlDraftId = searchParams.get('draftId');
@@ -131,6 +132,7 @@ export default function ServiceFlowPage() {
   const [selectedId, setSelectedId] = useState<string | null>(urlDraftId);
   const [detail, setDetail] = useState<FlowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailRefresh, setDetailRefresh] = useState(0);
   const [version, setVersion] = useState<number | null>(null);
 
   // 从团队关注/告警带参跳转过来时，同步 URL 里的患者、服务人员与状态筛选。
@@ -216,6 +218,40 @@ export default function ServiceFlowPage() {
     void load();
   }, [load]);
 
+  const releaseQueue = useCallback(
+    (advisorId: string, advisorName: string) => {
+      modal.confirm({
+        title: `释放 ${advisorName} 的阻塞队列？`,
+        content: (
+          <div>
+            <p style={{ marginTop: 0 }}>
+              释放后，该顾问当前阻塞队列的那条草稿会标为「已释放」，不再等顾问点击；排在后面的下一条会立即推送给顾问。
+            </p>
+            <p style={{ marginBottom: 0 }}>已经发到客户群的草稿不受影响。</p>
+          </div>
+        ),
+        okText: '确认释放',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            const result = await releaseAdvisorQueue(advisorId);
+            message.success(
+              result.nextDraftId
+                ? `已释放 ${result.releasedDraftId}，下一条 ${result.nextDraftId} 已推送`
+                : `已释放 ${result.releasedDraftId}，队列已清空`,
+            );
+            await load();
+            setDetailRefresh((value) => value + 1);
+          } catch (error) {
+            message.error(error instanceof Error ? error.message : '释放队列失败，请稍后重试');
+          }
+        },
+      });
+    },
+    [load, message, modal],
+  );
+
   const exportEvidence = useCallback(
     async (draftId: string) => {
       setExporting(true);
@@ -277,7 +313,7 @@ export default function ServiceFlowPage() {
     return () => {
       active = false;
     };
-  }, [selectedId, message]);
+  }, [selectedId, detailRefresh, message]);
 
   const columns: TableProps<ServiceFlowRow>['columns'] = [
     {
@@ -379,6 +415,17 @@ export default function ServiceFlowPage() {
     () => ticker.slice(0, 6).map((event) => ({ key: event.id, event })),
     [ticker],
   );
+
+  const pushedRows = rows.filter((row) => row.status === 'PUSHED');
+  const pushedAdvisorIds = [...new Set(pushedRows.map((row) => row.advisorId))];
+  const releaseAdvisorId =
+    filters.advisorId ?? (pushedAdvisorIds.length === 1 ? pushedAdvisorIds[0] : undefined);
+  const releaseAdvisorName =
+    advisors.find((item) => item.id === releaseAdvisorId)?.name ??
+    pushedRows.find((row) => row.advisorId === releaseAdvisorId)?.advisorName;
+  // 推送状态最容易被误读：只在按顾问筛选或只看已推送时给出解释和操作入口
+  const showPushedBanner =
+    pushedRows.length > 0 && (filters.status === 'PUSHED' || Boolean(filters.advisorId));
 
   return (
     <PageContainer
@@ -507,6 +554,35 @@ export default function ServiceFlowPage() {
           </Space>
         </Card>
 
+        {showPushedBanner && (
+          <Alert
+            type="info"
+            showIcon
+            message="「已推送待确认」= 草稿已发到顾问企微卡片，等顾问点「已发送」或「忽略」"
+            description={
+              <span>
+                当前 {pushedRows.length} 条还没确认。超过 15 分钟未确认会出现在工作台的团队关注；
+                顾问处理不了时，可以释放队列，让排在后面的草稿继续。
+              </span>
+            }
+            action={
+              releaseAdvisorId && can('advisor.operate') ? (
+                <Button
+                  danger
+                  size="small"
+                  onClick={() => releaseQueue(releaseAdvisorId, releaseAdvisorName ?? '该顾问')}
+                >
+                  释放队列
+                </Button>
+              ) : !releaseAdvisorId ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  先按顾问筛选，再释放队列
+                </Text>
+              ) : undefined
+            }
+          />
+        )}
+
         <Table<ServiceFlowRow>
           rowKey="id"
           size="middle"
@@ -563,6 +639,25 @@ export default function ServiceFlowPage() {
       >
         {detail ? (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {detail.draft.status === 'PUSHED' && (
+              <Alert
+                type="warning"
+                showIcon
+                message="已推送到顾问企微，等顾问点「已发送」或「忽略」"
+                description="顾问确认前，这位顾问后面的草稿会排队；超过 15 分钟没确认就会出现在工作台的团队关注里。"
+                action={
+                  can('advisor.operate') ? (
+                    <Button
+                      danger
+                      size="small"
+                      onClick={() => releaseQueue(detail.advisor.id, detail.advisor.name)}
+                    >
+                      释放队列
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )}
             <Descriptions bordered size="small" column={4}>
               <Descriptions.Item label="患者">{detail.patient.displayName}</Descriptions.Item>
               <Descriptions.Item label="群">{detail.group.name}</Descriptions.Item>

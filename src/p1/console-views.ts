@@ -917,9 +917,9 @@ const TEAM_ATTENTION_SUGGESTION: Record<TeamAttentionCode, string> = {
   misroute: '去实时服务流核对发送群',
   unverified: '去实时服务流核实是否送达',
   advisor_paused: '去顾问页确认是否恢复接单',
-  queue_blocked: '去实时服务流查看阻塞草稿，必要时释放队列',
+  queue_blocked: '提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列',
   no_reply: '查看对话，确认服务人员是否在忙，必要时转交',
-  backlog: '查看待处理草稿，确认是否需要催办或释放队列',
+  backlog: '提醒顾问在企微确认待处理草稿；积压过多时在服务流释放队列',
   slow_response: '查看该服务人员的服务流，确认是否负荷过高',
   high_revision: '查看草稿质量，必要时调整话术或补充知识',
 };
@@ -930,6 +930,14 @@ interface TeamAttentionAccumulator {
   pendingCount: number;
   patientCount: number;
   lastActivityAt: number | null;
+}
+
+/** 分钟数转成工作台上可读的等待时长：809 分钟读作「13 小时 29 分钟」。 */
+function formatWaitMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} 小时` : `${hours} 小时 ${rest} 分钟`;
 }
 
 function minutesSince(now: number, at: number): number {
@@ -1092,8 +1100,8 @@ export function dashboardTeamAttention(input: {
       level: 'L1',
       text:
         list.length === 1
-          ? `草稿已推送 ${waitMinutes} 分钟未处理，队列可能阻塞`
-          : `队列阻塞 ${list.length} 条，最久已等待 ${waitMinutes} 分钟`,
+          ? `1 条草稿已推给顾问，${formatWaitMinutes(waitMinutes)}未确认`
+          : `${list.length} 条草稿已推给顾问、还没确认，最久 ${formatWaitMinutes(waitMinutes)}`,
       waitMinutes,
       draftId: oldest.id,
       ...(patient ? { patientId: patient.id } : {}),
@@ -1208,7 +1216,7 @@ export function dashboardTeamAttention(input: {
       accumulator.reasons.push({
         code: 'backlog',
         level: 'L2',
-        text: `待处理草稿 ${pending.length} 条，超过 ${TEAM_ATTENTION_THRESHOLDS.backlogCount} 条`,
+        text: `待处理草稿 ${pending.length} 条（含已推送未确认），超过 ${TEAM_ATTENTION_THRESHOLDS.backlogCount} 条`,
         waitMinutes,
         draftId: oldest.id,
         ...(patient ? { patientId: patient.id } : {}),
