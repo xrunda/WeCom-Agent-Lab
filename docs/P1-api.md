@@ -1404,7 +1404,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 |---|---|---|
 | `draft.created` | Agent 产出草稿并入队 | `{ draftId, patientId, groupId, advisorId, source, riskLevel, status }` |
 | `draft.pushed` | 卡片 + 正文推送到顾问 | `{ draftId, advisorId, status, cardTaskId }` |
-| `draft.acked` | 顾问点「已发送 / 忽略」 | `{ draftId, advisorId, ackAction }` |
+| `draft.acked` | 顾问在群里回复（存档自动判定）或侧边栏「跳过」 | `{ draftId, advisorId, ackAction, source }`；`source` 取 `archive` / `sidebar` / `card` |
 | `draft.revised` | 顾问指令触发的第 N 版 | `{ draftId, version, instruction }` |
 | `draft.verified` | 核验完成 | `{ draftId, outcome, matchedGroupName?, similarity? }` |
 | `draft.failed` | 推送失败 / 死信 / 释放 | `{ draftId, status, errorCode? }` |
@@ -1624,6 +1624,7 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
       }
     ]
   },
+  "draft": null,
   "profile": {
     "bound": true,
     "name": "王阿姨",
@@ -1641,19 +1642,30 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
 - `conv.served=false` 表示当前会话不在服务范围，`conv.reason` 取 `DM_NOT_SUPPORTED`（单聊，存档链路暂不投递）或 `GROUP_NOT_FOUND`；此时 `pending` 为空、`profile` 为 `null`，HTTP 仍是 `200`。
 - **昵称门控**：令牌 `permissions` 不含 `patient.read` 时，`conv.name`、`customerName`、`profile.name`、`profile.advisorName` 为 `null`，`profile.tags` 为 `[]`；`excerpt` 与等待时长照常返回——顾问本身就在这个会话里，看得见原始聊天。
 - `aiReplied`：机器人已在该会话回应过，仅作提示，**不改变待回复状态**。
-- `draft`：该群**已生成、还没发出**的草稿（`status=PUSHED` 且 `createdAt` 不早于最新一条消息的时间，留 5 秒时钟容差）；只挂在会话里最新的一条上，其余条目为 `null`。按最新一条消息而不是条目首次进入待回复的时间过滤：客户又问了新问题时，上一轮的旧草稿不能再当作新问题的回答挂在下面。侧边栏只读，不触发生成；顾问标注已发送后不再返回。
+- `draft`（条目上）：该群**已生成、还没发出**的草稿（`status=PUSHED` 且 `createdAt` 不早于最新一条消息的时间，留 5 秒时钟容差）；只挂在会话里最新的一条上，其余条目为 `null`。按最新一条消息而不是条目首次进入待回复的时间过滤：客户又问了新问题时，上一轮的旧草稿不能再当作新问题的回答挂在下面。侧边栏只读，不触发生成；顾问在群里回复后，运行时从存档里本人发言自动判定已发送（留 5 秒时钟容差），草稿不再返回，也不需要顾问再手点。
+- `draft`（响应根）：没有挂到待回复条目上的未发出草稿，形状同上；主动关怀、同事先回复后条目关闭、客户又发消息而队列里还是上一份草稿时用它单独展示。草稿没发出就一直占着顾问队列，所以即使没有待回复条目也要让顾问看见并能跳过；挂到条目上时为 `null`。
 - `draftState`：草稿**还没生成出来**时的进度，`{ state: "queued" | "generating", since }`；同样只挂在最新一条上，已有 `draft` 或没有进行中的生成时为 `null`。`queued` 表示客户消息已进合并窗口（等客户说完），`generating` 表示患者回合正在跑。数据来自患者运行时的内存状态，不落盘；草稿推到 `PUSHED` 或超过 3 分钟未产出即退出。前端据此显示「草稿生成中」占位，并在占位期间把轮询缩短到 3 秒。
 - `chronic` / `carePlan` 为 P1 预留位，当前恒为 `null`。
 - 错误：`401` / `403`，格式同 §1.4。
 
 ### `POST /zhiban/sidebar/pending/{id}/close`
 
-请求：`{ "reason": "handled" | "dismissed" | "transferred" }`，请求体上限 4 KB。`reason` 只允许这三个值，否则 `400 VALIDATION_FAILED`。分别对应侧边栏上的「已处理」「无需回复」「转交」。
+请求：`{ "reason": "dismissed" | "handled" | "transferred" }`，请求体上限 4 KB。`reason` 只允许这三个值，否则 `400 VALIDATION_FAILED`。侧边栏现在只发 `dismissed`（「跳过」：这条不发，草稿置为 `SKIPPED` 并释放队列）；`handled` / `transferred` 保留兼容旧客户端。
 
-响应 `200`：`{ "ok": true, "id": "pend_...", "status": "handled" }`。
+响应 `200`：`{ "ok": true, "id": "pend_...", "status": "dismissed" }`。
 
 - 权限判断与 `GET /context` 完全一致：按条目所属群重新校验，不是负责人返回 `403`，条目不存在返回 `404`。
+- 待回复条目上挂着草稿时，关闭会同步推进草稿状态（`dismissed` → `skipped`）；推进失败不影响条目关闭，只记错误类型。
 - 写审计 `sidebar.pending.close`，字段只含条目 id、操作人、结果，**不含消息正文**。
+
+### `POST /zhiban/sidebar/drafts/{id}/skip`
+
+跳过一条没有待回复条目的草稿（响应根 `draft`）：这条不发，草稿置为 `SKIPPED`，释放该顾问的队列。无请求体。
+
+响应 `200`：`{ "ok": true, "id": "draft_...", "status": "skipped" }`。
+
+- 归属由运行时再判一次：草稿负责人或负责群的顾问才能操作，否则 `403 FORBIDDEN`；草稿不存在返回 `404 NOT_FOUND`；草稿已不在 `PUSHED`（并发的重复点击）返回 `409 DRAFT_NOT_PUSHED`；草稿链路未就绪返回 `503 ACK_UNAVAILABLE`。
+- 已发送不需要调用本接口：运行时从存档里本人发言自动判定。
 
 ### `POST /zhiban/sidebar/events`
 
@@ -1663,7 +1675,7 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
 
 响应 `200`：`{ "ok": true }`。事件以宿主事件 `sidebar.metric` 发出，只含事件名与条目 id，**不含正文、昵称**；上报失败不影响使用。
 
-自动关闭（同事在群里回复）与手动关闭（已处理 / 无需回复 / 转交）另由服务端上报 `pending.auto_closed` / `pending.close_manual`，带客户等待秒数。
+自动关闭（同事在群里回复）与手动跳过（侧边栏「跳过」）另由服务端上报 `pending.auto_closed` / `pending.close_manual`，带客户等待秒数。
 
 ### 存储
 

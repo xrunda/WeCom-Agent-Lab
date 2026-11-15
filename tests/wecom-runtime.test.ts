@@ -188,7 +188,7 @@ test('侧边栏处理「已发送」后回读存档，核验事件发出且不�
     assert.equal(draft.status, 'PUSHED');
     assert.equal(h.bot.sent.length, 0);
 
-    await h.runtime.acknowledgeFromSidebar(draft.id, 'sent', 'adv_test');
+    await h.runtime.acknowledgeFromSidebar(draft.id, 'sent', ADV);
     assert.equal(h.store.getDraft(draft.id)?.status, 'ACKNOWLEDGED');
     // #163：状态推进不再私聊回执
     assert.equal(h.bot.texts().length, 0);
@@ -207,6 +207,46 @@ test('侧边栏处理「已发送」后回读存档，核验事件发出且不�
     // 核验结果只写回草稿供侧边栏展示
     assert.equal(h.store.getDraft(draft.id)?.verification?.outcome, 'VERIFIED');
     assert.equal(h.bot.texts().length, 0);
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
+test('顾问在群里回复后，草稿自动标记为已发送，不用再点按钮', async () => {
+  const h = harness();
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    const draft = h.store.listDrafts()[0];
+    assert.equal(draft.status, 'PUSHED');
+
+    // 第二轮存档里出现顾问本人在本群的发言（夹具里内容与草稿一致）
+    await h.runtime.pollOnce();
+    const acked = h.store.getDraft(draft.id)!;
+    assert.equal(acked.status, 'ACKNOWLEDGED');
+    assert.equal(acked.ackAction, 'sent');
+    // 审计口径能区分「存档自动判定」与顾问手点的动作
+    assert.equal(acked.ackSource, 'archive');
+    const event = h.events.find((e) => e.type === 'draft.acked')?.data as { source: string };
+    assert.equal(event.source, 'archive');
+    // 不私聊回执，也不要求顾问再点「已处理」
+    assert.equal(h.bot.sent.length, 0);
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
+test('侧边栏不能处理别人负责的草稿', async () => {
+  const h = harness();
+  h.runtime.start();
+  try {
+    await h.runtime.pollOnce();
+    const draft = h.store.listDrafts()[0];
+    await assert.rejects(
+      () => h.runtime.acknowledgeFromSidebar(draft.id, 'skipped', 'adv_other'),
+      /FORBIDDEN_DRAFT/,
+    );
+    assert.equal(h.store.getDraft(draft.id)?.status, 'PUSHED');
   } finally {
     await h.runtime.stop();
   }

@@ -600,8 +600,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       };
     },
     /**
-     * #163：侧边栏「已处理 / 忽略」→ 确认草稿，随后由运行时回读核验。
-     * 核验结果只回侧边栏，不再私聊推回执。
+     * #163：侧边栏「跳过」→ 草稿置为 SKIPPED 并释放队列。
+     * 已发送不再由顾问手点，运行时从存档里本人发言自动判定。
      */
     async acknowledgeDraft(
       draftId: string,

@@ -85,7 +85,18 @@ interface Captured {
   ) => unknown;
 }
 
-function boot(items = [item()], options: { withDraft?: boolean } = {}) {
+function boot(
+  items = [item()],
+  options: {
+    withDraft?: boolean;
+    /** 覆盖草稿推进：用于模拟运行时的异步失败 */
+    acknowledge?: (
+      advisor: SidebarAdvisor,
+      draftId: string,
+      action: 'sent' | 'skipped',
+    ) => Promise<void> | void;
+  } = {},
+) {
   const captured: Captured[] = [];
   const { api, closed, events } = makeApi(items);
   const acks: Array<{ draftId: string; action: string; advisorId: string }> = [];
@@ -114,6 +125,7 @@ function boot(items = [item()], options: { withDraft?: boolean } = {}) {
       now: () => NOW,
       acknowledgeDraft: (advisor, draftId, action) => {
         acks.push({ draftId, action, advisorId: advisor.id });
+        return options.acknowledge?.(advisor, draftId, action);
       },
       buildContext: (advisor: SidebarAdvisor, query: URLSearchParams) =>
         buildSidebarContext(
@@ -270,7 +282,7 @@ test('#149 已处理与转交都能关闭', async () => {
   }
 });
 
-test('#163 侧边栏「已处理 / 忽略」推进草稿状态，转交不推进', async () => {
+test('#163 关闭待回复时同步推进草稿状态：跳过推进，转交不推进', async () => {
   const handled = boot([item()], { withDraft: true });
   await call(handled.route, {
     method: 'POST',
@@ -306,6 +318,74 @@ test('#163 侧边栏「已处理 / 忽略」推进草稿状态，转交不推进
     body: JSON.stringify({ reason: 'handled' }),
   });
   assert.equal(noDraft.acks.length, 0);
+});
+
+test('没有待回复条目的草稿可以单独跳过', async () => {
+  const { route, acks } = boot([], { withDraft: true });
+  const result = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/drafts/D1/skip',
+    headers: { cookie: cookie('adv_1') },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.status, 'skipped');
+  assert.deepEqual(acks, [{ draftId: 'D1', action: 'skipped', advisorId: 'adv_1' }]);
+});
+
+test('跳过别人的草稿返回 403，草稿不存在返回 404', async () => {
+  const forbidden = boot([], {
+    withDraft: true,
+    acknowledge: () => {
+      throw new Error('FORBIDDEN_DRAFT D1');
+    },
+  });
+  const denied = await call(forbidden.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/drafts/D1/skip',
+    headers: { cookie: cookie('adv_1') },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'FORBIDDEN');
+
+  const missing = boot([], {
+    withDraft: true,
+    acknowledge: async () => {
+      throw new Error('DRAFT_NOT_FOUND D1');
+    },
+  });
+  const notFound = await call(missing.route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/drafts/D1/skip',
+    headers: { cookie: cookie('adv_1') },
+  });
+  assert.equal(notFound.status, 404);
+  assert.equal(notFound.body.code, 'NOT_FOUND');
+});
+
+test('跳过接口需要登录', async () => {
+  const { route } = boot([], { withDraft: true });
+  const result = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/drafts/D1/skip',
+  });
+  assert.equal(result.status, 401);
+});
+
+test('草稿推进异步失败不影响关闭待回复', async () => {
+  const { route, closed } = boot([item()], {
+    withDraft: true,
+    acknowledge: async () => {
+      throw new Error('FORBIDDEN_DRAFT D1');
+    },
+  });
+  const result = await call(route, {
+    method: 'POST',
+    url: '/zhiban/sidebar/pending/pend_1/close',
+    headers: { cookie: cookie('adv_1') },
+    body: JSON.stringify({ reason: 'dismissed' }),
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(closed, [{ id: 'pend_1', actor: 'adv_1' }]);
 });
 
 test('#149 埋点只收白名单事件，id 截断且不带正文', async () => {

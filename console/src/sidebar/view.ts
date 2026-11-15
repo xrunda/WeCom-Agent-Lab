@@ -6,7 +6,12 @@
  */
 import { copyText, selectElementText } from './clipboard.ts';
 import { UNSUPPORTED_TEXT } from './types.ts';
-import type { SidebarContextData, SidebarPendingView, SidebarState } from './types.ts';
+import type {
+  SidebarContextData,
+  SidebarDraftView,
+  SidebarPendingView,
+  SidebarState,
+} from './types.ts';
 
 export type WaitTier = 'calm' | 'warn' | 'urgent';
 
@@ -61,8 +66,10 @@ function clockLabel(at: number): string {
 export interface ViewHandlers {
   onRetry?: () => void;
   onRefresh?: () => void;
-  /** 手动关闭：已处理 / 无需回复（「转交」按钮先隐藏，暂时没有分派流程） */
+  /** 跳过一条待回复：不发这一条，草稿一并置为跳过（「转交」按钮先隐藏，暂时没有分派流程） */
   onClose?: (id: string, reason: 'handled' | 'dismissed' | 'transferred') => void;
+  /** 跳过一条没有待回复条目的草稿；已发送由存档自动判定，不需要手动标记 */
+  onSkipDraft?: (draftId: string) => void;
   /** 埋点：复制、查看等；失败由 api 层吞掉 */
   onEvent?: (event: 'sidebar.open' | 'pending.view' | 'pending.copy_excerpt' | 'draft.copy', itemId?: string) => void;
   /** 控制台地址；只有配置了才显示入口 */
@@ -111,10 +118,11 @@ const VERIFY_LABEL: Record<string, string> = {
   UNVERIFIED: '存档里没找到，请确认',
 };
 
-/** 草稿块：正文两行、风险、规则来源、生成时间；高风险必须先展开再复制 */
-function draftHtml(item: SidebarPendingView): string {
-  const draft = item.draft;
-  if (!draft) return '';
+/**
+ * 草稿块：正文两行、风险、规则来源、生成时间；高风险必须先展开再复制。
+ * `skippable` 用于没有待回复条目的草稿：条目自己的「跳过」已经没有地方可放。
+ */
+function draftHtml(draft: SidebarDraftView, skippable = false): string {
   const risk = RISK_LABEL[draft.riskLevel];
   const rules = draft.ruleNames.length
     ? `<p class="draft-rules">依据：${draft.ruleNames
@@ -145,6 +153,11 @@ function draftHtml(item: SidebarPendingView): string {
         <button type="button" class="op" data-copy-draft="${
           high ? 'high' : 'normal'
         }">${high ? '展开核对' : '复制草稿'}</button>
+        ${
+          skippable
+            ? `<button type="button" class="op" data-skip-draft="${escapeHtml(draft.id)}">跳过</button>`
+            : ''
+        }
       </div>
     </div>`;
 }
@@ -186,12 +199,11 @@ function itemHtml(item: SidebarPendingView): string {
         <span class="wait wait-${tier}">等了 ${formatWait(item.waitSeconds)}</span>
       </div>
       <p class="excerpt">${escapeHtml(item.excerpt)}</p>
-      ${draftHtml(item)}
+      ${item.draft ? draftHtml(item.draft) : ''}
       ${draftStateHtml(item)}
       <div class="ops">
         <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}" data-item="${id}">复制原话</button>
-        <button type="button" class="op" data-close="handled" data-item="${id}">已处理</button>
-        <button type="button" class="op" data-close="dismissed" data-item="${id}">无需回复</button>
+        <button type="button" class="op" data-close="dismissed" data-item="${id}">跳过</button>
       </div>
       <p class="copy-hint" hidden>复制失败，已选中原文，请手动复制</p>
       ${item.aiReplied ? '<p class="note">机器人已回应</p>' : ''}
@@ -236,6 +248,20 @@ function pendingCard(data: SidebarContextData): string {
       </div>
       <ul class="items">${items}</ul>
       ${closed}
+    </section>`;
+}
+
+/**
+ * 没有待回复条目时的草稿卡片：主动关怀，或客户的消息已经由同事回复。
+ * 草稿还占着顾问队列，就必须能在侧边栏看见并跳过，否则会一直卡在那里。
+ */
+function standaloneDraftCard(data: SidebarContextData): string {
+  const draft = data.draft;
+  if (!draft) return '';
+  return `
+    <section class="card">
+      <div class="card-head"><h2>待发送草稿</h2></div>
+      ${draftHtml(draft, true)}
     </section>`;
 }
 
@@ -407,6 +433,7 @@ function ready(data: SidebarContextData, handlers: ViewHandlers, notice?: { mess
     </header>
     ${notice ? noticeBanner(notice) : ''}
     ${pendingCard(data)}
+    ${standaloneDraftCard(data)}
     ${profileCard(data, handlers.consoleUrl)}
     <p class="hint">内容来自本会话最近消息，仅负责顾问可见</p>`;
 }
@@ -468,6 +495,18 @@ function bind(root: HTMLElement, handlers: ViewHandlers): void {
         handlers.onEvent?.('draft.copy');
         flashCopied(button, button.dataset.copyDraft === 'high' ? '确认并复制' : '复制草稿');
       });
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-skip-draft]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.skipDraft;
+      if (!id || !handlers.onSkipDraft) return;
+      // 防止重复点击：同一排动作置灰，失败由上层刷新恢复
+      button.closest('.ops')?.querySelectorAll<HTMLButtonElement>('.op').forEach((op) => {
+        op.disabled = true;
+      });
+      handlers.onSkipDraft(id);
     });
   });
 

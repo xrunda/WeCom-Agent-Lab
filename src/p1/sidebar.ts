@@ -50,7 +50,7 @@ export type PendingReason = 'question' | 'request' | 'mention' | 'ambiguous' | '
 
 export type PendingStatus = 'open' | 'replied' | 'handled' | 'dismissed' | 'transferred';
 
-/** 顾问手动关闭的三种动作：已处理 / 无需回复 / 转交 */
+/** 关闭动作：侧边栏现在只发「跳过」（dismissed）；handled / transferred 保留兼容旧客户端 */
 export type PendingManualAction = 'handled' | 'dismissed' | 'transferred';
 
 export type PendingCloseReason = 'staff_reply' | 'manual' | 'transferred';
@@ -286,7 +286,7 @@ export class SidebarService {
     return this.convSeenAt.get(convKey);
   }
 
-  /** 顾问手动关闭：已处理 / 无需回复 / 转交 */
+  /** 关闭条目：侧边栏「跳过」传 dismissed；其余两个值保留兼容旧客户端 */
   close(id: string, reason: PendingManualAction, actor: string): PendingItem | undefined {
     const item = this.items.get(id);
     if (!item || item.status !== 'open') return undefined;

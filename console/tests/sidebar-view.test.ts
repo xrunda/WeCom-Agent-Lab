@@ -31,6 +31,7 @@ function wxWith(results: Record<string, { err_msg?: string; chatId?: string; use
 const data: SidebarContextData = {
   conv: { kind: 'group', key: 'room:room_1', name: '高血压管理 1 群', served: true, lastObservedAt: 1 },
   pending: { open: [], recentlyClosed: [], openCount: 0, oldestWaitSeconds: null },
+  draft: null,
   profile: {
     bound: true,
     name: '王阿姨',
@@ -214,7 +215,7 @@ describe('待回复卡片（#148）', () => {
     expect(items[1]!.textContent).toContain('客户');
     expect(items[1]!.textContent).toContain('机器人已回应');
     const ops = [...items[1]!.querySelectorAll('.op')].map((element) => element.textContent);
-    expect(ops).toEqual(['复制原话', '已处理', '无需回复']);
+    expect(ops).toEqual(['复制原话', '跳过']);
     expect(
       [...items[1]!.querySelectorAll<HTMLButtonElement>('.op')].every((op) => !op.disabled),
     ).toBe(true);
@@ -445,7 +446,7 @@ describe('草稿与手动处理（#149）', () => {
     expect(events).toEqual([{ event: 'pending.copy_excerpt', id: 'p1' }]);
   });
 
-  it('三个手动动作分别回调 handled / dismissed / transferred，并置灰防重复', () => {
+  it('手动动作只剩「跳过」，点击后置灰防重复', () => {
     const closes: Array<{ id: string; reason: string }> = [];
     const root = document.createElement('div');
     render(
@@ -454,13 +455,33 @@ describe('草稿与手动处理（#149）', () => {
       { onClose: (id, reason) => closes.push({ id, reason }) },
     );
     const itemRoot = root.querySelectorAll('.item')[0]!;
-    const buttons = [...itemRoot.querySelectorAll<HTMLButtonElement>('[data-close]')];
-    expect(buttons.map((button) => button.textContent)).toEqual(['已处理', '无需回复']);
+    const button = itemRoot.querySelector<HTMLButtonElement>('[data-close]')!;
+    expect(button.textContent).toBe('跳过');
+    expect(button.dataset.close).toBe('dismissed');
 
-    buttons[0]!.click();
-    expect(closes).toEqual([{ id: 'p1', reason: 'handled' }]);
-    expect(buttons.every((button) => button.disabled)).toBe(true);
+    button.click();
+    expect(closes).toEqual([{ id: 'p1', reason: 'dismissed' }]);
+    expect(button.disabled).toBe(true);
     expect(itemRoot.querySelector('[data-copy]')!.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('没有待回复条目时草稿单独成卡，可以跳过', () => {
+    const skipped: string[] = [];
+    const root = document.createElement('div');
+    render(
+      root,
+      { kind: 'ready', data: { ...data, draft: { ...draft } } },
+      { onSkipDraft: (id) => skipped.push(id) },
+    );
+    expect(root.querySelector('.item')).toBeNull();
+    expect(root.textContent).toContain('待发送草稿');
+    expect(root.querySelector('.draft-body')!.textContent).toBe(draft.body);
+
+    const button = root.querySelector<HTMLButtonElement>('[data-skip-draft]')!;
+    expect(button.textContent).toBe('跳过');
+    button.click();
+    expect(skipped).toEqual(['draft_1']);
+    expect(button.disabled).toBe(true);
   });
 });
 
