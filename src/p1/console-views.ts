@@ -160,6 +160,8 @@ export interface ServiceFlowDetailView {
   } | null;
   timeline: Array<{ at: number; type: string; actor: string; title: string; detail?: string }>;
   audit: Array<{ id: string; action: string; actorName: string; result: string; at: number }>;
+  /** 未核验草稿的人工核实状态：pending 为尚未关闭的未核验告警数 */
+  unverifiedAlerts?: { pending: number; resolved: number };
   media: Array<{ id: string; kind: string; url: string; label: string }>;
 }
 

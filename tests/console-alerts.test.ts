@@ -162,6 +162,51 @@ test('resolve 必须有备注，只能处理一次，写入处理人并派发事
   );
 });
 
+test('实时服务流核实未核验草稿：只关它名下的未核验告警，并写审计', () => {
+  const { service, store, events } = setup();
+  const target = service.ingest({
+    kind: 'UNVERIFIED',
+    message: '草稿 draft_x 回读未匹配',
+    advisorId: 'adv_1',
+    draftId: 'draft_x',
+  })!;
+  const otherDraft = service.ingest({
+    kind: 'UNVERIFIED',
+    message: '草稿 draft_y 回读未匹配',
+    advisorId: 'adv_1',
+    draftId: 'draft_y',
+  })!;
+  const otherKind = service.ingest({
+    kind: 'MISROUTE',
+    message: '草稿 draft_x 发错群',
+    advisorId: 'adv_1',
+    draftId: 'draft_x',
+  })!;
+
+  assert.throws(
+    () => service.resolveDraftUnverified('draft_x', '   ', ACTOR),
+    (error: unknown) => error instanceof ConsoleError && error.code === 'VALIDATION_FAILED',
+  );
+
+  const result = service.resolveDraftUnverified('draft_x', '  已在群里确认顾问已回复  ', ACTOR);
+  assert.equal(result.resolved, 1);
+  assert.deepEqual(result.alertIds, [target.id]);
+  assert.equal(service.get(target.id).status, 'resolved');
+  assert.equal(service.get(target.id).note, '已在群里确认顾问已回复');
+  assert.equal(service.get(target.id).resolvedBy, ACTOR.id);
+  // 同草稿的其他类型、其他草稿的未核验都不动
+  assert.equal(service.get(otherDraft.id).status, 'open');
+  assert.equal(service.get(otherKind.id).status, 'open');
+  assert.equal(events.filter((event) => event.type === 'alert.resolved').length, 1);
+
+  const audit = store.listAudits().find((event) => event.action === 'draft.unverified.reviewed');
+  assert.equal(audit?.targetId, 'draft_x');
+  assert.equal(audit?.detail?.noteLength, 11);
+
+  // 重复核实不报错，已经没有待处理告警
+  assert.equal(service.resolveDraftUnverified('draft_x', '再看一遍', ACTOR).resolved, 0);
+});
+
 test('get 只返回本租户告警', () => {
   const { service } = setup();
   service.ingest({ id: 'alt_other', kind: 'remind' });

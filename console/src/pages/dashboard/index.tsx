@@ -64,7 +64,10 @@ function attentionTarget(person: TeamAttentionPerson): string {
     case 'misroute':
       return `/service-flow?advisorId=${encodeURIComponent(person.advisorId)}&status=MISROUTE_ALERT`;
     case 'unverified':
-      return `/service-flow?advisorId=${encodeURIComponent(person.advisorId)}&status=UNVERIFIED`;
+      params.set('status', 'UNVERIFIED');
+      // 直接打开最久未核实的那条草稿，进去就有「标记已核实」可点
+      if (reason.draftId) params.set('draftId', reason.draftId);
+      return `/service-flow?${params.toString()}`;
     case 'advisor_paused':
       return '/advisors';
     case 'no_reply':

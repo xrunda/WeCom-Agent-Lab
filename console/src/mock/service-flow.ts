@@ -147,6 +147,8 @@ export interface FlowDetail {
   audit: FlowAuditItem[];
   media: MediaItem[];
   note?: string;
+  /** 未核验草稿的告警状态：pending 为尚未关闭的未核验告警数 */
+  unverifiedAlerts?: { pending: number; resolved: number };
 }
 
 export interface ServiceFlowQuery {

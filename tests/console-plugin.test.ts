@@ -2033,6 +2033,53 @@ test('服务流：行来自真实草稿，详情只从存档证据生成送达�
   assert.equal(missing.status, 404);
 });
 
+test('未核验草稿：详情给出待处理告警数，人工核实后告警关闭', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  ctx.emitTo('alert.created', {
+    kind: 'UNVERIFIED',
+    message: '草稿 draft_1 已标记为已发送，但 4 次回读均未匹配到正文',
+    advisorId: 'adv_1',
+    draftId: 'draft_1',
+  });
+
+  const before = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  assert.equal(before.status, 200);
+  assert.deepEqual(
+    (before.json() as { unverifiedAlerts: { pending: number; resolved: number } }).unverifiedAlerts,
+    { pending: 1, resolved: 0 },
+  );
+
+  const emptyNote = await call('POST', '/zhiban/api/service-flow/draft_1/review', {
+    cookie,
+    body: { note: '   ' },
+  });
+  assert.equal(emptyNote.status, 422);
+
+  const reviewed = await call('POST', '/zhiban/api/service-flow/draft_1/review', {
+    cookie,
+    body: { note: '已在群里确认顾问用自己的话回复了客户' },
+  });
+  assert.equal(reviewed.status, 200);
+  assert.equal((reviewed.json() as { resolved: number }).resolved, 1);
+
+  const after = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  assert.deepEqual(
+    (after.json() as { unverifiedAlerts: { pending: number; resolved: number } }).unverifiedAlerts,
+    { pending: 0, resolved: 1 },
+  );
+
+  // 再点一次不报错，只是没有待处理告警
+  const again = await call('POST', '/zhiban/api/service-flow/draft_1/review', {
+    cookie,
+    body: { note: '再核实一遍' },
+  });
+  assert.equal(again.status, 200);
+  assert.equal((again.json() as { resolved: number }).resolved, 0);
+});
+
 test('顾问：队列深度来自真实草稿，暂停/恢复同时落到企微与患者域', async () => {
   const { ctx, call } = await start();
   const ports = installRealDataPorts(ctx);
