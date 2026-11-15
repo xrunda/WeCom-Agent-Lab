@@ -1815,6 +1815,59 @@ test('工作台：价值与 KPI 直接来自真实草稿，不出现示例数据
   assert.equal(invalid.status, 422);
 });
 
+test('工作台：员工没点「已发送」、系统回读核验到的草稿也算已发出与采纳', async () => {
+  const { ctx, call } = await start();
+  const { drafts } = installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+  // verifier 的自动回读（PUSHED 超过宽限期）在存档里匹配到正文后，会把状态推进到
+  // VERIFIED 但不补 ackAction。这类草稿事实上已经发到群里，工作台不能漏掉。
+  drafts.push(
+    realDraft({
+      id: 'draft_autoread',
+      status: 'VERIFIED',
+      verification: {
+        outcome: 'VERIFIED',
+        matchedMsgId: 'm_auto_1',
+        matchedRoomId: 'room_1',
+        similarity: 1,
+        checkedAt: Date.now() - 60_000,
+      },
+    }),
+  );
+  drafts.push(
+    realDraft({
+      id: 'draft_autoedit',
+      status: 'EDIT_SENT',
+      verification: {
+        outcome: 'EDIT_SENT',
+        matchedMsgId: 'm_auto_2',
+        matchedRoomId: 'room_1',
+        similarity: 0.4,
+        checkedAt: Date.now() - 60_000,
+      },
+    }),
+  );
+
+  const value = await call('GET', '/zhiban/api/dashboard/value?range=week', { cookie });
+  assert.equal(value.status, 200);
+  const valueBody = value.json() as {
+    adoption: { original: number; revised: number; edited: number; sentTotal: number; rate: number };
+    savedMinutes: number;
+    verificationPassRate: number;
+  };
+  assert.equal(valueBody.adoption.sentTotal, 4);
+  assert.equal(valueBody.adoption.original, 2);
+  assert.equal(valueBody.adoption.revised, 1);
+  assert.equal(valueBody.adoption.edited, 1);
+  assert.equal(valueBody.adoption.rate, 0.75);
+  assert.equal(valueBody.savedMinutes, 9);
+  assert.equal(valueBody.verificationPassRate, 0.75);
+
+  const kpis = await call('GET', '/zhiban/api/dashboard/kpis?range=week', { cookie });
+  const kpiBody = kpis.json() as { verificationPassRate: number };
+  assert.equal(kpiBody.verificationPassRate, 0.75);
+});
+
 test('患者：真实患者列表区分 demo，详情含群与顾问，健康档案返回空而非假数据', async () => {
   const { ctx, call } = await start();
   installRealDataPorts(ctx);

@@ -287,3 +287,20 @@ test('没有需要关注的事项时返回空列表与运行摘要', () => {
   assert.equal(view.summary.immediateCount, 0);
   assert.equal(view.summary.verifiedToday, 1);
 });
+
+test('自动回读核验的草稿（没点过已发送）也算今天已发出', () => {
+  const view = build({
+    patients: [patient({ lastActiveAt: at(5) })],
+    drafts: [
+      // verifier 的 autoAck 路径：员工没点按钮，正文在存档里匹配到了，
+      // 状态推到 VERIFIED 但没有 ackAction
+      draft({
+        status: 'VERIFIED',
+        verification: { outcome: 'VERIFIED', similarity: 1, checkedAt: at(3) },
+      }),
+      // 还埋在队列里的草稿不能算已发出
+      draft({ id: 'draft_queued', status: 'QUEUED' }),
+    ],
+  });
+  assert.equal(view.summary.verifiedToday, 1);
+});
