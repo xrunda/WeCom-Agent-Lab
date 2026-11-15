@@ -2494,3 +2494,133 @@ test('话术库：读对全部角色开放，写仅 admin，platform 一律 404'
   const platformRead = await call('GET', '/zhiban/api/scripts', { cookie: platform.cookie });
   assert.equal(platformRead.status, 404);
 });
+
+/** #181 扫码登录用的假企微接口：按路径分发，全部虚构数据 */
+function stubWecomFetch(
+  resolveUserinfo: (code: string) => Record<string, unknown>,
+): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    calls.push(url.toString());
+    let body: Record<string, unknown> = { errcode: 0 };
+    if (url.pathname.endsWith('/gettoken')) {
+      body = { errcode: 0, access_token: 'token_test', expires_in: 7200 };
+    } else if (url.pathname.endsWith('/auth/getuserinfo')) {
+      body = resolveUserinfo(url.searchParams.get('code') ?? '');
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    } as unknown as Response;
+  }) as typeof fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = original;
+    },
+  };
+}
+
+test('#181 扫码登录：未配置时隐藏入口', async () => {
+  const { call } = await start();
+  const res = await call('GET', '/zhiban/api/auth/wecom/qr');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json(), { enabled: false });
+});
+
+test('#181 扫码登录：回调签发会话、state 防重放、未绑定与不可见分流', async () => {
+  const stub = stubWecomFetch((code) =>
+    code === 'CODE_OUT_OF_SCOPE'
+      ? { errcode: 60011, errmsg: 'no privilege' }
+      : { errcode: 0, userid: code === 'CODE_UNBOUND' ? 'unbound.user' : 'admin.user' },
+  );
+  try {
+    const { call } = await start({
+      wecom: {
+        corpId: 'corp_test',
+        agentId: '1000212',
+        agentSecret: 'secret_test',
+        publicBaseUrl: 'https://console.example.com',
+      },
+    });
+
+    const unboundQr = await call('GET', '/zhiban/api/auth/wecom/qr');
+    const unboundUrl = new URL((unboundQr.json() as { url: string }).url);
+    assert.equal(unboundUrl.searchParams.get('agentid'), '1000212');
+    assert.equal(
+      unboundUrl.searchParams.get('redirect_uri'),
+      'https://console.example.com/zhiban/api/auth/wecom/callback',
+    );
+    const unboundState = unboundUrl.searchParams.get('state')!;
+    const unbound = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_UNBOUND&state=${encodeURIComponent(unboundState)}`,
+    );
+    assert.equal(unbound.status, 302);
+    assert.equal(unbound.headers.location, '/login?wecom=unbound');
+    assert.equal(unbound.headers['set-cookie'], undefined);
+
+    const scoped = await call('GET', '/zhiban/api/auth/wecom/qr');
+    const scopedState = new URL((scoped.json() as { url: string }).url).searchParams.get(
+      'state',
+    )!;
+    const outOfScope = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_OUT_OF_SCOPE&state=${encodeURIComponent(scopedState)}`,
+    );
+    assert.equal(outOfScope.headers.location, '/login?wecom=scope');
+
+    // 管理员账号先绑定企微 userid
+    const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+    const accounts = await call('GET', '/zhiban/api/accounts', { cookie });
+    const admin = (accounts.json() as { items: Array<{ id: string; username: string }> }).items.find(
+      (item) => item.username === 'admin',
+    )!;
+    const bound = await call('PATCH', `/zhiban/api/accounts/${admin.id}`, {
+      cookie,
+      body: { wecomUserId: 'admin.user' },
+    });
+    assert.equal(bound.status, 200);
+    assert.equal((bound.json() as { wecomUserId: string }).wecomUserId, 'admin.user');
+
+    const qr = await call('GET', '/zhiban/api/auth/wecom/qr?from=%2Fpatients');
+    const qrBody = qr.json() as { enabled: boolean; url: string };
+    assert.equal(qrBody.enabled, true);
+    const state = new URL(qrBody.url).searchParams.get('state')!;
+
+    const callback = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_OK&state=${encodeURIComponent(state)}`,
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.location, '/patients');
+    const setCookie = String(callback.headers['set-cookie']);
+    assert.ok(setCookie.includes('HttpOnly'));
+    assert.ok(setCookie.includes('SameSite=Lax'));
+    // 扫码会话 8 小时，不用密码登录的 7 天
+    assert.ok(setCookie.includes('Max-Age=28800'));
+    const sessionCookie = setCookie.split(';')[0]!;
+    const session = await call('GET', '/zhiban/api/auth/session', { cookie: sessionCookie });
+    assert.equal(session.status, 200);
+    assert.equal((session.json() as { account: { id: string } }).account.id, admin.id);
+
+    // 同一个 state 重放：不再签发会话
+    const replay = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_OK&state=${encodeURIComponent(state)}`,
+    );
+    assert.equal(replay.status, 302);
+    assert.equal(replay.headers.location, '/login?wecom=state');
+    assert.equal(replay.headers['set-cookie'], undefined);
+
+    // 日志与响应里不能出现 Secret / access_token
+    const body = JSON.stringify([qrBody, callback.headers, session.json()]);
+    assert.equal(body.includes('secret_test'), false);
+    assert.equal(body.includes('token_test'), false);
+  } finally {
+    stub.restore();
+  }
+});

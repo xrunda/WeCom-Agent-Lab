@@ -107,6 +107,21 @@ export async function login(username: string, password: string): Promise<Session
   return session;
 }
 
+/**
+ * 企微扫码登录 URL（#181）。后端未配置（或本地非可信域名）时返回 enabled=false，
+ * 这里返回 null，登录页据此隐藏入口；请求失败同样按不可用处理，不影响密码登录。
+ */
+export async function getWecomQrUrl(from?: string): Promise<string | null> {
+  if (isMockMode) return null;
+  try {
+    const query = from ? `?from=${encodeURIComponent(from)}` : '';
+    const result = await request<{ enabled?: boolean; url?: string }>(`/auth/wecom/qr${query}`);
+    return result.enabled === true && typeof result.url === 'string' ? result.url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getSession(): Promise<Session | null> {
   if (!isMockMode) {
     try {

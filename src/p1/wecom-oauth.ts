@@ -1,7 +1,8 @@
 /**
- * 企微自建应用 OAuth 与 JS-SDK 签名（#145）。
+ * 企微自建应用 OAuth 与 JS-SDK 签名（#145 / #181）。
  *
  * - 授权换 userid：`snsapi_base` 静默授权，只拿成员身份；
+ * - 网页扫码登录（#181）：浏览器打开 `qrConnect`，回调 code 与静默授权同一套换码接口；
  * - `wx.config` 用企业 jsapi_ticket，`wx.agentConfig` 用应用 ticket（type=agent_config），
  *   两者不是同一张票，混用会导致 agentConfig:fail；
  * - access_token / ticket / Secret 只存在服务端，不打印、不返回给前端。
@@ -15,6 +16,12 @@ const TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket?access_
 /** 应用身份 ticket：wx.agentConfig 用 */
 const AGENT_TICKET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/ticket/get';
 const AUTHORIZE_URL = 'https://open.weixin.qq.com/connect/oauth2/authorize';
+/** 网页扫码登录（仅在浏览器打开，企微内仍走 snsapi_base 静默授权） */
+const QR_CONNECT_URL = 'https://open.work.weixin.qq.com/wwopen/sso/qrConnect';
+/** 成员资料：复核在职状态与所属部门 */
+const USER_GET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/user/get';
+/** 应用详情：复核「可见范围」 */
+const AGENT_GET_URL = 'https://qyapi.weixin.qq.com/cgi-bin/agent/get';
 
 /** 提前 5 分钟过期，避免边界上拿到刚失效的 token / ticket */
 const EARLY_EXPIRY_MS = 5 * 60_000;
@@ -43,6 +50,15 @@ export interface WecomOAuthOptions {
   log?: (line: string) => void;
 }
 
+/** 自建应用的可见范围（agent/get 的 allow_userinfos / allow_partys / allow_tags） */
+export interface WecomAgentScope {
+  /** 三项同时为空 = 全企业可见 */
+  allowUserIds: string[];
+  allowPartyIds: number[];
+  allowTags: number[];
+  allowAll: boolean;
+}
+
 export interface AgentSignature {
   corpId: string;
   agentId: string;
@@ -53,11 +69,14 @@ export interface AgentSignature {
 
 export class WecomOAuthError extends Error {
   readonly code: string;
+  /** 企微业务错误码；网络 / HTTP 异常时为空 */
+  readonly errcode?: number;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, errcode?: number) {
     super(message);
     this.name = 'WecomOAuthError';
     this.code = code;
+    if (errcode !== undefined) this.errcode = errcode;
   }
 }
 
@@ -120,6 +139,31 @@ export class WecomOAuthClient {
     const userid = typeof data.userid === 'string' ? data.userid : undefined;
     const openid = typeof data.openid === 'string' ? data.openid : undefined;
     return { ...(userid ? { userid } : {}), ...(openid ? { openid } : {}) };
+  }
+
+  /**
+   * 成员资料回查（#181 会话复核）。不抛业务错：errcode 交给调用方判读，
+   * 只有网络 / HTTP 异常才会抛出。
+   */
+  async lookupMember(userid: string): Promise<Record<string, unknown>> {
+    const token = await this.accessToken();
+    return this.getJson(
+      `${USER_GET_URL}?access_token=${encodeURIComponent(token)}&userid=${encodeURIComponent(userid)}`,
+    );
+  }
+
+  /**
+   * 应用可见范围（#181 会话复核）。未配置 agentId 或接口不可用时返回 undefined，
+   * 调用方据此降级为「无法判定」，不要当成「不在范围」。
+   */
+  async lookupAgentScope(): Promise<WecomAgentScope | undefined> {
+    if (!this.configured) return undefined;
+    const token = await this.accessToken();
+    const data = await this.getJson(
+      `${AGENT_GET_URL}?access_token=${encodeURIComponent(token)}&agentid=${encodeURIComponent(this.agentId!)}`,
+    );
+    if (data.errcode !== undefined && data.errcode !== 0) return undefined;
+    return parseAgentScope(data);
   }
 
   /** wx.agentConfig 所需签名：用应用 ticket（type=agent_config） */
@@ -258,8 +302,66 @@ export class WecomOAuthClient {
     // errcode 与 errmsg 是企微的排障信息，不含凭据
     const detail = typeof data.errmsg === 'string' ? `：${data.errmsg}` : '';
     this.log(`企微接口失败 errcode=${String(errcode)}`);
-    throw new WecomOAuthError(code, `${message}（errcode=${String(errcode)}${detail}）`);
+    throw new WecomOAuthError(
+      code,
+      `${message}（errcode=${String(errcode)}${detail}）`,
+      typeof errcode === 'number' ? errcode : undefined,
+    );
   }
+}
+
+/**
+ * 网页扫码登录 URL（#181）。
+ *
+ * `agentid` 必须是自建应用：扫码后企微按该应用的**可见范围**放行，
+ * 不在范围内的成员连 code 都换不出 userid。智能机器人没有 agentid 语义，不能用于登录。
+ */
+export function buildWecomQrConnectUrl(input: {
+  corpId: string;
+  agentId: string;
+  redirectUri: string;
+  state: string;
+}): string {
+  const params = new URLSearchParams({
+    appid: input.corpId,
+    agentid: input.agentId,
+    redirect_uri: input.redirectUri,
+    state: input.state,
+  });
+  return `${QR_CONNECT_URL}?${params.toString()}`;
+}
+
+/**
+ * 从 agent/get 的可见范围字段里取 id 列表。
+ * 成员是对象数组（`user: [{userid}]`），部门 / 标签是数字数组（`partyid: [1,2]`）。
+ */
+function scopeIds(value: unknown, key: string, objectKey?: string): string[] {
+  if (value === null || typeof value !== 'object') return [];
+  const list = (value as Record<string, unknown>)[key];
+  if (!Array.isArray(list)) return [];
+  const result: string[] = [];
+  for (const item of list) {
+    const picked =
+      objectKey && item !== null && typeof item === 'object'
+        ? (item as Record<string, unknown>)[objectKey]
+        : item;
+    if (typeof picked === 'string' && picked !== '') result.push(picked);
+    else if (typeof picked === 'number' && Number.isFinite(picked)) result.push(String(picked));
+  }
+  return result;
+}
+
+/** agent/get 响应 → 可见范围；字段缺失按「全企业可见」处理，避免误删会话 */
+export function parseAgentScope(data: Record<string, unknown>): WecomAgentScope {
+  const allowUserIds = scopeIds(data.allow_userinfos, 'user', 'userid');
+  const allowPartyIds = scopeIds(data.allow_partys, 'partyid').map(Number).filter(Number.isFinite);
+  const allowTags = scopeIds(data.allow_tags, 'tagid').map(Number).filter(Number.isFinite);
+  return {
+    allowUserIds,
+    allowPartyIds,
+    allowTags,
+    allowAll: allowUserIds.length === 0 && allowPartyIds.length === 0 && allowTags.length === 0,
+  };
 }
 
 /** 只允许为同一来源的页面签名，避免签出任意 URL */

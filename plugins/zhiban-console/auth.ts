@@ -28,6 +28,7 @@ import {
 } from '../../src/p1/console-types.ts';
 import type { HttpRequestLike } from './http.ts';
 import { header, parseCookies } from './http.ts';
+import { WECOM_SESSION_TTL_MS } from './config.ts';
 import type { ConsoleConfig } from './config.ts';
 
 export interface AuthActor {
@@ -47,6 +48,30 @@ export interface ConsoleAuthOptions {
 export function publicAccount(account: AccountRecord): PublicAccount {
   const { passwordHash: _hash, ...rest } = account;
   return rest;
+}
+
+/** 审计里不出现完整企微 userid，只留尾号；失败登录也据此定位 */
+function wecomActorName(userid: string): string {
+  return userid.length <= 4 ? '企微成员***' : `企微成员***${userid.slice(-4)}`;
+}
+
+/** 企微 userid：1–64 位字母、数字与 `._@-`；空串视为「不绑定」 */
+function parseWecomUserId(raw: unknown, field = 'wecomUserId'): string | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return undefined;
+  if (typeof raw !== 'string') {
+    throw new ConsoleError('VALIDATION_FAILED', '企微 userid 必须是字符串', [
+      { field, issue: 'invalid wecomUserId' },
+    ]);
+  }
+  const value = raw.trim();
+  if (value === '') return undefined;
+  if (!/^[A-Za-z0-9._@-]{1,64}$/.test(value)) {
+    throw new ConsoleError('VALIDATION_FAILED', '企微 userid 只能是 1–64 位字母、数字或 ._@-', [
+      { field, issue: 'invalid wecomUserId' },
+    ]);
+  }
+  return value;
 }
 
 export function maskIp(ip: string): string {
@@ -171,6 +196,74 @@ export class ConsoleAuthService {
     }
 
     this.loginLimiter.reset(ip, username);
+    return this.issueSession(account, ip, { method: 'password' });
+  }
+
+  /**
+   * #181 扫码登录：企微只证明「是谁」，账号与角色仍由这里决定。
+   * 不自动建号；可见范围内但未绑定账号 → 403，管理员在账号页预先绑定 wecomUserId。
+   */
+  async loginWithWecom(
+    wecomUserId: string,
+    ip: string,
+  ): Promise<{ account: AccountRecord; tenant: TenantRecord | null; token: string; session: SessionRecord }> {
+    const account = this.store
+      .listAccounts()
+      .find(
+        (item) =>
+          item.tenantId === this.config.tenantId &&
+          item.deletedAt === undefined &&
+          item.wecomUserId === wecomUserId,
+      );
+    if (!account) {
+      this.store.appendAudit({
+        tenantId: this.config.tenantId,
+        actorType: 'account',
+        actorId: null,
+        actorName: wecomActorName(wecomUserId),
+        action: 'auth.login',
+        targetType: 'account',
+        targetId: null,
+        result: 'failure',
+        errorCode: 'NOT_BOUND',
+        detail: { method: 'wecom' },
+        ip: maskIp(ip),
+        sandbox: false,
+      });
+      throw new ConsoleError('FORBIDDEN', '未开通控制台权限，请联系管理员');
+    }
+    if (account.status !== 'active') {
+      this.store.appendAudit({
+        tenantId: this.config.tenantId,
+        actorType: 'account',
+        actorId: account.id,
+        actorName: account.displayName,
+        action: 'auth.login',
+        targetType: 'account',
+        targetId: account.id,
+        result: 'failure',
+        errorCode: 'ACCOUNT_DISABLED',
+        detail: { method: 'wecom' },
+        ip: maskIp(ip),
+        sandbox: false,
+      });
+      throw new ConsoleError('ACCOUNT_DISABLED', '账号已停用，请联系管理员');
+    }
+    this.loginLimiter.reset(ip, account.username);
+    return this.issueSession(account, ip, {
+      method: 'wecom',
+      wecomUserId,
+      ttlMs: this.config.wecom?.sessionTtlMs ?? WECOM_SESSION_TTL_MS,
+    });
+  }
+
+  /** 密码登录与扫码登录共用同一出口：签发会话 + 审计 */
+  private issueSession(
+    account: AccountRecord,
+    ip: string,
+    options: { method: 'password' | 'wecom'; ttlMs?: number; wecomUserId?: string },
+  ): { account: AccountRecord; tenant: TenantRecord | null; token: string; session: SessionRecord } {
+    const now = this.now();
     const updated: AccountRecord = { ...account, lastLoginAt: now, updatedAt: now };
     this.store.saveAccount(updated);
 
@@ -179,8 +272,11 @@ export class ConsoleAuthService {
       tokenHash: hashToken(token),
       accountId: account.id,
       createdAt: now,
-      expiresAt: now + (this.config.sessionTtlMs || SESSION_TTL_MS),
+      expiresAt: now + (options.ttlMs ?? (this.config.sessionTtlMs || SESSION_TTL_MS)),
       lastSeenAt: now,
+      method: options.method,
+      ...(options.wecomUserId ? { wecomUserId: options.wecomUserId } : {}),
+      ...(options.method === 'wecom' ? { recheckedAt: now } : {}),
     };
     this.store.saveSession(session);
     this.store.appendAudit({
@@ -192,6 +288,7 @@ export class ConsoleAuthService {
       targetType: 'account',
       targetId: account.id,
       result: 'success',
+      ...(options.method === 'wecom' ? { detail: { method: 'wecom' } } : {}),
       ip: maskIp(ip),
       sandbox: false,
     });
@@ -314,6 +411,19 @@ export class ConsoleAuthService {
     if (exists) throw new ConsoleError('CONFLICT', '用户名已存在');
   }
 
+  /** 一个企微成员只能绑一个账号，避免一位员工两个身份（#181） */
+  private assertWecomUserIdFree(wecomUserId: string, exceptId: string | null): void {
+    const taken = this.store
+      .listAccounts()
+      .some(
+        (account) =>
+          account.wecomUserId === wecomUserId &&
+          account.id !== exceptId &&
+          account.deletedAt === undefined,
+      );
+    if (taken) throw new ConsoleError('CONFLICT', '该企微成员已绑定其他账号');
+  }
+
   private auditAccount(
     actor: AuthActor,
     action: string,
@@ -360,6 +470,8 @@ export class ConsoleAuthService {
     if (issue) {
       throw new ConsoleError('VALIDATION_FAILED', issue, [{ field: 'password', issue }]);
     }
+    const wecomUserId = parseWecomUserId(input.wecomUserId);
+    if (wecomUserId) this.assertWecomUserIdFree(wecomUserId, null);
     this.assertUsernameFree(username);
 
     const now = this.now();
@@ -371,11 +483,15 @@ export class ConsoleAuthService {
       role,
       status: 'active',
       passwordHash: await hashPassword(input.password as string),
+      ...(wecomUserId ? { wecomUserId } : {}),
       createdAt: now,
       updatedAt: now,
     };
     this.store.saveAccount(account);
-    this.auditAccount(actor, 'account.create', account.id, { role });
+    this.auditAccount(actor, 'account.create', account.id, {
+      role,
+      ...(wecomUserId ? { wecomUserId: true } : {}),
+    });
     return publicAccount(account);
   }
 
@@ -416,15 +532,30 @@ export class ConsoleAuthService {
     if (isSelf && (patch.status === 'disabled' || (patch.role && patch.role !== account.role))) {
       throw new ConsoleError('CONFLICT', '不能停用或降级自己');
     }
+    // wecomUserId 传 null / 空串表示解绑；不传表示不改
+    let wecomBinding: { set: string } | { clear: true } | undefined;
+    if (input.wecomUserId !== undefined) {
+      const next = parseWecomUserId(input.wecomUserId);
+      if (!next) {
+        wecomBinding = { clear: true };
+      } else {
+        this.assertWecomUserIdFree(next, account.id);
+        wecomBinding = { set: next };
+      }
+    }
 
     const now = this.now();
     const updated: AccountRecord = { ...account, ...patch, updatedAt: now };
+    if (wecomBinding) {
+      if ('clear' in wecomBinding) delete updated.wecomUserId;
+      else updated.wecomUserId = wecomBinding.set;
+    }
     this.store.saveAccount(updated);
     if (!isSelf && (patch.status === 'disabled' || patch.role !== undefined)) {
       this.revokeSessions(account.id);
     }
     this.auditAccount(actor, 'account.update', account.id, {
-      fields: Object.keys(patch),
+      fields: [...Object.keys(patch), ...(wecomBinding ? ['wecomUserId'] : [])],
     });
     return publicAccount(updated);
   }

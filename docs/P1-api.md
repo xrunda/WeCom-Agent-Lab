@@ -195,6 +195,43 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：登录用户。请求 `{ "currentPassword": "...", "newPassword": "..." }`。响应 `204`。
 
+### `GET /auth/wecom/qr?from=`
+
+角色：公开（#181）。返回企微网页扫码 URL，`from` 是登录成功后要去的站内路径（不合法时回落 `/dashboard`）。
+
+```json
+{ "enabled": true, "url": "https://open.work.weixin.qq.com/wwopen/sso/qrConnect?appid=...&agentid=1000212&..." }
+```
+
+未配置企微凭据时返回 `200 { "enabled": false }`，登录页据此隐藏「企业微信扫码登录」入口（本地 dev 不受影响）。
+
+- 扫码地址带**自建应用 AgentId**（知伴顾问助手）；智能机器人 Bot ID 不参与网页授权。
+- `state` 一次性、5 分钟有效；`url` 里含 `state`，不要缓存复用——点击时重新取一次。
+
+### `GET /auth/wecom/callback?code=&state=`
+
+角色：公开（#181）。这是浏览器顶层跳转，成功与失败都用 `302` 回站内，不渲染 HTML。
+
+- 成功：校验 `state` → 用 `code` 换 userid → 按 `accounts.wecomUserId` 找账号 → 签发会话 Cookie → `302` 到 `from`。
+- 失败：`302 /login?wecom=<reason>`，`reason` 取值：
+
+| reason | 含义 | 登录页文案要点 |
+|---|---|---|
+| `scope` | 不在自建应用可见范围 / 非企业成员 | 请联系管理员开通应用可见范围 |
+| `unbound` | 可见但未绑定控制台账号 | 请联系管理员绑定账号 |
+| `disabled` | 账号已停用 | 请联系管理员 |
+| `state` | state 失效或重放、缺 code | 重新点击扫码登录 |
+| `unavailable` | 企微接口异常 | 稍后重试，或用账号密码登录 |
+
+约束：
+
+- **不自动建号、不自动分配角色**；`role` / `scope` 仍由知伴账号表决定。
+- 扫码签发的会话有效期 **8 小时**（密码登录仍为 7 天），`session.method = "wecom"`，
+  插件每 5 分钟复核一次成员状态（`user/get` + `agent/get` 可见范围，结果缓存 5 分钟）；
+  已离职 / 被移出可见范围的成员，会话最迟 8 小时内失效，实际通常在一个复核周期内作废。
+- 密码登录始终保留：企微 Secret 轮换、接口抖动或可见范围被误改时用于兜底。
+- code、Secret、access_token、完整 userid 不进日志；审计里的成员标识只留尾号。
+
 ---
 
 ## 3. 租户与运营参数
@@ -1186,6 +1223,14 @@ Agent 回合异步进行，结果通过 SSE `sandbox.*` 推送；无 SSE 时用 
 ### `DELETE /accounts/{id}`
 
 角色：admin。软删除；不能删除自己（`409`）。响应 `204`。
+
+### 绑定企微成员（`wecomUserId`，需求见 §2 扫码登录）
+
+`POST /accounts` 与 `PATCH /accounts/{id}` 接受 `wecomUserId`（企微 userid，1–64 位字母、数字与 `._@-`）。
+
+- 租户内唯一：同一个 userid 只能绑一个账号，重复返回 `409 CONFLICT`。
+- `PATCH` 传 `null` 或空串表示解绑；不传表示不改。
+- 扫码登录只按这里匹配账号，**不自动建号、不自动分配角色**；可见范围内但未绑定 → `403`。
 
 ### `GET /accounts/permission-matrix`
 

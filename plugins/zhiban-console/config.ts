@@ -19,6 +19,24 @@ export interface SeedAccountConfig {
   password: string;
 }
 
+/**
+ * #181 企微扫码登录。四项齐全才启用；缺任何一项时登录页不展示入口，
+ * 密码登录不受影响（企微 Secret 轮换 / 可见范围误改时的兜底）。
+ */
+export interface WecomLoginConfig {
+  corpId: string;
+  /** 自建应用 AgentId（知伴顾问助手）；不是智能机器人 Bot ID */
+  agentId: string;
+  agentSecret: string;
+  /** 控制台公网地址，如 https://zhiban.example.com；用于拼回调 */
+  publicBaseUrl: string;
+  /** 扫码会话有效期，默认 8 小时 */
+  sessionTtlMs: number;
+}
+
+/** 扫码会话默认 8 小时：比密码登录短，成员异动最多隔夜失效 */
+export const WECOM_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
 export interface ConsoleConfig {
   tenantId: string;
   tenant: {
@@ -32,6 +50,8 @@ export interface ConsoleConfig {
   };
   admin: SeedAccountConfig;
   platform?: SeedAccountConfig;
+  /** #181：不配置则只能密码登录 */
+  wecom?: WecomLoginConfig;
   cookieSecure: boolean;
   allowedOrigins: string[];
   sessionTtlMs: number;
@@ -89,6 +109,41 @@ function parseAccount(raw: unknown, field: string): SeedAccountConfig {
   };
 }
 
+/** 公网地址只接受 http/https，去掉末尾斜杠；回调地址在此基础上拼接 */
+function parseBaseUrl(value: unknown, field: string): string {
+  const raw = requireString(value, field);
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${field} 必须是完整 URL`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`${field} 只支持 http/https`);
+  }
+  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+}
+
+/**
+ * #181 扫码登录配置。凭据只来自 DSH profile，不写进仓库；
+ * 报错只带字段名，绝不回显 Secret 值。
+ */
+function parseWecom(raw: unknown): WecomLoginConfig | undefined {
+  if (raw === undefined) return undefined;
+  const object = asObject(raw);
+  const ttl = object.sessionTtlMs;
+  if (ttl !== undefined && (typeof ttl !== 'number' || ttl <= 0)) {
+    throw new Error('wecom.sessionTtlMs 必须是正数');
+  }
+  return {
+    corpId: requireString(object.corpId, 'wecom.corpId'),
+    agentId: requireString(object.agentId, 'wecom.agentId'),
+    agentSecret: requireString(object.agentSecret, 'wecom.agentSecret'),
+    publicBaseUrl: parseBaseUrl(object.publicBaseUrl, 'wecom.publicBaseUrl'),
+    sessionTtlMs: typeof ttl === 'number' ? ttl : WECOM_SESSION_TTL_MS,
+  };
+}
+
 function parseSettings(raw: unknown): TenantSettings {
   if (raw === undefined) return { ...DEFAULT_TENANT_SETTINGS, quietHours: { ...DEFAULT_TENANT_SETTINGS.quietHours } };
   const object = asObject(raw);
@@ -132,6 +187,7 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
   } else if (object.cookieSecure !== undefined && typeof object.cookieSecure !== 'boolean') {
     throw new Error('cookieSecure 必须是布尔值');
   }
+  const wecom = parseWecom(object.wecom);
 
   return {
     tenantId,
@@ -149,6 +205,7 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
     },
     admin: parseAccount(object.admin, 'admin'),
     platform: object.platform === undefined ? undefined : parseAccount(object.platform, 'platform'),
+    ...(wecom ? { wecom } : {}),
     cookieSecure: object.cookieSecure !== false,
     allowedOrigins: (allowedOriginsRaw as string[] | undefined) ?? [],
     sessionTtlMs:

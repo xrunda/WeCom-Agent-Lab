@@ -76,6 +76,13 @@ src/p1/
   "cookieSecure": true,
   "allowedOrigins": ["https://<控制台域名>"],
   "sessionTtlMs": 604800000,
+  "wecom": {
+    "corpId": "<企业 ID>",
+    "agentId": "1000212",
+    "agentSecret": "<从部署环境注入>",
+    "publicBaseUrl": "https://<控制台域名>",
+    "sessionTtlMs": 28800000
+  },
   "sandbox": {
     "mediaRootDir": "/var/lib/zhiban/console-media",
     "dailyLimit": 100
@@ -95,6 +102,11 @@ src/p1/
 说明：
 
 - `cookieSecure` 默认 `true`；仅本地 HTTP 调试可设 `false`。生产必须 HTTPS。
+- `wecom` 可选（#181）：`corpId` / `agentId` / `agentSecret` / `publicBaseUrl` 缺任一项就不启用扫码登录，登录页不显示入口，密码登录不受影响。
+  `agentId` 填自建应用「知伴顾问助手」的 AgentId（智能机器人 Bot ID 不参与网页授权）；`agentSecret` 只放 DSH profile，不进仓库、不进日志，轮换后重启插件即可。
+  企微后台需把 `publicBaseUrl` 的主机配为可信域名与授权回调域，回调地址为 `<publicBaseUrl>/zhiban/api/auth/wecom/callback`。
+  扫码会话有效期取 `wecom.sessionTtlMs`（默认 8 小时），密码会话仍是 `sessionTtlMs`。
+  可见范围就是登录门禁：员工在自建应用可见范围内、且账号页已绑定 `wecomUserId`，才能扫码进入；不自动建号。
 - `admin` / `platform` 只在启动时补齐：账号已存在则不覆盖，改初始密码请走控制台或运维脚本。
 - `allowedOrigins` 为空时只接受与 `Host` 同源、或无 `Origin` 的请求（curl / 服务端调用）。
 - 沙盒图片默认写到工作目录 `.zhiban-console-media/`（已加入 `.gitignore`），生产建议显式配置 `mediaRootDir` 到持久盘。
@@ -112,6 +124,9 @@ src/p1/
 - 登录失败：同 IP + 用户名 15 分钟 5 次，第 6 次即使密码正确也返回 `429 RATE_LIMITED`。
 - 登出、改密、停用、删除、重置密码都会撤销对应服务端会话；改密保留当前会话。
 - 登录失败审计中的 IP 已脱敏（如 `203.0.113.*`）。
+- 扫码登录（#181）：`state` 一次性、5 分钟有效；`code` 换 userid 后按 `accounts.wecomUserId` 匹配账号，未绑定不自动建号。
+  扫码会话 `method=wecom`、默认 8 小时，插件每 5 分钟复核成员在职状态与可见范围（结果缓存 5 分钟）；
+  `removed` 才销毁会话，接口抖动返回 `unknown` 只记录、不踢人。审计里的成员标识只留尾号，日志不含 code / Secret / access_token。
 
 ### 4.2 鉴权与隔离
 
