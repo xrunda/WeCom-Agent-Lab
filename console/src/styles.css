@@ -465,6 +465,25 @@ a {
   font-size: 11px;
 }
 
+/* ---------- 文本域字数统计 ---------- */
+/*
+ * AntD 默认把 TextArea 的「0 / 200」绝对定位在输入框下沿之外（bottom 为负），
+ * 会压住圆角边框和右下角的拖拽手柄，弹窗里还会挤到按钮上。
+ * 收进输入框内右下角，并给输入框底部留出内边距，长文也不会被计数遮住。
+ */
+.ant-input-textarea-show-count > textarea.ant-input {
+  padding-bottom: 24px;
+}
+
+.ant-input-textarea-show-count .ant-input-data-count {
+  bottom: 5px;
+  inset-inline-end: 16px;
+  padding-inline: 4px;
+  border-radius: 4px;
+  background: var(--zb-surface);
+  line-height: 1.3;
+}
+
 /* ---------- 数据表格 ---------- */
 .zb-panel .ant-table {
   font-size: 13px;
