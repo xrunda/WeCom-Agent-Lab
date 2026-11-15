@@ -76,7 +76,7 @@ export interface PermissionRow {
 export const PERMISSION_ROWS: PermissionRow[] = [
   { group: '客户与群', key: 'patient.read', label: '查看客户档案' },
   { group: '客户与群', key: 'patient.write', label: '编辑客户档案' },
-  { group: '客户与群', key: 'advisor.operate', label: '暂停 / 恢复顾问、释放队列' },
+  { group: '客户与群', key: 'advisor.operate', label: '暂停 / 恢复顾问、跳过草稿' },
   { group: '服务流与告警', key: 'draft.read', label: '查看草稿与服务流' },
   { group: '服务流与告警', key: 'alert.read', label: '查看告警' },
   { group: '服务流与告警', key: 'alert.write', label: '处理告警' },

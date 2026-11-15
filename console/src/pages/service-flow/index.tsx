@@ -221,30 +221,22 @@ export default function ServiceFlowPage() {
   const releaseQueue = useCallback(
     (advisorId: string, advisorName: string) => {
       modal.confirm({
-        title: `释放 ${advisorName} 的阻塞队列？`,
-        content: (
-          <div>
-            <p style={{ marginTop: 0 }}>
-              释放后，该顾问当前阻塞队列的那条草稿会标为「已释放」，不再等顾问点击；排在后面的下一条会立即推送给顾问。
-            </p>
-            <p style={{ marginBottom: 0 }}>已经发到客户群的草稿不受影响。</p>
-          </div>
-        ),
-        okText: '确认释放',
-        okButtonProps: { danger: true },
+        title: `跳过 ${advisorName} 最早的一条草稿？`,
+        content: '这条草稿不会发给客户，会标记为「已跳过」，下一条立即推送。',
+        okText: '确认跳过',
         cancelText: '取消',
         onOk: async () => {
           try {
             const result = await releaseAdvisorQueue(advisorId);
             message.success(
               result.nextDraftId
-                ? `已释放 ${result.releasedDraftId}，下一条 ${result.nextDraftId} 已推送`
-                : `已释放 ${result.releasedDraftId}，队列已清空`,
+                ? `已跳过 ${result.releasedDraftId}，下一条 ${result.nextDraftId} 已推送`
+                : `已跳过 ${result.releasedDraftId}，没有待推送草稿`,
             );
             await load();
             setDetailRefresh((value) => value + 1);
           } catch (error) {
-            message.error(error instanceof Error ? error.message : '释放队列失败，请稍后重试');
+            message.error(error instanceof Error ? error.message : '跳过失败，请稍后重试');
           }
         },
       });
@@ -558,25 +550,19 @@ export default function ServiceFlowPage() {
           <Alert
             type="info"
             showIcon
-            message="「已推送待确认」= 草稿已发到顾问企微卡片，等顾问点「已发送」或「忽略」"
-            description={
-              <span>
-                当前 {pushedRows.length} 条还没确认。超过 15 分钟未确认会出现在工作台的团队关注；
-                顾问处理不了时，可以释放队列，让排在后面的草稿继续。
-              </span>
-            }
+            message={`${pushedRows.length} 条草稿还没确认`}
+            description="顾问还没在企微处理。可以提醒顾问；处理不了，就跳过最早一条。"
             action={
               releaseAdvisorId && can('advisor.operate') ? (
                 <Button
-                  danger
                   size="small"
                   onClick={() => releaseQueue(releaseAdvisorId, releaseAdvisorName ?? '该顾问')}
                 >
-                  释放队列
+                  跳过最早一条
                 </Button>
               ) : !releaseAdvisorId ? (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  先按顾问筛选，再释放队列
+                  先按顾问筛选，再跳过
                 </Text>
               ) : undefined
             }
@@ -643,16 +629,15 @@ export default function ServiceFlowPage() {
               <Alert
                 type="warning"
                 showIcon
-                message="已推送到顾问企微，等顾问点「已发送」或「忽略」"
-                description="顾问确认前，这位顾问后面的草稿会排队；超过 15 分钟没确认就会出现在工作台的团队关注里。"
+                message="这条草稿还没确认"
+                description="顾问还没在企微处理。可以提醒顾问；处理不了，就跳过最早一条。"
                 action={
                   can('advisor.operate') ? (
                     <Button
-                      danger
                       size="small"
                       onClick={() => releaseQueue(detail.advisor.id, detail.advisor.name)}
                     >
-                      释放队列
+                      跳过最早一条
                     </Button>
                   ) : undefined
                 }
