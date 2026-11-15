@@ -740,9 +740,31 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     );
 
     /**
-     * 企微回调：校验一次性 state → 换 userid → 绑定账号 → 签发会话。
+     * 扫码绑定（#183）：已登录用户发起，state 绑定当前账号与会话。
+     * 未配置时返回 enabled=false，账号页据此隐藏「扫码绑定」。
+     */
+    router.add('POST', '/auth/wecom/bind', (rc) => {
+      const actor = actorOf(rc);
+      if (!wecomLogin?.configured) {
+        respond(rc, 200, { enabled: false });
+        return;
+      }
+      respond(rc, 200, {
+        enabled: true,
+        url: wecomLogin.createBindUrl({
+          accountId: actor.account.id,
+          sessionHash: actor.tokenHash,
+          returnTo: '/settings/accounts',
+        }),
+      });
+    });
+
+    /**
+     * 企微回调：校验一次性 state → 换 userid。
+     * - `login`：绑定账号 → 签发会话；
+     * - `bind`：把 userid 绑到发起绑定的那个账号（#183）。
      * 这是浏览器顶层跳转，成功与失败都用 302 回站内，失败原因放在 `?wecom=`
-     * 由登录页给出文案；不会在这里渲染 HTML。
+     * 由登录页或账号页给出文案；不会在这里渲染 HTML。
      */
     router.add(
       'GET',
@@ -757,38 +779,60 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           });
           rc.res.end();
         };
-        const fail = (reason: string): void => {
-          redirect(`/login?wecom=${encodeURIComponent(reason)}`);
+        /** 带查询串跳回站内页面（保留原参数） */
+        const withQuery = (path: string, param: string): string =>
+          `${path}${path.includes('?') ? '&' : '?'}${param}`;
+        const fail = (reason: string, flow: 'login' | 'bind' = 'login'): void => {
+          const path = flow === 'bind' ? '/settings/accounts' : '/login';
+          redirect(withQuery(path, `wecom=${encodeURIComponent(reason)}`));
         };
 
         if (!wecomLogin?.configured || !config.wecom) {
           fail('unavailable');
           return;
         }
+        // 失败时退回哪个页面：绑定流程回账号页，登录流程回登录页
+        let flow: 'login' | 'bind' = 'login';
         try {
-          const { userid, returnTo } = await wecomLogin.completeCallback(
+          const result = await wecomLogin.completeCallback(
             rc.query.get('code'),
             rc.query.get('state'),
           );
-          const result = await auth.loginWithWecom(userid, auth.requestIp(rc.req));
+          if (result.mode === 'bind') {
+            flow = 'bind';
+            // 发起绑定的会话必须还在，否则不认这次回调
+            const bound = wecomLogin.assertBindSession(result);
+            await auth.bindWecom(bound.accountId, result.userid);
+            redirect(withQuery(result.returnTo, 'wecom=bound'));
+            return;
+          }
+          const login = await auth.loginWithWecom(result.userid, auth.requestIp(rc.req));
           redirect(
-            returnTo,
+            result.returnTo,
             setCookieHeader(
               SESSION_COOKIE,
-              result.token,
+              login.token,
               config.wecom.sessionTtlMs / 1000,
               config.cookieSecure,
             ),
           );
         } catch (error) {
           if (error instanceof WecomLoginError) {
+            const bindFlow = error.mode === 'bind' || flow === 'bind';
+            // 绑定流程里 state 过期要说「重新扫码」，不能把已登录用户送回登录页
             const reason =
               error.reason === 'OUT_OF_SCOPE'
                 ? 'scope'
                 : error.reason === 'STATE_INVALID'
-                  ? 'state'
+                  ? bindFlow
+                    ? 'expired'
+                    : 'state'
                   : 'unavailable';
-            fail(reason);
+            fail(reason, bindFlow ? 'bind' : 'login');
+            return;
+          }
+          if (error instanceof ConsoleError && flow === 'bind') {
+            fail(error.code === 'CONFLICT' ? 'conflict' : 'unavailable', 'bind');
             return;
           }
           if (error instanceof ConsoleError && error.code === 'ACCOUNT_DISABLED') {
@@ -800,7 +844,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             return;
           }
           log(`扫码登录回调异常：${error instanceof Error ? error.message : 'UNKNOWN'}`);
-          fail('unavailable');
+          fail('unavailable', flow);
         }
       },
       { auth: false },

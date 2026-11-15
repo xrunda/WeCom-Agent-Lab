@@ -444,6 +444,46 @@ export class ConsoleAuthService {
     });
   }
 
+  /**
+   * 扫码绑定（#183）：把扫码换出的 userid 绑到发起绑定的那个账号上。
+   * 调用方必须先校验 state 里的会话仍然有效（见 WecomLoginService.assertBindSession）。
+   */
+  bindWecom(accountId: string, rawUserid: string): PublicAccount {
+    const wecomUserId = parseWecomUserId(rawUserid);
+    if (!wecomUserId) {
+      throw new ConsoleError('VALIDATION_FAILED', '企微身份无效，请重新扫码', [
+        { field: 'wecomUserId', issue: 'invalid wecomUserId' },
+      ]);
+    }
+    const account = this.store.getAccount(accountId);
+    if (!account || account.deletedAt !== undefined) {
+      throw new ConsoleError('UNAUTHORIZED', '未登录或会话已过期');
+    }
+    if (account.status !== 'active') {
+      throw new ConsoleError('ACCOUNT_DISABLED', '控制台账号已停用，请联系管理员');
+    }
+    this.assertWecomUserIdFree(wecomUserId, account.id);
+    const updated: AccountRecord = {
+      ...account,
+      wecomUserId,
+      updatedAt: this.now(),
+    };
+    this.store.saveAccount(updated);
+    this.store.appendAudit({
+      tenantId: this.config.tenantId,
+      actorType: 'account',
+      actorId: account.id,
+      actorName: wecomActorName(wecomUserId),
+      action: 'account.wecom_bind',
+      targetType: 'account',
+      targetId: account.id,
+      result: 'success',
+      detail: { method: 'scan' },
+      sandbox: false,
+    });
+    return publicAccount(updated);
+  }
+
   async createAccount(
     actor: AuthActor,
     input: Record<string, unknown>,

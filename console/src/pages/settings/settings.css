@@ -197,6 +197,13 @@
   margin-left: 6px;
 }
 
+/* 扫码绑定：弹窗里第一入口，和下面的手动填写留出呼吸 */
+.wecom-bind-scan {
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px dashed var(--zb-line, #e2e8f0);
+}
+
 .matrix-table .ant-table-cell {
   font-size: 12px;
 }

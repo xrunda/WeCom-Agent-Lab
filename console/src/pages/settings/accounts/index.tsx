@@ -27,8 +27,10 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
+import { getWecomBindUrl } from '../../../mock/api.ts';
 import {
   createAccount,
   deleteAccount,
@@ -66,6 +68,24 @@ interface WecomFormValues {
 /** 与后端一致：1–64 位字母、数字与 `._@-` */
 const WECOM_USERID_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
 
+/** 扫码绑定回调结果（`/settings/accounts?wecom=`），文案要能指导下一步动作 */
+const WECOM_BIND_RESULTS: Record<
+  string,
+  { type: 'success' | 'warning' | 'error'; text: string }
+> = {
+  bound: { type: 'success', text: '企微身份已绑定，该成员可以直接扫码登录' },
+  conflict: { type: 'error', text: '这个企微身份已绑定在其他账号上，请先解绑旧账号再试' },
+  scope: {
+    type: 'error',
+    text: '扫码的企微账号不在「知伴顾问助手」的可见范围内，请先在企微后台把它加进来',
+  },
+  expired: { type: 'warning', text: '绑定链接已失效，请重新点击「扫码绑定我的企微身份」' },
+  unavailable: {
+    type: 'error',
+    text: '企业微信扫码绑定暂时不可用，请稍后重试，或手动填写 userid',
+  },
+};
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请稍后重试';
 }
@@ -73,6 +93,8 @@ function errorMessage(error: unknown): string {
 export default function AccountsSettingsPage() {
   const { can, session } = useAuth();
   const { message } = App.useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [bindPending, setBindPending] = useState(false);
   // 后端 GET /accounts 同样要求 account.write，所以「能看」与「能管」是同一权限
   const canWrite = can('account.write');
 
@@ -112,6 +134,22 @@ export default function AccountsSettingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 扫码绑定回调：先提示结果，再把 `wecom` 参数从地址栏清掉，刷新后会重复提示
+  useEffect(() => {
+    const wecom = searchParams.get('wecom');
+    if (!wecom) return;
+    const result = WECOM_BIND_RESULTS[wecom];
+    if (result) {
+      if (result.type === 'success') message.success(result.text);
+      else if (result.type === 'warning') message.warning(result.text);
+      else message.error(result.text);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('wecom');
+    setSearchParams(next, { replace: true });
+    if (wecom === 'bound') void load();
+  }, [searchParams, setSearchParams, message, load]);
 
   const openCreate = () => {
     createForm.setFieldsValue({
@@ -186,6 +224,21 @@ export default function AccountsSettingsPage() {
       message.error(errorMessage(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 扫码绑定：拿一次性扫码 URL 后整页跳转，扫码成功由回调带回 ?wecom=bound
+  const startBind = async () => {
+    setBindPending(true);
+    try {
+      const url = await getWecomBindUrl();
+      if (!url) {
+        message.error('企业微信扫码绑定暂不可用，请手动填写 userid');
+        return;
+      }
+      window.location.assign(url);
+    } finally {
+      setBindPending(false);
     }
   };
 
@@ -561,7 +614,7 @@ export default function AccountsSettingsPage() {
       </Modal>
 
       <Modal
-        title={`企微扫码登录${target ? ` · ${target.displayName}` : ''}`}
+        title={`企微成员${target ? ` · ${target.displayName}` : ''}`}
         open={modal === 'wecom'}
         okText="保存"
         cancelText="取消"
@@ -574,20 +627,35 @@ export default function AccountsSettingsPage() {
         }}
         destroyOnHidden
       >
+        {target && isSelf(target) ? (
+          <div className="wecom-bind-scan">
+            <Button
+              type="primary"
+              icon={<QrcodeOutlined />}
+              loading={bindPending}
+              onClick={() => void startBind()}
+            >
+              扫码绑定我的企微身份
+            </Button>
+            <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+              用本人企业微信扫码后自动绑定，不需要填写 userid；扫码完成会回到本页并刷新。
+            </Text>
+          </div>
+        ) : null}
         <Form<WecomFormValues> form={wecomForm} layout="vertical" requiredMark={false} preserve={false}>
           <Form.Item
-            label="企微成员 userid"
+            label={target && isSelf(target) ? '或手动填写 userid' : '企微成员 userid'}
             name="wecomUserId"
             rules={[
               { pattern: WECOM_USERID_PATTERN, message: '1–64 位字母、数字与 . _ @ -' },
             ]}
-            extra="在企业微信通讯录里查看成员详情中的「账号」（UserID）。绑定后该成员可扫码登录；清空并保存即解绑。"
+            extra="为他人绑定时填写对方在企业微信通讯录里的「账号」（UserID）；对方也可以用自己的账号登录后扫码自助绑定。清空并保存即解绑。"
           >
             <Input autoComplete="off" placeholder="例如：wang.guwen" />
           </Form.Item>
         </Form>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          登录门槛是「知伴顾问助手」的可见范围：把成员移出可见范围后，最多 8 小时内其会话失效。
+          扫码绑定只能绑定扫码人自己的企微身份；登录门槛是「知伴顾问助手」的可见范围，成员被移出后最多 8 小时内会话失效。
         </Text>
       </Modal>
     </PageContainer>

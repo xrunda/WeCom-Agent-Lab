@@ -140,7 +140,9 @@ test('扫码 URL 带 appid / agentid / 回调与一次性 state', async () => {
   assert.equal(state, url.searchParams.get('state'));
   assert.ok(state.length >= 24);
 
-  assert.equal(service.consumeState(state), '/patients');
+  const pending = service.consumeState(state);
+  assert.equal(pending.mode, 'login');
+  assert.equal(pending.returnTo, '/patients');
   // 重放同一个 state 必须失败
   assert.throws(
     () => service.consumeState(state),
@@ -178,6 +180,7 @@ test('换码成功返回 userid 与 returnTo；非企业成员归为不在可见
   const first = ok.newState('/alerts');
   assert.deepEqual(await ok.service.completeCallback('CODE1', first.state), {
     userid: USERID,
+    mode: 'login',
     returnTo: '/alerts',
   });
 
@@ -288,6 +291,101 @@ test('企微 userid 一个账号只能绑一次', async () => {
   const rebound = auth.updateAccount(adminActor, created.id, { wecomUserId: USERID });
   assert.equal(rebound.wecomUserId, USERID);
   assert.equal(store.findAccountByUsername('admin')!.wecomUserId, undefined);
+});
+
+test('扫码绑定：把扫码得到的 userid 绑到发起绑定的账号（#183）', async () => {
+  const { auth, service, store } = await setup();
+  const login = await auth.login('admin', PASSWORD, '203.0.113.10');
+  const url = new URL(
+    service.createBindUrl({
+      accountId: login.account.id,
+      sessionHash: login.session.tokenHash,
+    }),
+  );
+  assert.equal(url.searchParams.get('agentid'), '1000212');
+
+  const result = await service.completeCallback(
+    'CODE1',
+    url.searchParams.get('state')!,
+  );
+  assert.equal(result.mode, 'bind');
+  assert.equal(result.returnTo, '/settings/accounts');
+  const bound = service.assertBindSession(result);
+  assert.equal(bound.accountId, login.account.id);
+
+  const updated = auth.bindWecom(bound.accountId, result.userid);
+  assert.equal(updated.wecomUserId, USERID);
+  assert.equal(store.findAccountByUsername('admin')!.wecomUserId, USERID);
+});
+
+test('扫码绑定：发起会话退出后回调不认；userid 已被占用 → CONFLICT', async () => {
+  const { auth, service, store, adminActor } = await setup();
+  const login = await auth.login('admin', PASSWORD, '203.0.113.10');
+  const stateOf = (tokenHash: string): string =>
+    new URL(
+      service.createBindUrl({ accountId: login.account.id, sessionHash: tokenHash }),
+    ).searchParams.get('state')!;
+
+  // 会话退出后，同一个 state 回调必须失效，且错误标记为 bind 流程
+  const first = await service.completeCallback('CODE1', stateOf(login.session.tokenHash));
+  auth.logout(login.session.tokenHash, {
+    account: login.account,
+    tenant: auth.tenant,
+    tokenHash: login.session.tokenHash,
+  } as AuthActor);
+  assert.throws(
+    () => service.assertBindSession(first),
+    (error: unknown) =>
+      error instanceof WecomLoginError &&
+      error.reason === 'STATE_INVALID' &&
+      error.mode === 'bind',
+  );
+
+  // userid 已绑在别的账号上：扫码绑定不能抢绑定
+  const other = await auth.createAccount(adminActor, {
+    username: 'advisor02',
+    displayName: '李顾问',
+    role: 'viewer',
+    password: 'AdvisorPass123',
+    wecomUserId: USERID,
+  });
+  assert.throws(
+    () => auth.bindWecom(store.findAccountByUsername('admin')!.id, USERID),
+    (error: unknown) => error instanceof ConsoleError && error.code === 'CONFLICT',
+  );
+  assert.equal(store.getAccount(other.id)!.wecomUserId, USERID);
+});
+
+test('扫码绑定：不在可见范围时失败仍带 bind 标记，state 过期给 expired 口径', async () => {
+  const scoped = await setup({ userinfo: () => ({ errcode: 60011, errmsg: 'no privilege' }) });
+  const login = await scoped.auth.login('admin', PASSWORD, '203.0.113.10');
+  const state = new URL(
+    scoped.service.createBindUrl({
+      accountId: login.account.id,
+      sessionHash: login.session.tokenHash,
+    }),
+  ).searchParams.get('state')!;
+  await assert.rejects(
+    scoped.service.completeCallback('CODE1', state),
+    (error: unknown) =>
+      error instanceof WecomLoginError &&
+      error.reason === 'OUT_OF_SCOPE' &&
+      error.mode === 'bind',
+  );
+
+  const expired = await setup();
+  const session = await expired.auth.login('admin', PASSWORD, '203.0.113.10');
+  const expiredState = new URL(
+    expired.service.createBindUrl({
+      accountId: session.account.id,
+      sessionHash: session.session.tokenHash,
+    }),
+  ).searchParams.get('state')!;
+  expired.advance(5 * 60_000 + 1);
+  assert.throws(
+    () => expired.service.consumeState(expiredState),
+    (error: unknown) => error instanceof WecomLoginError && error.reason === 'STATE_INVALID',
+  );
 });
 
 test('会话复核：移出可见范围 / 离职 → 作废；接口抖动 → 保留', async () => {
