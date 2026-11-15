@@ -118,11 +118,17 @@ export class Verifier {
     // 只能说明顾问没用草稿原文，送达本身是确凿的：按「改稿后发送」收口，
     // 不再反复回读、也不出「未核验」告警。UNVERIFIED 只留给「声称已发但查无实据」。
     if (res.outcome === 'UNVERIFIED' && !autoAck && draft.ackSource === 'archive') {
-      const replied = messages.find((message) => message.roomid === draft.groupRoomId);
+      // 回读窗口从确认时间往前 30 分钟，窗口里可能有草稿之前的话。
+      // 只取确认之后的发言，否则会把一条无关的旧消息当成实发原文。
+      const inGroup = messages
+        .filter((message) => message.roomid === draft.groupRoomId)
+        .sort((a, b) => a.msgtime - b.msgtime);
+      const replied = inGroup.find((message) => message.msgtime >= anchor) ?? inGroup.at(-1);
       if (replied) {
         res = {
           draftId: draft.id,
           outcome: 'EDIT_SENT',
+          matchedBy: 'archive-ack',
           matchedMsgId: replied.msgid,
           matchedRoomId: replied.roomid,
           similarity: diceCoefficient(

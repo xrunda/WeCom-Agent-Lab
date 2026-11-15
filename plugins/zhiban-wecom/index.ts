@@ -486,6 +486,9 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
     const verification = draft.verification
       ? {
           outcome: draft.verification.outcome,
+          ...(draft.verification.matchedBy
+            ? { matchedBy: draft.verification.matchedBy }
+            : {}),
           ...(draft.verification.matchedMsgId
             ? { matchedMsgId: draft.verification.matchedMsgId }
             : {}),
