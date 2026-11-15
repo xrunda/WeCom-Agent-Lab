@@ -1044,7 +1044,14 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       '/alerts/unresolved-count',
       (rc) => {
         tenantActor(rc);
-        respond(rc, 200, alerts.unresolvedCount(parseAlertSource(rc.query.get('source'))));
+        respond(
+          rc,
+          200,
+          alerts.unresolvedCount(
+            parseAlertSource(rc.query.get('source')),
+            rc.query.get('kind') ?? undefined,
+          ),
+        );
       },
       { permission: 'alert.read' },
     );
@@ -1600,7 +1607,11 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             drafts: consoleDrafts(),
             advisors: patientReadApi()?.listAdvisors?.() ?? [],
             memories: consoleMemories(),
-            openAlerts: alerts.unresolvedCount('staff').open,
+            // 首页「未处理红线」要同时算员工发言与草稿命中：
+            // 只看 source=staff 会让命中红线的草稿在首页显示成 0 条。
+            openAlerts:
+              alerts.list({ kind: 'redline', status: 'open', pageSize: 1 }).total +
+              alerts.list({ kind: 'redline', status: 'acknowledged', pageSize: 1 }).total,
           }),
         );
       },

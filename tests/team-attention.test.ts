@@ -121,8 +121,8 @@ test('未解决告警按服务人员收敛成一行，L1 优先且不重复', ()
       alert({ id: 'a2', kind: 'redline', source: 'staff', createdAt: at(10) }),
       alert({ id: 'a3', kind: 'misroute', createdAt: at(5), status: 'acknowledged' }),
       alert({ id: 'a4', kind: 'unverified', createdAt: at(3), status: 'resolved' }),
-      // 草稿红线在服务流按草稿处理，不进团队关注的红线提醒
-      alert({ id: 'a5', kind: 'redline', source: 'draft', createdAt: at(2) }),
+      // 草稿红线也进团队关注，但单独一条原因：直接打开命中红线的草稿处理
+      alert({ id: 'a5', kind: 'redline', source: 'draft', createdAt: at(2), draftId: 'draft_9' }),
     ],
   });
 
@@ -132,10 +132,12 @@ test('未解决告警按服务人员收敛成一行，L1 优先且不重复', ()
   assert.equal(person.level, 'L1');
   assert.deepEqual(
     person.reasons.map((reason) => reason.code),
-    ['redline', 'misroute'],
+    ['redline', 'draft_redline', 'misroute'],
   );
   assert.equal(person.reasons[0]!.text, '员工发言红线 2 条待复核');
   assert.equal(person.reasons[0]!.waitMinutes, 20);
+  assert.equal(person.reasons[1]!.text, '草稿命中红线 1 条待处理');
+  assert.equal(person.reasons[1]!.draftId, 'draft_9');
   assert.equal(person.oldestWaitMinutes, 20);
   assert.equal(person.suggestion, '去质检与告警复核员工发言');
   assert.equal(view.summary.peopleCount, 1);

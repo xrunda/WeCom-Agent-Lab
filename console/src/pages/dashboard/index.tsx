@@ -25,6 +25,7 @@ import {
   getDashboardValue,
 } from '../../mock/dashboard.ts';
 import { isMockMode } from '../../mock/http.ts';
+import { subscribeAlerts } from '../../mock/alerts.ts';
 import { SAMPLE_ADVISORS, SAMPLE_DAYS, SAMPLE_PERIOD_LABEL, SAMPLE_TOTALS } from '../../sample/index.ts';
 import type {
   DashboardKpis,
@@ -58,9 +59,12 @@ function attentionTarget(person: TeamAttentionPerson): string {
   const params = new URLSearchParams({ advisorId: person.advisorId });
   switch (reason.code) {
     case 'redline':
-      // 质检与告警只收员工群发言红线，按顾问筛选即可
-      params.set('source', 'staff');
+      // 质检与告警收员工群发言与 AI 草稿两类红线，按顾问筛选即可
       return `/alerts?${params.toString()}`;
+    case 'draft_redline':
+      // 草稿红线直接在服务流抽屉里处理，别让主管去告警页再找一遍
+      if (reason.draftId) params.set('draftId', reason.draftId);
+      return `/service-flow?${params.toString()}`;
     case 'misroute':
       return `/service-flow?advisorId=${encodeURIComponent(person.advisorId)}&status=MISROUTE_ALERT`;
     case 'unverified':
@@ -125,6 +129,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void load(range);
+  }, [load, range]);
+
+  // 新告警（员工发言或草稿命中）或告警状态变化时，首页立刻刷新。
+  // 告警是「等不起」的信息，不能等主管手动刷新才出现。
+  useEffect(() => {
+    return subscribeAlerts(() => {
+      void load(range);
+    });
   }, [load, range]);
 
   // 真实模式只用接口返回的真实数据；示例数据仅在 mock 模式展示。
@@ -431,14 +443,19 @@ export default function DashboardPage() {
               <ClockCircleOutlined /> 从消息到草稿推送
             </span>
           </div>
-          <button type="button" className="zb-kpi-card kpi-alert-card" onClick={() => navigate('/alerts')}>
+          <button
+            type="button"
+            className="zb-kpi-card kpi-alert-card"
+            aria-label="查看未处理红线"
+            onClick={() => navigate('/alerts')}
+          >
             <span className="zb-kpi-label">未处理红线</span>
             <span className={`zb-kpi-value ${kpis.openAlerts > 0 ? 'kpi-alert-value' : ''}`}>
               {kpis.openAlerts}
               <span className="zb-kpi-unit">条</span>
             </span>
             <span className="zb-kpi-hint">
-              <AlertOutlined /> 员工群发言命中 · 去复核
+              <AlertOutlined /> 员工发言 + 草稿命中
             </span>
           </button>
         </div>

@@ -113,7 +113,7 @@ test('列表按时间倒序、支持筛选与分页；未解决计数不含已�
   assert.equal(service.list({ status: 'resolved' }).total, 1);
 });
 
-test('按来源筛选；未解决计数可以只算员工群发言', () => {
+test('按来源筛选；未解决计数可以只算员工群发言或只算红线', () => {
   const { service } = setup();
   service.ingest({ id: 'alt_staff', kind: 'redline', source: 'staff', advisorId: 'adv_1' });
   service.ingest({ id: 'alt_draft', kind: 'redline', source: 'draft', advisorId: 'adv_1' });
@@ -127,6 +127,12 @@ test('按来源筛选；未解决计数可以只算员工群发言', () => {
   assert.equal(service.list({ source: 'draft' }).total, 1);
   // 没有 source 的历史告警不算进员工发言口径
   assert.deepEqual(service.unresolvedCount('staff'), { open: 1, acknowledged: 0, total: 1 });
+  // 菜单角标按 kind 过滤：两类红线都算，运维告警不占角标
+  assert.deepEqual(service.unresolvedCount(undefined, 'redline'), {
+    open: 2,
+    acknowledged: 0,
+    total: 2,
+  });
   assert.deepEqual(service.unresolvedCount(), { open: 3, acknowledged: 0, total: 3 });
 });
 

@@ -82,7 +82,7 @@ describe('WP-L 工作台与报表', () => {
 });
 
 describe('团队关注深链', () => {
-  it('质检与告警只显示员工发言红线，并按服务人员筛选', async () => {
+  it('质检与告警收员工发言与草稿红线，并按服务人员筛选', async () => {
     await renderAt('/alerts?advisorId=adv_02');
 
     expect(await screen.findByText('已按服务人员筛选：王顾问')).toBeInTheDocument();

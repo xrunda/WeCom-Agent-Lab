@@ -215,13 +215,17 @@ export async function listAlerts(query: AlertQuery = {}): Promise<AlertList> {
   };
 }
 
-export async function unresolvedCount(source?: 'staff' | 'draft'): Promise<AlertCount> {
+export async function unresolvedCount(
+  source?: 'staff' | 'draft',
+  kind?: string,
+): Promise<AlertCount> {
   if (!isMockMode) {
-    return apiRequest<AlertCount>(`/alerts/unresolved-count${queryString({ source })}`);
+    return apiRequest<AlertCount>(`/alerts/unresolved-count${queryString({ source, kind })}`);
   }
   const items = readState()
     .filter((item) => !item.sandbox)
-    .filter((item) => (source ? item.source === source : true));
+    .filter((item) => (source ? item.source === source : true))
+    .filter((item) => (kind ? item.kind === kind : true));
   const open = items.filter((item) => item.status === 'open').length;
   const acknowledged = items.filter((item) => item.status === 'acknowledged').length;
   return { open, acknowledged, total: open + acknowledged };

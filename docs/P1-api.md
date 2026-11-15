@@ -406,11 +406,11 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 口径：
 
 - **一行一位服务人员**（顾问与客服不区分角色）。只输出行为元数据，**不返回消息正文、患者姓名或健康数值**。
-- `L1`（立即介入）：未解决红线 / 发错群 / 未核验 / 顾问暂停告警；`PUSHED` 满 60 分钟；客户最新消息满 60 分钟无人跟进。
+- `L1`（立即介入）：未解决红线（员工发言或 AI 草稿）/ 发错群 / 未核验 / 顾问暂停告警；`PUSHED` 满 60 分钟；客户最新消息满 60 分钟无人跟进。
 - `L2`（今日跟进）：`PUSHED` 15 分钟起（满 60 分钟升 L1）；客户消息 30 分钟起（满 60 分钟升 L1）；`QUEUED + PUSHED` 超过 3 条；今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍；今日改稿或忽略率 ≥40%（至少 4 条草稿）。
 - 未解决告警 = `status` 为 `open` 或 `acknowledged`；告警归属依次取 `advisorId` → 草稿顾问 → 患者顾问。
 - 排序：`L1` 先于 `L2`；同级别按原因优先级（客户安全 → 服务履约 → 人员状态）→ 最久等待 → 姓名。客户消息无人跟进优先于草稿未确认。同一服务人员只出现一次，原因最多由前端展示 2 条。
-- 只做发现与跳转；草稿阻塞的释放队列（界面称「跳过最早一条」）在实时服务流按顾问处理，员工发言红线在质检与告警复核，恢复顾问在顾问页处理。`draftId` 用于深链直接打开最久未确认的那条草稿。沙盒数据不计入。
+- 只做发现与跳转；草稿阻塞的释放队列（界面称「跳过最早一条」）在实时服务流按顾问处理，员工发言红线在质检与告警复核，恢复顾问在顾问页处理。草稿红线单独成一条原因（`draft_redline`），`draftId` 用于深链直接打开命中红线的草稿；员工发言红线的 `draftId` 为空。沙盒数据不计入。
 
 ### B 档图表数据
 
@@ -921,7 +921,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。`source` 取 `staff`（员工群发言）或 `draft`（AI 草稿）；取值非法时忽略该条件。响应 `200`：`{ "items": [alert], ... }`。
 
-控制台「质检与告警」页只展示员工群发言红线（`source=staff`）；发错群、未核验、超时、推送失败等运维类告警不在该页展示，分别到实时服务流与顾问页处理。
+控制台「质检与告警」页展示健康红线（`kind=redline`），员工群发言与 AI 草稿两个来源都收，可用 `source` 过滤；发错群、未核验、超时、推送失败等运维类告警不在该页展示，分别到实时服务流与顾问页处理。
 
 员工在服务群里的发言也会过红线质检，分两层：关键词初筛负责「不漏」，命中后交模型做语义复核，负责「不误报」。
 
@@ -931,9 +931,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 告警的 `message` 带发言人、群名、命中规则与**发言原文摘录**：以最早命中词为中心截取前后各 80 字，压成一行，超长时首尾标 `…`，保证触发告警的那句话一定在摘录里。日志、审计（含 `dismiss`）与规则命中事件仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
-### `GET /alerts/unresolved-count?source=`
+### `GET /alerts/unresolved-count?source=&kind=`
 
-角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。可传 `source` 只看某一来源；菜单角标用 `source=staff`，只统计员工群发言红线，避免超时、推送失败等运维告警把数字冲高。角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。
+角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。可传 `source` 只看某一来源、`kind` 只看某一类型；菜单角标用 `kind=redline`，员工发言与草稿两类红线都计数，超时、推送失败等运维告警不占角标。角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。
 
 ### `GET /alerts/{id}`
 
@@ -1470,7 +1470,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 体验中心 | 沙盒全流程 | §12 全部接口 + `sandbox.*` SSE | A |
 | 质检与告警 | 列表、详情 | `GET /alerts`、`GET /alerts/{id}` | A |
 | 质检与告警 | 三种操作 | `resolve`、`release-queue`、`restore-advisor` | A |
-| 质检与告警 | 菜单角标（员工群发言红线） | `GET /alerts/unresolved-count?source=staff` + SSE | A |
+| 质检与告警 | 菜单角标（员工发言与草稿红线） | `GET /alerts/unresolved-count?kind=redline` + SSE | A |
 | 服务群 | 列表、状态、改名、绑定 | §7 | A |
 | 服务群 | 成员角色标注 | `GET/PATCH /groups/{id}/members` | A |
 | 服务群 | 同意状态 | `group.consent` | A |

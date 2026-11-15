@@ -869,6 +869,7 @@ export type TeamAttentionLevel = 'L1' | 'L2';
 
 export type TeamAttentionCode =
   | 'redline'
+  | 'draft_redline'
   | 'misroute'
   | 'unverified'
   | 'advisor_paused'
@@ -929,18 +930,20 @@ export const TEAM_ATTENTION_THRESHOLDS = {
 
 const TEAM_ATTENTION_PRIORITY: Record<TeamAttentionCode, number> = {
   redline: 1,
-  misroute: 2,
-  unverified: 3,
-  no_reply: 4,
-  queue_blocked: 5,
-  advisor_paused: 6,
-  backlog: 7,
-  slow_response: 8,
-  high_revision: 9,
+  draft_redline: 2,
+  misroute: 3,
+  unverified: 4,
+  no_reply: 5,
+  queue_blocked: 6,
+  advisor_paused: 7,
+  backlog: 8,
+  slow_response: 9,
+  high_revision: 10,
 };
 
 const TEAM_ATTENTION_SUGGESTION: Record<TeamAttentionCode, string> = {
   redline: '去质检与告警复核员工发言',
+  draft_redline: '打开命中红线的草稿，核对后处理告警',
   misroute: '去实时服务流核对发送群',
   unverified: '去实时服务流核实是否送达',
   advisor_paused: '去顾问页确认是否恢复接单',
@@ -1059,9 +1062,14 @@ export function dashboardTeamAttention(input: {
   for (const alert of input.alerts) {
     if (!alertTargetAdvisor.has(alert.id)) continue;
     if (!['redline', 'misroute', 'unverified', 'advisor_paused'].includes(alert.kind)) continue;
-    // 质检与告警页只收员工群发言红线；草稿红线在服务流里按草稿处理，不重复提醒。
-    if (alert.kind === 'redline' && alert.source !== 'staff') continue;
-    const key = `${alert.kind}|${alertTargetAdvisor.get(alert.id)}`;
+    // 员工群发言红线与草稿红线分开聚合：
+    // 前者去质检与告警页复核原话，后者直接打开命中红线的草稿处理。
+    // 草稿红线以前被整体跳过，导致「草稿命中红线」在首页完全不可见。
+    const code: TeamAttentionCode =
+      alert.kind === 'redline' && alert.source !== 'staff'
+        ? 'draft_redline'
+        : (alert.kind as TeamAttentionCode);
+    const key = `${code}|${alertTargetAdvisor.get(alert.id)}`;
     const list = alertGroups.get(key) ?? [];
     list.push(alert);
     alertGroups.set(key, list);
@@ -1074,11 +1082,13 @@ export function dashboardTeamAttention(input: {
     const text =
       kind === 'redline'
         ? `员工发言红线 ${list.length} 条待复核`
-        : kind === 'misroute'
-          ? `发错群 ${list.length} 条待核对`
-          : kind === 'unverified'
-            ? `未核验 ${list.length} 条待核实`
-            : `服务人员暂停告警 ${list.length} 条待处理`;
+        : kind === 'draft_redline'
+          ? `草稿命中红线 ${list.length} 条待处理`
+          : kind === 'misroute'
+            ? `发错群 ${list.length} 条待核对`
+            : kind === 'unverified'
+              ? `未核验 ${list.length} 条待核实`
+              : `服务人员暂停告警 ${list.length} 条待处理`;
     addReason(advisorId, {
       code: kind,
       level: 'L1',

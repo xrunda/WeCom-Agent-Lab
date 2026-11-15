@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  draftRiskLabel,
   keywordsForRules,
   matchKeywords,
+  parseDraftAlert,
   parseStaffAlert,
   splitByKeywords,
 } from '../src/pages/alerts/alert-text.ts';
@@ -37,6 +39,21 @@ describe('员工发言告警拆解', () => {
     expect(parts.senderName).toBeUndefined();
     expect(parts.rules).toEqual([]);
     expect(parts.hasQuote).toBe(false);
+  });
+});
+
+describe('草稿红线告警拆解', () => {
+  it('拆出命中规则与风险等级', () => {
+    const parts = parseDraftAlert('命中规则：不诊断、不调药；风险等级 high');
+    expect(parts.rules).toEqual(['不诊断', '不调药']);
+    expect(parts.riskLevel).toBe('high');
+    expect(draftRiskLabel(parts.riskLevel)).toBe('高');
+  });
+
+  it('没有等级或格式不符时只返回能确认的部分，不编造', () => {
+    expect(parseDraftAlert('命中规则：不诊断')).toEqual({ rules: ['不诊断'] });
+    expect(parseDraftAlert('草稿涉及急症信号')).toEqual({ rules: [] });
+    expect(draftRiskLabel(undefined)).toBeUndefined();
   });
 });
 

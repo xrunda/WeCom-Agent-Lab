@@ -62,14 +62,16 @@ describe('WP-J 页面', () => {
     expect(screen.getByRole('tab', { name: /引用依据/ })).toBeInTheDocument();
   });
 
-  it('告警页只显示员工群发言红线，并可写备注标记已处理', async () => {
+  it('告警页收员工发言与草稿两类红线，并可写备注标记已处理', async () => {
     const user = userEvent.setup();
     await renderPage(<AlertsPage />);
 
-    // 只收 source=staff 的发言告警：李顾问在「糖友-张女士」群里的原话
+    // 员工群发言与 AI 草稿都会留下红线记录：李顾问在「糖友-张女士」群里的原话，
+    // 以及同一顾问命中红线的草稿。
     expect(await screen.findAllByText('李顾问')).not.toHaveLength(0);
     expect(screen.getAllByText(/糖友-张女士/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('不诊断').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('AI 草稿').length).toBeGreaterThan(0);
     // 发错群、未核验、顾问暂停等运维告警不在本页
     expect(screen.queryByText('草稿未核验')).not.toBeInTheDocument();
     expect(screen.queryByText('顾问被暂停')).not.toBeInTheDocument();
@@ -94,7 +96,7 @@ describe('WP-J 页面', () => {
     const card = cardOf(/糖友-张女士/);
     await user.click(within(card).getByText('查看详情'));
 
-    expect(await screen.findByText('发言告警详情')).toBeInTheDocument();
+    expect(await screen.findByText('红线告警详情')).toBeInTheDocument();
     expect(await screen.findByText('员工发言')).toBeInTheDocument();
     expect(screen.getAllByText('命中规则').length).toBeGreaterThan(0);
     expect(screen.getByText('生成告警')).toBeInTheDocument();
