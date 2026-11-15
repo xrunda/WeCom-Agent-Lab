@@ -280,6 +280,7 @@ export default function AccountsSettingsPage() {
   }
 
   const isSelf = (account: Account) => session?.account.id === account.id;
+  const selfAccount = accounts.find((account) => isSelf(account));
   // 扫码绑定绑定的是扫码人自己的身份，且 mock 模式没有企微后端
   const canScanBind = Boolean(target && isSelf(target) && !isMockMode);
 
@@ -443,6 +444,28 @@ export default function AccountsSettingsPage() {
             showIcon
             message="只读账号"
             description="当前角色可以查看账号列表，但看不到新建、重置密码与停用操作。"
+          />
+        ) : null}
+
+        {selfAccount && !selfAccount.wecomUserId && !isMockMode ? (
+          <Alert
+            type="info"
+            showIcon
+            message="你的账号还没有绑定企微身份"
+            description={
+              <Space wrap size={10}>
+                <span>绑定后可以直接用企业微信扫码登录，不必再输密码。</span>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<QrcodeOutlined />}
+                  loading={bindPending}
+                  onClick={() => void startBind()}
+                >
+                  扫码绑定
+                </Button>
+              </Space>
+            }
           />
         ) : null}
 
