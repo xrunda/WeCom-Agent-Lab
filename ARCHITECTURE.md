@@ -582,7 +582,7 @@ memory.render(patientId)
 
 前端服务流页订阅 `draft.*`，收到后重拉列表；告警页订阅 `alert.*` 刷新角标。沙盒事件虽定义了订阅，但当前页面主要靠动作后手动刷新。
 
-**鉴权**：`POST /auth/login` 发 HttpOnly Cookie `zhiban_session`（SameSite=Lax、默认 7 天）；token 只存 SHA-256，密码 scrypt；写操作校验 Origin，支持 `Idempotency-Key`（10 分钟）；登录与业务分别限流。角色：
+**鉴权**：`POST /auth/login` 发 HttpOnly Cookie `zhiban_session`（SameSite=Lax、默认 7 天）；token 只存 SHA-256，密码 scrypt；密码登录需带 `GET /auth/captcha` 签发的一次性数字验证码（#186，2 分钟过期）；写操作校验 Origin，支持 `Idempotency-Key`（10 分钟）；登录与业务分别限流。角色：
 
 | 角色 | 权限 |
 |---|---|

@@ -12,6 +12,7 @@ import { test } from 'node:test';
 
 import { apply } from '../plugins/zhiban-console/index.ts';
 import type { DshConsoleContext } from '../plugins/zhiban-console/index.ts';
+import { CaptchaService } from '../src/p1/captcha.ts';
 import { resolvePdfFont } from '../plugins/zhiban-console/pdf.ts';
 import type { EvidenceDraftSource } from '../src/p1/evidence.ts';
 import { GuardService } from '../src/p1/guard.ts';
@@ -312,14 +313,20 @@ function config(overrides: Record<string, unknown> = {}) {
     platform: { username: 'platform', displayName: '平台运营', password: PLATFORM_PASSWORD },
     cookieSecure: false,
     allowedOrigins: ['https://console.example.com'],
+    // 绝大多数用例只验证登录以外的路由；验证码另有用例显式开启。
+    captcha: { enabled: false },
     ...overrides,
   };
 }
 
-async function start(overrides: Record<string, unknown> = {}) {
+async function start(
+  overrides: Record<string, unknown> = {},
+  setup?: (ctx: FakeConsoleContext) => void,
+) {
   const ctx = new FakeConsoleContext();
   ctx.provide('zhibanPatient', ctx.patientApi);
   apply(ctx as unknown as DshConsoleContext, config(overrides));
+  setup?.(ctx);
   await ctx.start();
   assert.ok(ctx.route);
 
@@ -2710,4 +2717,77 @@ test('#183 扫码绑定：已登录发起、回调绑定当前账号、失败回
   } finally {
     stub.restore();
   }
+});
+
+test('#186 密码登录验证码：开启后必须带有效验证码，且一次性消费', async () => {
+  // 固定答案方便走通成功路径；生产不注入，用 crypto 随机数字
+  const captcha = new CaptchaService({ codeGenerator: () => '2468' });
+  const { call } = await start({ captcha: { enabled: true } }, (ctx) => {
+    ctx.provide('zhibanCaptcha', captcha);
+  });
+
+  // 未启用验证码时该接口回 enabled=false（对照）
+  const disabled = await start();
+  const disabledBody = (await disabled.call('GET', '/zhiban/api/auth/captcha')).json() as {
+    enabled: boolean;
+  };
+  assert.equal(disabledBody.enabled, false);
+
+  const missing = await call('POST', '/zhiban/api/auth/login', {
+    body: { username: 'admin', password: ADMIN_PASSWORD },
+  });
+  assert.equal(missing.status, 422);
+  const missingBody = missing.json() as {
+    error: { code: string; details?: Array<{ field: string }> };
+  };
+  assert.equal(missingBody.error.code, 'VALIDATION_FAILED');
+  assert.equal(missingBody.error.details?.[0]?.field, 'captchaCode');
+
+  const issued = await call('GET', '/zhiban/api/auth/captcha');
+  assert.equal(issued.status, 200);
+  const challenge = issued.json() as {
+    enabled: boolean;
+    id: string;
+    image: string;
+    expiresIn: number;
+  };
+  assert.equal(challenge.enabled, true);
+  assert.equal(challenge.expiresIn, 120);
+  assert.ok(challenge.image.startsWith('data:image/png;base64,'));
+  assert.equal('answer' in challenge, false);
+
+  const wrong = await call('POST', '/zhiban/api/auth/login', {
+    body: { username: 'admin', password: ADMIN_PASSWORD, captchaId: challenge.id, captchaCode: '0000' },
+  });
+  assert.equal(wrong.status, 422);
+
+  // 同一个 id 再用正确答案也无效：验证码一次性
+  const replay = await call('POST', '/zhiban/api/auth/login', {
+    body: { username: 'admin', password: ADMIN_PASSWORD, captchaId: challenge.id, captchaCode: '2468' },
+  });
+  assert.equal(replay.status, 422);
+
+  const second = (await call('GET', '/zhiban/api/auth/captcha')).json() as { id: string };
+  assert.notEqual(second.id, challenge.id);
+  const ok = await call('POST', '/zhiban/api/auth/login', {
+    body: { username: 'admin', password: ADMIN_PASSWORD, captchaId: second.id, captchaCode: '2468' },
+  });
+  assert.equal(ok.status, 200);
+  assert.ok(String(ok.headers['set-cookie']).includes('HttpOnly'));
+
+  // 验证码正确但密码错误：仍按 INVALID_CREDENTIALS 拒绝
+  const third = (await call('GET', '/zhiban/api/auth/captcha')).json() as { id: string };
+  const badPassword = await call('POST', '/zhiban/api/auth/login', {
+    body: {
+      username: 'admin',
+      password: 'WrongPass123',
+      captchaId: third.id,
+      captchaCode: '2468',
+    },
+  });
+  assert.equal(badPassword.status, 401);
+  assert.equal(
+    (badPassword.json() as { error: { code: string } }).error.code,
+    'INVALID_CREDENTIALS',
+  );
 });

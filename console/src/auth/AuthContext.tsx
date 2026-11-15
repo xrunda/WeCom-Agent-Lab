@@ -15,7 +15,11 @@ interface AuthContextValue {
   session: Session | null;
   tenant: Tenant | null;
   loading: boolean;
-  signIn: (username: string, password: string) => Promise<Session>;
+  signIn: (
+    username: string,
+    password: string,
+    captcha?: { id: string; code: string },
+  ) => Promise<Session>;
   signOut: () => Promise<void>;
   refreshTenant: () => Promise<void>;
   updateTenant: (patch: TenantPatch) => Promise<Tenant>;
@@ -50,12 +54,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (username: string, password: string) => {
-    const next = await loginRequest(username, password);
-    setSession(next);
-    setTenant(next.tenant);
-    return next;
-  }, []);
+  const signIn = useCallback(
+    async (username: string, password: string, captcha?: { id: string; code: string }) => {
+      const next = await loginRequest(username, password, captcha);
+      setSession(next);
+      setTenant(next.tenant);
+      return next;
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     await logoutRequest();

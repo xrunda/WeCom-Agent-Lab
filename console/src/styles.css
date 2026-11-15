@@ -843,6 +843,55 @@ a {
   color: oklch(80% 0.12 28);
 }
 
+/* —— 登录验证码（#186）：图片与输入框同高并排；点图片换一张 —— */
+.login-captcha {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.login-captcha .login-captcha-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.login-captcha-image {
+  flex: 0 0 auto;
+  width: 132px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid oklch(100% 0 0 / 0.18);
+  border-radius: 11px;
+  overflow: hidden;
+  background: oklch(97% 0.005 250);
+  cursor: pointer;
+  line-height: 0;
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.login-captcha-image:hover:not(:disabled) {
+  border-color: oklch(100% 0 0 / 0.32);
+}
+
+.login-captcha-image:focus-visible {
+  outline: 2px solid var(--dusk-accent-hi);
+  outline-offset: 3px;
+}
+
+.login-captcha-image:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.login-captcha-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .login-card .ant-input-affix-wrapper,
 .login-card .ant-input {
   min-height: 44px;
@@ -902,6 +951,12 @@ a {
   font-weight: 600;
   letter-spacing: 0.05em;
   box-shadow: none;
+}
+
+/* 自定义主色会盖掉 antd 的禁用底色，这里显式降低透明度（验证码加载失败时会禁用） */
+.login-card .ant-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .login-card .ant-btn-primary:not(:disabled):hover {

@@ -75,11 +75,54 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return apiRequest<T>(path, init);
 }
 
-export async function login(username: string, password: string): Promise<Session> {
+/** 登录验证码：id + 后端渲染好的图片（#186） */
+export interface CaptchaChallenge {
+  id: string;
+  image: string;
+  expiresIn: number;
+}
+
+export interface CaptchaAnswer {
+  id: string;
+  code: string;
+}
+
+/**
+ * 取一张登录验证码。mock 模式返回 null（演示环境不挡路），
+ * 后端未启用验证码时也返回 null；网络/接口异常则抛出，由登录页提示重试。
+ */
+export async function getCaptcha(): Promise<CaptchaChallenge | null> {
+  if (isMockMode) return null;
+  const result = await request<{
+    enabled?: boolean;
+    id?: string;
+    image?: string;
+    expiresIn?: number;
+  }>('/auth/captcha');
+  if (result.enabled !== true) return null;
+  if (typeof result.id !== 'string' || typeof result.image !== 'string') {
+    throw new ApiError('INTERNAL', '验证码响应异常，请重试', 500);
+  }
+  return {
+    id: result.id,
+    image: result.image,
+    expiresIn: typeof result.expiresIn === 'number' ? result.expiresIn : 120,
+  };
+}
+
+export async function login(
+  username: string,
+  password: string,
+  captcha?: CaptchaAnswer,
+): Promise<Session> {
   if (!isMockMode) {
     const loginResult = await request<Session>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        ...(captcha ? { captchaId: captcha.id, captchaCode: captcha.code } : {}),
+      }),
     });
     // POST /auth/login 按契约只返回 account/tenant（docs/P1-api.md §2），
     // permissions 与 serverTime 在 GET /auth/session。登录后补一次会话查询，

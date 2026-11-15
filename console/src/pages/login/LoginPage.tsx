@@ -1,16 +1,23 @@
-import { LockOutlined, QrcodeOutlined, UserOutlined } from '@ant-design/icons';
+import { LockOutlined, QrcodeOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Form, Input, Spin, Tag } from 'antd';
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import loginPhoto from '../../assets/login-dusk.jpg';
 import logoUrl from '../../assets/zhiban-logo.png';
-import { getWecomQrUrl, MOCK_PASSWORD, isMockMode } from '../../mock/api.ts';
+import {
+  getCaptcha,
+  getWecomQrUrl,
+  MOCK_PASSWORD,
+  isMockMode,
+  type CaptchaChallenge,
+} from '../../mock/api.ts';
 
 interface LoginForm {
   username: string;
   password: string;
+  captchaCode?: string;
 }
 
 /** 企微扫码回调的失败原因（`/login?wecom=`），文案要能指导下一步动作 */
@@ -28,10 +35,14 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [form] = Form.useForm<LoginForm>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wecomAvailable, setWecomAvailable] = useState(false);
   const [wecomPending, setWecomPending] = useState(false);
+  const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
 
   const from = (location.state as { from?: string } | null)?.from || '/dashboard';
   const wecomParam = searchParams.get('wecom');
@@ -47,6 +58,29 @@ export function LoginPage() {
       cancelled = true;
     };
   }, [from]);
+
+  // 登录验证码（#186）：后端启用时才展示；mock / 未启用时 getCaptcha 返回 null。
+  const refreshCaptcha = useCallback(async () => {
+    setCaptchaLoading(true);
+    setCaptchaError(null);
+    try {
+      setCaptcha(await getCaptcha());
+    } catch (err) {
+      setCaptcha(null);
+      setCaptchaError(err instanceof Error ? err.message : '验证码加载失败，请重试');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCaptcha();
+  }, [refreshCaptcha]);
+
+  const reloadCaptcha = () => {
+    form.setFieldValue('captchaCode', '');
+    void refreshCaptcha();
+  };
 
   const dismissWecomError = () => {
     const next = new URLSearchParams(searchParams);
@@ -82,11 +116,17 @@ export function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await signIn(values.username, values.password);
+      await signIn(
+        values.username,
+        values.password,
+        captcha ? { id: captcha.id, code: (values.captchaCode ?? '').trim() } : undefined,
+      );
       message.success('登录成功');
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请稍后重试');
+      // 验证码一次性：任何失败后都换一张，避免用户拿旧图反复试
+      if (captcha) reloadCaptcha();
     } finally {
       setSubmitting(false);
     }
@@ -164,6 +204,25 @@ export function LoginPage() {
                 <Alert className="login-error" type="error" showIcon message={error} />
               ) : null}
 
+              {captchaError ? (
+                <Alert
+                  className="login-notice"
+                  type="warning"
+                  showIcon
+                  message={captchaError}
+                  action={
+                    <Button
+                      size="small"
+                      type="link"
+                      loading={captchaLoading}
+                      onClick={() => void refreshCaptcha()}
+                    >
+                      重试
+                    </Button>
+                  }
+                />
+              ) : null}
+
               {wecomAvailable ? (
                 <>
                   <Button
@@ -183,6 +242,7 @@ export function LoginPage() {
               ) : null}
 
               <Form<LoginForm>
+                form={form}
                 layout="vertical"
                 size="large"
                 initialValues={{ username: 'admin', password: isMockMode ? MOCK_PASSWORD : '' }}
@@ -207,7 +267,45 @@ export function LoginPage() {
                     autoComplete="current-password"
                   />
                 </Form.Item>
-                <Button type="primary" htmlType="submit" block loading={submitting}>
+                {captcha ? (
+                  <Form.Item label="验证码">
+                    <div className="login-captcha">
+                      <Form.Item
+                        className="login-captcha-input"
+                        name="captchaCode"
+                        rules={[
+                          { required: true, message: '请输入图片中的数字' },
+                          { pattern: /^\d{4}$/, message: '请输入 4 位数字' },
+                        ]}
+                      >
+                        <Input
+                          prefix={<SafetyOutlined />}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={4}
+                          placeholder="图片中的 4 位数字"
+                        />
+                      </Form.Item>
+                      <button
+                        type="button"
+                        className="login-captcha-image"
+                        onClick={reloadCaptcha}
+                        disabled={captchaLoading}
+                        aria-label="看不清？换一张验证码"
+                        title="看不清？换一张"
+                      >
+                        <img src={captcha.image} alt="登录验证码" width={132} height={44} />
+                      </button>
+                    </div>
+                  </Form.Item>
+                ) : null}
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  loading={submitting}
+                  disabled={captchaLoading || Boolean(captchaError)}
+                >
                   登录
                 </Button>
               </Form>

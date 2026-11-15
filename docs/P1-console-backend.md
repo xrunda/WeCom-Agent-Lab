@@ -74,6 +74,7 @@ src/p1/
     "password": "<从部署环境注入>"
   },
   "cookieSecure": true,
+  "captcha": { "enabled": true },
   "allowedOrigins": ["https://<控制台域名>"],
   "sessionTtlMs": 604800000,
   "wecom": {
@@ -102,6 +103,7 @@ src/p1/
 说明：
 
 - `cookieSecure` 默认 `true`；仅本地 HTTP 调试可设 `false`。生产必须 HTTPS。
+- `captcha`（#186）默认开启，密码登录需同时提交 `GET /auth/captcha` 签发的 `captchaId` + `captchaCode`，挡住脚本撞库；只有自动化测试或内网离线调试才设 `enabled: false`，生产不要关闭。验证码答案只在服务端内存，2 分钟过期、一次性使用。
 - `wecom` 可选（#181）：`corpId` / `agentId` / `agentSecret` / `publicBaseUrl` 缺任一项就不启用扫码登录，登录页不显示入口，密码登录不受影响。
   `agentId` 填自建应用「知伴顾问助手」的 AgentId（智能机器人 Bot ID 不参与网页授权）；`agentSecret` 只放 DSH profile，不进仓库、不进日志，轮换后重启插件即可。
   企微后台需把 `publicBaseUrl` 的主机配为可信域名与授权回调域，回调地址为 `<publicBaseUrl>/zhiban/api/auth/wecom/callback`。

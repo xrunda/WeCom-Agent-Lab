@@ -37,6 +37,14 @@ export interface WecomLoginConfig {
 /** 扫码会话默认 8 小时：比密码登录短，成员异动最多隔夜失效 */
 export const WECOM_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
+/**
+ * 密码登录数字验证码。默认开启；只有明确配置 `captcha.enabled: false`
+ * 才关闭（自动化测试、内网离线调试），生产环境不要关闭。
+ */
+export interface CaptchaConfig {
+  enabled: boolean;
+}
+
 export interface ConsoleConfig {
   tenantId: string;
   tenant: {
@@ -52,6 +60,7 @@ export interface ConsoleConfig {
   platform?: SeedAccountConfig;
   /** #181：不配置则只能密码登录 */
   wecom?: WecomLoginConfig;
+  captcha: CaptchaConfig;
   cookieSecure: boolean;
   allowedOrigins: string[];
   sessionTtlMs: number;
@@ -144,6 +153,15 @@ function parseWecom(raw: unknown): WecomLoginConfig | undefined {
   };
 }
 
+function parseCaptcha(raw: unknown): CaptchaConfig {
+  if (raw === undefined) return { enabled: true };
+  const object = asObject(raw);
+  if (object.enabled !== undefined && typeof object.enabled !== 'boolean') {
+    throw new Error('captcha.enabled 必须是布尔值');
+  }
+  return { enabled: object.enabled !== false };
+}
+
 function parseSettings(raw: unknown): TenantSettings {
   if (raw === undefined) return { ...DEFAULT_TENANT_SETTINGS, quietHours: { ...DEFAULT_TENANT_SETTINGS.quietHours } };
   const object = asObject(raw);
@@ -206,6 +224,7 @@ export function parseConsoleConfig(raw: unknown): ConsoleConfig {
     admin: parseAccount(object.admin, 'admin'),
     platform: object.platform === undefined ? undefined : parseAccount(object.platform, 'platform'),
     ...(wecom ? { wecom } : {}),
+    captcha: parseCaptcha(object.captcha),
     cookieSecure: object.cookieSecure !== false,
     allowedOrigins: (allowedOriginsRaw as string[] | undefined) ?? [],
     sessionTtlMs:

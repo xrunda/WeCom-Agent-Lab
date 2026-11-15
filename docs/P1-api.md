@@ -140,6 +140,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 | 范围 | 限制 | 超限 |
 |---|---|---|
 | 登录 | 同 IP + 用户名 15 分钟 5 次失败 | `429 RATE_LIMITED` |
+| 验证码签发 | 同 IP 每分钟 20 张 | `429 RATE_LIMITED` |
 | 业务接口 | 每账号 120 次/分钟 | `429 RATE_LIMITED` |
 | 沙盒对话 | 每账号每天 100 轮 | `429 LIMIT_EXCEEDED` |
 
@@ -147,12 +148,25 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 2. 认证
 
-### `POST /auth/login`
+### `GET /auth/captcha`
 
-角色：公开。请求：
+角色：公开（#186）。密码登录的图片验证码，用于挡住脚本反复试密码。
 
 ```json
-{ "username": "admin", "password": "**********" }
+{ "enabled": true, "id": "4f0c…", "image": "data:image/png;base64,iVBORw0…", "expiresIn": 120 }
+```
+
+- `image` 是后端渲染的 132×44 PNG（`data:` URL）；数字答案只存在服务端，响应里没有答案，也**不要**在前端缓存或落日志。
+- `id` 一次性：登录校验后无论对错都作废；2 分钟过期。答错/登录失败后前端必须重新取一张。
+- 插件配置 `captcha.enabled: false`（仅测试/内网）时返回 `200 { "enabled": false }`，登录页隐藏验证码字段。
+- 签发超频返回 `429 RATE_LIMITED`。
+
+### `POST /auth/login`
+
+角色：公开。请求（启用验证码时必须带 `captchaId` + `captchaCode`）：
+
+```json
+{ "username": "admin", "password": "**********", "captchaId": "4f0c…", "captchaCode": "1234" }
 ```
 
 响应 `200`：
@@ -175,7 +189,8 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 }
 ```
 
-错误：`INVALID_CREDENTIALS` / `ACCOUNT_DISABLED` / `RATE_LIMITED`。
+错误：`INVALID_CREDENTIALS` / `ACCOUNT_DISABLED` / `RATE_LIMITED`。验证码缺失、错误或已过期返回
+`422 VALIDATION_FAILED`（`details[0].field = "captchaCode"`），且不消耗「同 IP + 用户名 5 次失败」的名额。
 
 ### `POST /auth/logout`
 
