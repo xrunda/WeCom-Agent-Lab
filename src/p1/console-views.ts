@@ -793,6 +793,20 @@ function hasStaffRevision(draft: Draft): boolean {
   return (draft.revisions ?? []).some((item) => item.createdBy === 'staff');
 }
 
+/**
+ * 草稿是不是真的发出去了。
+ *
+ * 不能只看 ackAction：员工忘点「已发送」时，verifier 的自动回读（PUSHED 超过
+ * 宽限期后 autoAck）会在存档里匹配到正文、把状态推进到 VERIFIED / EDIT_SENT，
+ * 但不会补 ackAction。只看 ackAction 的话，员工全程照发、一次都没点按钮，
+ * 工作台也会显示「已发出 0、采纳率 0%」。
+ */
+export function draftWasSent(draft: Draft): boolean {
+  if (draft.ackAction === 'sent') return true;
+  const outcome = draft.verification?.outcome;
+  return outcome === 'VERIFIED' || outcome === 'EDIT_SENT' || outcome === 'MISROUTE_ALERT';
+}
+
 /** 近 N 天（含今天）的真实草稿量，按租户时区分日。 */
 export function dashboardTrend(
   drafts: Draft[],
@@ -856,7 +870,7 @@ export function dashboardValue(input: {
 }): DashboardValueView {
   const window = rangeWindow(input.range, input.now, input.timeZone);
   const drafts = input.drafts.filter((draft) => inWindow(draft.createdAt, window.from, window.to));
-  const sent = drafts.filter((draft) => draft.ackAction === 'sent');
+  const sent = drafts.filter(draftWasSent);
   const verified = sent.filter((draft) => draft.status === 'VERIFIED');
   const revised = verified.filter(
     (draft) => hasStaffRevision(draft) || (draft.sentVersion ?? 1) > 1,
@@ -910,7 +924,7 @@ export function dashboardKpis(input: {
 }): DashboardKpisView {
   const window = rangeWindow(input.range, input.now, input.timeZone);
   const drafts = input.drafts.filter((draft) => inWindow(draft.createdAt, window.from, window.to));
-  const sent = drafts.filter((draft) => draft.ackAction === 'sent');
+  const sent = drafts.filter(draftWasSent);
   const verified = sent.filter((draft) => draft.status === 'VERIFIED').length;
   const responseSamples = drafts
     .filter((draft) => draft.lastInboundAt !== undefined)
@@ -1407,7 +1421,7 @@ export function dashboardTeamAttention(input: {
       left.advisorName.localeCompare(right.advisorName, 'zh-CN'),
   );
 
-  const sentToday = todayDrafts.filter((draft) => draft.ackAction === 'sent');
+  const sentToday = todayDrafts.filter(draftWasSent);
   const verifiedToday = sentToday.filter((draft) => draft.status === 'VERIFIED').length;
   const avgResponseSeconds =
     allResponseSamples.length === 0
