@@ -60,6 +60,7 @@ import {
 } from '../../mock/service-flow.ts';
 import { formatDateTime } from '../../utils/format.ts';
 import { diffSegments } from './diff.ts';
+import { deliveryEmptyText } from './delivery.ts';
 import './service-flow.css';
 
 const { Text, Paragraph } = Typography;
@@ -1044,9 +1045,20 @@ function BodyDiff({
 
       <Card size="small" title="实发正文">
         {delivery ? (
-          <Paragraph style={{ marginBottom: 0 }}>{delivery.text}</Paragraph>
+          <>
+            <Paragraph style={{ marginBottom: 8 }}>{delivery.text}</Paragraph>
+            {detail.verification?.matchedBy === 'archive-ack' && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                存档确认顾问在本群发过言，但没能确认这条就是草稿的改写
+                {detail.verification.similarity !== null
+                  ? `（与草稿相似度 ${Math.round(detail.verification.similarity * 100)}%）`
+                  : ''}
+                。
+              </Text>
+            )}
+          </>
         ) : (
-          <Text type="secondary">尚未发送，没有实发正文。</Text>
+          <Text type="secondary">{deliveryEmptyText(detail.draft.status)}</Text>
         )}
       </Card>
 

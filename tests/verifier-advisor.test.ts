@@ -118,8 +118,57 @@ test('存档已确认顾问在本群发言但正文不符：记改稿后发送�
 
   assert.equal(results.length, 1);
   assert.equal(results[0].outcome, 'EDIT_SENT');
+  assert.equal(results[0].matchedBy, 'archive-ack');
   assert.equal(results[0].matchedMsgId, 'm_own_words');
   assert.ok((results[0].similarity ?? 1) < 0.9);
   assert.equal(store.getDraft(draft.id)?.status, 'EDIT_SENT');
   assert.equal(store.listAlerts().some((alert) => alert.kind === 'UNVERIFIED'), false);
+});
+
+test('改稿后发送只认确认之后的发言，回读窗口里的旧消息不算实发原文', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const store = new MemoryStore();
+  const archive = new MockArchive();
+
+  store.saveAdvisor({
+    id: 'adv_1',
+    name: '李光',
+    chatId: 'LiGuang',
+    status: 'active',
+    consecutiveMisroutes: 0,
+  });
+
+  const now = clock.now();
+  const ackAt = now - 5 * 60_000;
+  const draft = makeDraft({
+    advisorId: 'adv_1',
+    status: 'ACKNOWLEDGED',
+    ackAt,
+    ackSource: 'archive',
+    nextVerifyAt: now,
+  });
+  store.saveDraft(draft);
+
+  // 确认前 20 分钟的一条旧发言：落在回读窗口里，但不是这次回复
+  archive.add({
+    msgid: 'm_before',
+    roomid: draft.groupRoomId,
+    from: 'LiGuang',
+    text: '今天记得多喝水。',
+    msgtime: ackAt - 20 * 60_000,
+  });
+  archive.add({
+    msgid: 'm_after',
+    roomid: draft.groupRoomId,
+    from: 'LiGuang',
+    text: '好的，我下班前回复你。',
+    msgtime: now - 60_000,
+  });
+
+  const verifier = new Verifier({ store, archive, clock });
+  const results = await verifier.runDue();
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].outcome, 'EDIT_SENT');
+  assert.equal(results[0].matchedMsgId, 'm_after');
 });

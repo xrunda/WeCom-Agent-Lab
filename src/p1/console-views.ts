@@ -150,6 +150,7 @@ export interface ServiceFlowDetailView {
     id: string;
     draftId: string;
     outcome: string;
+    matchedBy: 'text' | 'archive-ack' | null;
     matchedMsgId: string | null;
     matchedRoomId: string | null;
     matchedGroupName: string | null;
@@ -503,6 +504,7 @@ export function serviceFlowDetail(draft: Draft, ctx: FlowDetailContext): Service
         id: `vrf_${draft.id}`,
         draftId: draft.id,
         outcome: outcome ?? 'unverified',
+        matchedBy: draft.verification.matchedBy ?? null,
         matchedMsgId: draft.verification.matchedMsgId ?? null,
         matchedRoomId: draft.verification.matchedRoomId ?? null,
         matchedGroupName: group?.name ?? null,

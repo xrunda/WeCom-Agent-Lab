@@ -153,6 +153,11 @@ export interface VerificationResult {
   /** 对应的草稿 id，便于上层把结果回执给员工 */
   draftId?: string;
   outcome: VerifyOutcome;
+  /**
+   * 匹配依据：text = 正文与草稿对上了；archive-ack = 存档只确认顾问在本群发过言，
+   * 正文对不上草稿，不能把 matchedMsgId 当成「这条草稿的实发原文」。
+   */
+  matchedBy?: 'text' | 'archive-ack';
   matchedMsgId?: string;
   matchedRoomId?: string;
   similarity?: number;

@@ -107,6 +107,8 @@ export interface FlowVerification {
   id: string;
   draftId?: string;
   outcome: string;
+  /** text = 正文对上草稿；archive-ack = 只确认顾问在本群发过言，正文没对上 */
+  matchedBy?: 'text' | 'archive-ack' | null;
   matchedMsgId: string | null;
   matchedRoomId: string | null;
   matchedGroupName: string | null;
