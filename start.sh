@@ -148,6 +148,38 @@ else
   export VITE_PROXY_TARGET="$TARGET"
 fi
 
+# 真实模式先探一次代理目标：目标不可达时前端照常打开，但所有接口都失败，
+# 登录页只会显示「HTTP 500 / 服务暂时不可用」，排查成本比启动时说清楚高得多。
+probe_target() {
+  node -e '
+const net = require("node:net");
+const url = new URL(process.argv[1]);
+const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+const socket = net.connect({ host: url.hostname, port });
+let settled = false;
+const finish = (ok) => {
+  if (settled) return;
+  settled = true;
+  socket.destroy();
+  process.exit(ok ? 0 : 1);
+};
+socket.setTimeout(1000);
+socket.on("connect", () => finish(true));
+socket.on("timeout", () => finish(false));
+socket.on("error", () => finish(false));
+' "$1" 2>/dev/null
+}
+
+if [ "$MODE" != "mock" ] && ! probe_target "$TARGET"; then
+  echo "" >&2
+  echo "⚠️  代理目标不可达：$TARGET" >&2
+  echo "    服务会照常启动，但接口请求都会失败（登录页显示「服务暂时不可用」，不是密码错）。" >&2
+  echo "    目标若是部署机上的 DSH（默认 3080），先建隧道再启动：" >&2
+  echo "      ssh -N -L 3080:127.0.0.1:3080 <部署机账号>@<部署机地址>" >&2
+  echo "    只看界面可以用 mock 模式：./start.sh mock" >&2
+  echo "" >&2
+fi
+
 # 端口固定：后台/前台都走 strictPort，端口被占直接失败，不静默换端口
 if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   die "端口 $PORT 已被占用：可能是上次后台启动的服务（./stop.sh），或其他 dev server。"
