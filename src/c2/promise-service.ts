@@ -96,6 +96,20 @@ export class PromiseService {
     extracted.forEach((item, index) => {
       const id = promiseId(input.msgId, index);
       if (this.store.getPromise(id)) return;
+      // 同一条话会走两条路入库：顾问发出后存档 watcher 用真实 msgid 入一次，
+      // 草稿确认/核验时又用 draft:<id>:v<n> 入一次。两条路的 id 不同、内容相同，
+      // 只按 msgid 去重会让同一条承诺提醒两次。
+      // 只在「草稿 ↔ 存档」之间去重：两条真实群消息说了同一句话，仍算两条。
+      const fromDraft = input.msgId.startsWith('draft:');
+      const duplicate = this.store.listPromises().some(
+        (existing) =>
+          existing.status === 'pending' &&
+          existing.roomId === input.roomId &&
+          existing.excerpt === item.excerpt &&
+          existing.dueAt === item.dueAt &&
+          existing.sourceMsgId.startsWith('draft:') !== fromDraft,
+      );
+      if (duplicate) return;
       const record: PromiseRecord = {
         id,
         advisorId: input.advisorId,
@@ -145,8 +159,31 @@ export class PromiseService {
       .filter((item) => item.dueAt <= now);
     if (due.length === 0) return [];
 
-    const byAdvisor = new Map<string, PromiseRecord[]>();
+    // 存量兼容：同一条承诺可能一份来自草稿、一份来自存档（新数据在 ingestText
+    // 已经去重）。合并提醒时只保留存档那份——它对得上真实群消息——草稿那份
+    // 记为已提醒，不再单独发一次。
+    const key = (item: PromiseRecord): string => `${item.roomId}|${item.dueAt}|${item.excerpt}`;
+    const groups = new Map<string, PromiseRecord[]>();
     for (const item of due) {
+      const list = groups.get(key(item)) ?? [];
+      list.push(item);
+      groups.set(key(item), list);
+    }
+    const covered: PromiseRecord[] = [];
+    for (const items of groups.values()) {
+      const fromDraft = items.filter((item) => item.sourceMsgId.startsWith('draft:'));
+      const fromArchive = items.filter((item) => !item.sourceMsgId.startsWith('draft:'));
+      if (fromDraft.length > 0 && fromArchive.length > 0) covered.push(...fromDraft);
+    }
+    for (const item of covered) {
+      item.remindedAt = now;
+      item.remindCount += 1;
+      this.store.savePromise(item);
+    }
+    const uniqueDue = due.filter((item) => !covered.includes(item));
+
+    const byAdvisor = new Map<string, PromiseRecord[]>();
+    for (const item of uniqueDue) {
       const list = byAdvisor.get(item.advisorId) ?? [];
       list.push(item);
       byAdvisor.set(item.advisorId, list);
