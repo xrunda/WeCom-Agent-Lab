@@ -81,6 +81,60 @@ test('#160 已确认发出的草稿按草稿 id + 版本入账，重复确认不
   assert.equal(store.listPromises().length, 1);
 });
 
+test('同一条承诺先由草稿入账、后由存档入账时只保留一条', () => {
+  const { service, store } = setup();
+  const draft = makeDraft({
+    id: 'D2',
+    body: '我明天下午把新的餐单发给您。',
+    groupRoomId: 'wr_1',
+    groupName: '减重-张女士',
+  });
+  assert.equal(service.ingestDraft(draft).length, 1);
+  // 顾问把它发到群里后，存档 watcher 用真实 msgid 再抽一次同一句话
+  const fromArchive = ingest(service, 'msg_archive_1');
+  assert.equal(fromArchive.length, 0);
+  assert.equal(store.listPromises().length, 1);
+
+  // 不同到期时刻的同类承诺仍是两条
+  assert.equal(
+    service.ingestText({
+      advisorId: 'adv_1',
+      roomId: 'wr_1',
+      groupName: '减重-张女士',
+      text: '我三天后把新的餐单发给您。',
+      msgId: 'msg_2',
+      at: AT,
+    }).length,
+    1,
+  );
+});
+
+test('存量重复承诺在合并提醒时只出现一次（保留存档那条）', async () => {
+  const { clock, bot, store, service } = setup();
+  const base = {
+    advisorId: 'adv_1',
+    roomId: 'wr_1',
+    groupName: '减重-张女士',
+    excerpt: '我明天下午把新的餐单发给您',
+    dueAt: Date.parse('2026-11-12T10:00:00.000Z'),
+    dueLabel: '明天 18:00',
+    status: 'pending' as const,
+    remindCount: 0,
+    createdAt: AT,
+  };
+  store.savePromise({ ...base, id: 'prom_draft', sourceMsgId: 'draft:D9:v1' });
+  store.savePromise({ ...base, id: 'prom_archive', sourceMsgId: 'msg_9' });
+
+  clock.advance(32 * 60 * 60_000);
+  const reminded = await service.dueScan();
+  assert.equal(reminded.length, 1);
+  assert.equal(reminded[0]!.id, 'prom_archive');
+  assert.equal(bot.cards().length, 1);
+  // 草稿那份记为已提醒，不会明天再冒出来
+  assert.ok(store.getPromise('prom_draft')?.remindedAt !== undefined);
+  assert.equal((await service.dueScan()).length, 0);
+});
+
 test('#160 到期才提醒，一条承诺只提醒一次；只发顾问 1:1', async () => {
   const { clock, bot, service } = setup();
   const [promise] = ingest(service, 'msg_1');
