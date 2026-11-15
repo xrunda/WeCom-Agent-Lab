@@ -149,6 +149,31 @@ function draftHtml(item: SidebarPendingView): string {
     </div>`;
 }
 
+/**
+ * 草稿生成中的占位：客户消息到了、草稿还没出来时，这里给一行明确的状态，
+ * 不让顾问对着空白猜系统是不是没收到。轮询期间会被替换，不必做动画循环。
+ */
+function draftStateHtml(item: SidebarPendingView): string {
+  const state = item.draftState;
+  if (!state) return '';
+  const waited = Math.max(0, Math.floor((Date.now() - state.since) / 1000));
+  const generating = state.state === 'generating';
+  const title = generating ? '正在生成回复草稿…' : '已收到客户消息，稍候生成草稿…';
+  const detail = generating
+    ? '按客户原话和档案写，一般十几秒。'
+    : '等客户把这条消息说完（约半分钟）后开始生成。';
+  return `
+    <div class="draft draft-waiting">
+      <div class="draft-head">
+        <span class="draft-label">草稿</span>
+        <span class="pill pill-muted">生成中</span>
+        <span class="draft-time">已等 ${formatWait(waited)}</span>
+      </div>
+      <p class="draft-body draft-waiting-line"><span class="spinner" aria-hidden="true"></span>${escapeHtml(title)}</p>
+      <p class="draft-rules">${escapeHtml(detail)}</p>
+    </div>`;
+}
+
 function itemHtml(item: SidebarPendingView): string {
   const tier = waitTier(item.waitSeconds);
   const who = item.customerName ? escapeHtml(item.customerName) : '客户';
@@ -162,6 +187,7 @@ function itemHtml(item: SidebarPendingView): string {
       </div>
       <p class="excerpt">${escapeHtml(item.excerpt)}</p>
       ${draftHtml(item)}
+      ${draftStateHtml(item)}
       <div class="ops">
         <button type="button" class="op" data-copy="${escapeHtml(item.excerpt)}" data-item="${id}">复制原话</button>
         <button type="button" class="op" data-close="handled" data-item="${id}">已处理</button>

@@ -352,6 +352,52 @@ test('#149 没有草稿或未接入草稿源时字段为空，不假装有草稿
   assert.equal(empty.pending.open[0]!.draft, null);
 });
 
+test('草稿还没出来时给出生成进度，只挂在最新一条上', () => {
+  const older = item({ id: 'pend_old', lastAt: NOW - 30 * 60_000, firstAt: NOW - 30 * 60_000 });
+  const newer = item({ id: 'pend_new', lastAt: NOW - 5_000, firstAt: NOW - 5_000 });
+  const view = buildSidebarContext(
+    deps({
+      openItems: () => [older, newer],
+      latestDraft: () => undefined,
+      draftProgress: () => ({ state: 'generating', since: NOW - 4_000 }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+
+  const old = view.pending.open.find((row) => row.id === 'pend_old')!;
+  const fresh = view.pending.open.find((row) => row.id === 'pend_new')!;
+  assert.equal(old.draftState, null);
+  assert.deepEqual(fresh.draftState, { state: 'generating', since: NOW - 4_000 });
+  assert.equal(fresh.draft, null);
+});
+
+test('草稿已经出来时不再显示生成进度，两者是同一件事的前后状态', () => {
+  const view = buildSidebarContext(
+    deps({
+      latestDraft: () => ({
+        id: 'draft_1',
+        body: '先别停药，今天下午来门诊看一下。',
+        riskLevel: 'medium',
+        ruleNames: [],
+        createdAt: NOW - 1_000,
+        status: 'PUSHED',
+      }),
+      draftProgress: () => ({ state: 'generating', since: NOW - 20_000 }),
+    }),
+    ADVISOR,
+    { chatId: 'chat_1' },
+  );
+
+  assert.equal(view.pending.open[0]!.draft?.id, 'draft_1');
+  assert.equal(view.pending.open[0]!.draftState, null);
+});
+
+test('没有生成进度来源时字段为 null，前端不显示占位', () => {
+  const view = buildSidebarContext(deps(), ADVISOR, { chatId: 'chat_1' });
+  assert.equal(view.pending.open[0]!.draftState, null);
+});
+
 const DAY = 24 * 60 * 60_000;
 
 function chronicProfile(overrides: Partial<ChronicProfile> = {}): ChronicProfile {

@@ -71,6 +71,8 @@ export interface SidebarViewDeps {
   getAdvisorName?(advisorId: string): string | undefined;
   /** 该群在 since 之后生成、还没发出的草稿；没有则空 */
   latestDraft?(roomId: string, since: number): SidebarDraftRef | undefined;
+  /** 客户消息已收到、草稿还没生成出来时的进度；只反映内存状态 */
+  draftProgress?(roomId: string): SidebarDraftState | undefined;
   now?: () => number;
 }
 
@@ -92,6 +94,15 @@ export interface SidebarDraftView {
   verification: { outcome: string; checkedAt: number } | null;
 }
 
+/**
+ * 草稿生成进度：`queued` 是客户消息已进合并窗口，`generating` 是回合正在跑。
+ * 侧边栏用它显示占位，而不是让顾问对着空白等待。
+ */
+export interface SidebarDraftState {
+  state: 'queued' | 'generating';
+  since: number;
+}
+
 export interface SidebarPendingView {
   id: string;
   customerId: string;
@@ -106,6 +117,8 @@ export interface SidebarPendingView {
   hasDraft: boolean;
   /** 已生成、未发出的草稿；只挂在会话里最新的一条上，避免同一份草稿重复出现 */
   draft: SidebarDraftView | null;
+  /** 还没有草稿时的生成进度；同样只挂在最新一条上，没有则为 null */
+  draftState: SidebarDraftState | null;
 }
 
 export interface SidebarClosedView {
@@ -302,7 +315,20 @@ export function buildSidebarContext(
       }
     : null;
 
-  const open: SidebarPendingView[] = pendingViews(items, canRead, now, deps, newest?.id, draft);
+  // 草稿已经有了就不再显示占位：两者是同一件事的前后状态。
+  // 无论有没有草稿都问一次，运行时据此清理已经推到顾问侧的进度记录。
+  const progress = newest ? (deps.draftProgress?.(group.roomId) ?? null) : null;
+  const draftState: SidebarDraftState | null = draft ? null : progress;
+
+  const open: SidebarPendingView[] = pendingViews(
+    items,
+    canRead,
+    now,
+    deps,
+    newest?.id,
+    draft,
+    draftState,
+  );
 
   const oldest = maxWaitSeconds(open);
 
@@ -383,6 +409,7 @@ function pendingViews(
   deps: SidebarViewDeps,
   newestId: string | undefined,
   draft: SidebarDraftView | null,
+  draftState: SidebarDraftState | null = null,
 ): SidebarPendingView[] {
   return items.map((item) => ({
     id: item.id,
@@ -397,6 +424,7 @@ function pendingViews(
     aiReplied: item.botRepliedAt !== undefined,
     hasDraft: item.id === newestId && draft !== null,
     draft: item.id === newestId ? draft : null,
+    draftState: item.id === newestId ? draftState : null,
   }));
 }
 

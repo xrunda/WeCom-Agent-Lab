@@ -59,6 +59,16 @@ interface RevisionRequest {
   currentVersion: number;
 }
 
+/** 侧边栏「草稿生成中」状态；超过这个时间没等到草稿就认为已经结束，避免异常路径卡住占位 */
+const DRAFT_ACTIVITY_STALE_MS = 3 * 60_000;
+
+export interface DraftActivity {
+  state: 'queued' | 'generating';
+  since: number;
+  /** 回合产出的草稿 id；草稿推到顾问侧后占位提示退出 */
+  draftId?: string;
+}
+
 interface ActiveTurn {
   id: string;
   sessionId: string;
@@ -213,6 +223,8 @@ export class PatientAgentRuntime {
   private readonly activeBySession = new Map<string, ActiveTurn>();
   private readonly activeByPatient = new Map<string, ActiveTurn>();
   private readonly queuedMessages = new Map<string, InboundMessage[]>();
+  /** 客户消息已收到、草稿还没推到顾问侧：给侧边栏一个可展示的进度，不落盘 */
+  private readonly draftActivity = new Map<string, DraftActivity>();
   /** #37：最近一次入站文本，改稿回合没有新消息时用于急症复核；不落盘、不进日志 */
   private readonly lastInboundText = new Map<string, string>();
   private readonly groupContext = new Map<string, GroupContextItem[]>();
@@ -290,6 +302,7 @@ export class PatientAgentRuntime {
     this.activeBySession.clear();
     this.activeByPatient.clear();
     this.queuedMessages.clear();
+    this.draftActivity.clear();
     this.lastInboundText.clear();
     this.groupContext.clear();
   }
@@ -301,6 +314,27 @@ export class PatientAgentRuntime {
   /** #37：escalate_to_human 用会话 id 反查患者；只覆盖进行中的回合 */
   patientForSession(sessionId: string): string | undefined {
     return this.activeBySession.get(sessionId)?.patient.id;
+  }
+
+  /**
+   * 侧边栏「草稿生成中」：客户消息已经进队列或正在回合里，草稿还没推到顾问侧。
+   * 只读内存状态，不触发任何生成；草稿推到 PUSHED 后自动退出，由草稿卡片接管。
+   */
+  draftProgress(roomId: string): DraftActivity | undefined {
+    const activity = this.draftActivity.get(roomId);
+    if (!activity) return undefined;
+    if (activity.draftId) {
+      const draft = this.bridge.getDraft(activity.draftId);
+      if (draft && draft.status !== 'QUEUED') {
+        this.draftActivity.delete(roomId);
+        return undefined;
+      }
+    }
+    if (this.now() - activity.since > DRAFT_ACTIVITY_STALE_MS) {
+      this.draftActivity.delete(roomId);
+      return undefined;
+    }
+    return { ...activity };
   }
 
   // ---------- 群发现 ----------
@@ -353,6 +387,10 @@ export class PatientAgentRuntime {
     }
 
     this.merger.add(message);
+    // 侧边栏据此显示「草稿生成中」：合并窗口 + 回合大约几十秒，没有占位就是一段空白等待
+    if (!this.draftActivity.has(message.roomId)) {
+      this.draftActivity.set(message.roomId, { state: 'queued', since: this.now() });
+    }
     this.scheduleFlush(message.roomId);
     return { handled: true, decision };
   }
@@ -491,7 +529,11 @@ export class PatientAgentRuntime {
     const last = messages[messages.length - 1];
     if (!last) return;
     const decision = this.service.routeInbound(last);
-    if (decision.action === 'ignore') return;
+    if (decision.action === 'ignore') {
+      // 放行时被忽略（未同意存档 / 群已停用）：不再有草稿，收掉侧边栏的生成中占位
+      this.draftActivity.delete(last.roomId);
+      return;
+    }
     if (decision.action === 'context') {
       for (const message of messages) this.handleContext(message, decision);
       return;
@@ -641,6 +683,10 @@ export class PatientAgentRuntime {
     };
     this.activeBySession.set(turn.sessionId, turn);
     this.activeByPatient.set(patient.id, turn);
+    const activity = this.draftActivity.get(group.roomId);
+    if (activity) {
+      this.draftActivity.set(group.roomId, { state: 'generating', since: activity.since });
+    }
     this.service.store.bumpStat('turns');
 
     const prompt = buildTurnPrompt(merged, this.settings, {
@@ -694,6 +740,14 @@ export class PatientAgentRuntime {
         this.log(`回合未产出工具调用（${outcome}），使用模板草稿 patient=${patient.id}`);
         await this.fallback(merged, turn, group);
       }
+    }
+
+    // 回合结束：产出了草稿就等它推到顾问侧再退场；没草稿（跳过 / 主动计划）立刻收掉占位
+    if (turn.draftId) {
+      const current = this.draftActivity.get(group.roomId);
+      if (current) this.draftActivity.set(group.roomId, { ...current, draftId: turn.draftId });
+    } else {
+      this.draftActivity.delete(group.roomId);
     }
 
     await this.drainQueue(patient, group);

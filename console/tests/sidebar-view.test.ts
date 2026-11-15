@@ -169,6 +169,7 @@ const pendingData: SidebarContextData = {
         aiReplied: false,
         hasDraft: false,
         draft: null,
+        draftState: null,
       },
       {
         id: 'p2',
@@ -183,6 +184,7 @@ const pendingData: SidebarContextData = {
         aiReplied: true,
         hasDraft: false,
         draft: null,
+        draftState: null,
       },
     ],
     recentlyClosed: [{ id: 'p0', closedAt: 1_700_000_000_000, closedBy: null }],
@@ -355,6 +357,55 @@ describe('草稿与手动处理（#149）', () => {
     render(root, { kind: 'ready', data: pendingData });
     expect(root.querySelector('.draft')).toBeNull();
     expect(root.textContent).not.toContain('生成回复');
+  });
+
+  it('草稿还没出来时显示生成中占位，并按状态说明在做什么', () => {
+    const data = (state: 'queued' | 'generating'): SidebarContextData => ({
+      ...pendingData,
+      pending: {
+        ...pendingData.pending,
+        open: [
+          {
+            ...pendingData.pending.open[0]!,
+            draftState: { state, since: Date.now() - 12_000 },
+          },
+          ...pendingData.pending.open.slice(1),
+        ],
+      },
+    });
+
+    const root = document.createElement('div');
+    render(root, { kind: 'ready', data: data('generating') });
+    const block = root.querySelector('.draft-waiting');
+    expect(block).not.toBeNull();
+    expect(block!.textContent).toContain('正在生成回复草稿');
+    expect(block!.textContent).toContain('生成中');
+    // 没有草稿正文，也不放复制草稿按钮
+    expect(block!.querySelector('[data-copy-draft]')).toBeNull();
+
+    render(root, { kind: 'ready', data: data('queued') });
+    expect(root.querySelector('.draft-waiting')!.textContent).toContain('稍候生成草稿');
+  });
+
+  it('占位只出现在还没有草稿的那一条上', () => {
+    const root = document.createElement('div');
+    render(root, {
+      kind: 'ready',
+      data: {
+        ...pendingData,
+        pending: {
+          ...pendingData.pending,
+          open: [
+            {
+              ...pendingData.pending.open[0]!,
+              draftState: { state: 'generating', since: Date.now() - 3_000 },
+            },
+            ...pendingData.pending.open.slice(1),
+          ],
+        },
+      },
+    });
+    expect(root.querySelectorAll('.draft-waiting').length).toBe(1);
   });
 
   it('高风险草稿先展开核对，再点一次才复制并上报', async () => {

@@ -1538,7 +1538,8 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
           "riskLevel": "medium",
           "ruleNames": ["用药安全"],
           "createdAt": 1700000000000
-        }
+        },
+        "draftState": null
       }
     ]
   },
@@ -1560,6 +1561,7 @@ Cookie 有效期与 `sessionTtlMs` 一致，默认 8 小时。日志不记录 co
 - **昵称门控**：令牌 `permissions` 不含 `patient.read` 时，`conv.name`、`customerName`、`profile.name`、`profile.advisorName` 为 `null`，`profile.tags` 为 `[]`；`excerpt` 与等待时长照常返回——顾问本身就在这个会话里，看得见原始聊天。
 - `aiReplied`：机器人已在该会话回应过，仅作提示，**不改变待回复状态**。
 - `draft`：该群**已生成、还没发出**的草稿（`status=PUSHED` 且 `createdAt >= 最新条目的 firstAt`）；只挂在会话里最新的一条上，其余条目为 `null`。侧边栏只读，不触发生成；顾问标注已发送后不再返回。
+- `draftState`：草稿**还没生成出来**时的进度，`{ state: "queued" | "generating", since }`；同样只挂在最新一条上，已有 `draft` 或没有进行中的生成时为 `null`。`queued` 表示客户消息已进合并窗口（等客户说完），`generating` 表示患者回合正在跑。数据来自患者运行时的内存状态，不落盘；草稿推到 `PUSHED` 或超过 3 分钟未产出即退出。前端据此显示「草稿生成中」占位，并在占位期间把轮询缩短到 3 秒。
 - `chronic` / `carePlan` 为 P1 预留位，当前恒为 `null`。
 - 错误：`401` / `403`，格式同 §1.4。
 
