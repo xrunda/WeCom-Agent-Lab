@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { PatientAgentRuntime } from '../src/p1/runtime.ts';
+import type { DraftGuardPort } from '../src/p1/runtime.ts';
+import type { DraftReviewResult } from '../src/p1/guard.ts';
 import { setupPatient, observeServiceGroup, FakeSessions, c2Bridge, SETTINGS } from './p1-helpers.ts';
 import { setup as setupC2, bindDefaultAdvisor } from './helpers.ts';
 
-function buildHarness() {
+function buildHarness(options: { guard?: DraftGuardPort } = {}) {
   const c2 = setupC2();
   bindDefaultAdvisor(c2.service, { advisorId: 'adv_1', chatId: 'chat_a1' });
   c2.service.bindGroup({
@@ -25,6 +27,7 @@ function buildHarness() {
     settings: SETTINGS,
     bridge,
     sessions,
+    guard: options.guard,
     emit: (type, data) => events.push({ type, data }),
     logger: (line) => logs.push(line),
     mergeWindowMs: 30_000,
@@ -200,4 +203,46 @@ test('#56 同一患者上一轮未结束时拒绝新的改稿指令', async () =
 
   assert.match(noticeDuringTurn, /上一轮还在生成/);
   assert.equal(h.c2.store.listAudit().some((event) => event.action === 'draft.revision.request'), false);
+});
+
+test('同一份草稿逐版命中风险，1:1 只提醒一次', async () => {
+  const review: DraftReviewResult = {
+    riskLevel: 'high',
+    hits: ['rul_builtin_emergency'],
+    hitNames: ['急症只引导就医'],
+    actions: [],
+    escalate: false,
+    guideOnly: false,
+  };
+  const h = buildHarness({ guard: { review: () => review } });
+  h.sessions.onPrompt = async (sessionId) => {
+    await h.runtime.replyDraft(sessionId, {
+      body: '第一版：先别紧张，让叔叔休息。',
+      inboundSummary: '胸痛',
+      riskLevel: 'medium',
+      citedMemoryIds: [],
+      citedKnowledgeIds: [],
+    });
+  };
+
+  const draftNotices = () =>
+    h.c2.bot
+      .texts()
+      .map((record) => (record.message.msgtype === 'text' ? record.message.text.content : ''))
+      .filter((text) => text.startsWith('【风险草稿】'));
+
+  h.runtime.routeInbound(inbound('我爸胸口疼'));
+  h.patient.clock.advance(30_000);
+  await h.runtime.flushDue();
+  assert.equal(draftNotices().length, 1);
+
+  await h.c2.service.tick();
+  await h.runtime.handleAdvisorText('wang.guwen', '写短一点');
+  assert.equal(draftNotices().length, 1, '30 分钟内改稿再次命中不连发');
+
+  // 过窗口后再次命中，提醒重新出现
+  h.patient.clock.advance(31 * 60_000);
+  await h.c2.service.tick();
+  await h.runtime.handleAdvisorText('wang.guwen', '再短一点');
+  assert.equal(draftNotices().length, 2);
 });

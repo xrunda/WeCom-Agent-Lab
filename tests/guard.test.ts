@@ -301,7 +301,12 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   assert.ok(data.ruleIds.includes('rul_builtin_emergency'));
   assert.equal(data.guideOnly, true);
   assert.equal(data.escalated, true);
-  assert.ok(runtimeHarness.bridge.notices.some((text) => text.includes('急症只引导就医')));
+  const notice = runtimeHarness.bridge.notices.find((text) => text.includes('急症只引导就医'));
+  assert.ok(notice);
+  // 统一口径：类别前缀 + 中文风险等级 + 去侧边栏处理
+  assert.match(notice!, /^【风险草稿】/);
+  assert.match(notice!, /风险等级 高/);
+  assert.match(notice!, /打开企微侧边栏处理/);
   assert.equal(runtimeHarness.bridge.notices.some((text) => text.includes('我爸刚才')), false);
 
   const created = runtimeHarness.events.find((event) => event.type === 'draft.created');

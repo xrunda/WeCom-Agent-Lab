@@ -220,7 +220,9 @@ export class SerialQueue {
     );
     if (targets.length === 0) return;
     const minutes = Math.round(this.config.escalateAfterMs / 60_000);
-    const text = `升级：${advisor.name} 的草稿超过 ${minutes} 分钟未处理（${draft.groupName} · ${draft.customerName}）`;
+    const text =
+      `【升级】${advisor.name} 的草稿超过 ${minutes} 分钟未处理` +
+      `（${draft.groupName} · ${draft.customerName}）。到控制台查看。`;
     for (const chatId of targets) {
       void this.bot.sendText(chatId, text).catch(() => undefined);
     }

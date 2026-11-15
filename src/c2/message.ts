@@ -10,6 +10,11 @@ const RISK_LABEL: Record<Draft['riskLevel'], string> = {
   high: '高',
 };
 
+/** 风险等级 → 中文标签：卡片与 1:1 提醒共用，避免一处写「high」一处写「高」 */
+export function riskLabel(level: Draft['riskLevel']): string {
+  return RISK_LABEL[level];
+}
+
 /** #55：卡片上的图片类型标签；未知类型回退为「图片」 */
 const MEDIA_KIND_LABEL: Record<string, string> = {
   image: '图片',
@@ -153,8 +158,8 @@ export function buildWaitingReminder(groups: number, oldestWaitMs: number): Text
     msgtype: 'text',
     text: {
       content:
-        `客户在等：${count} 个群有未处理消息，最久 ${humanWait(oldestWaitMs)}。` +
-        '打开企微侧边栏查看并处理。',
+        `【客户在等】${count} 个群有未处理消息，最久 ${humanWait(oldestWaitMs)}。` +
+        '打开企微侧边栏处理。',
     },
   };
 }

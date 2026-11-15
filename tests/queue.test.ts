@@ -117,8 +117,9 @@ test('客户等待超过阈值才发聚合提醒，且不重复刷屏', async ()
   assert.equal(bot.texts().length, 1);
   const reminder = bot.texts()[0]?.message;
   const content = reminder?.msgtype === 'text' ? reminder.text.content : '';
-  assert.match(content, /客户在等/);
+  assert.match(content, /^【客户在等】/);
   assert.match(content, /1 个群/);
+  assert.match(content, /打开企微侧边栏处理/);
   // 不带正文
   assert.equal(content.includes('这是 D1 的回复正文'), false);
   assert.ok(store.getDraft('D1')?.remindedAt);
