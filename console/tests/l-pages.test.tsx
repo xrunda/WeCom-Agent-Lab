@@ -117,24 +117,24 @@ describe('团队关注深链', () => {
 
     expect((await screen.findAllByText('draft_1009')).length).toBeGreaterThan(0);
     expect(
-      await screen.findByText(/草稿已发到顾问企微卡片，等顾问点「已发送」或「忽略」/),
-    ).toBeInTheDocument();
+      (await screen.findAllByText(/顾问还没在企微处理/)).length,
+    ).toBeGreaterThan(0);
   });
 
-  it('已推送草稿提供解释和释放队列入口', async () => {
+  it('已推送草稿可以跳过最早一条', async () => {
     await renderAt('/service-flow?advisorId=adv_01&status=PUSHED&draftId=draft_1009');
 
     expect((await screen.findAllByText('draft_1009')).length).toBeGreaterThan(0);
-    const releaseButtons = await screen.findAllByRole('button', { name: /释放队列/ });
-    expect(releaseButtons.length).toBeGreaterThan(0);
+    const skipButtons = await screen.findAllByRole('button', { name: /跳过最早一条/ });
+    expect(skipButtons.length).toBeGreaterThan(0);
 
-    fireEvent.click(releaseButtons[0]!);
+    fireEvent.click(skipButtons[0]!);
     expect(
-      (await screen.findAllByText(/释放 .* 的阻塞队列？/)).length,
+      (await screen.findAllByText(/跳过 .* 最早的一条草稿？/)).length,
     ).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: '确认释放' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认跳过' }));
 
-    expect(await screen.findByText(/已释放 draft_1009/)).toBeInTheDocument();
+    expect(await screen.findByText(/已跳过 draft_1009/)).toBeInTheDocument();
   });
 });
 

@@ -890,6 +890,7 @@ export interface TeamAttentionView {
 /** 团队关注的阈值集中在这里，文档与测试引用同一组数字。 */
 export const TEAM_ATTENTION_THRESHOLDS = {
   queueBlockedMinutes: 15,
+  queueBlockedL1Minutes: 60,
   noReplyL2Minutes: 30,
   noReplyL1Minutes: 60,
   backlogCount: 3,
@@ -904,8 +905,8 @@ const TEAM_ATTENTION_PRIORITY: Record<TeamAttentionCode, number> = {
   redline: 1,
   misroute: 2,
   unverified: 3,
-  queue_blocked: 4,
-  no_reply: 5,
+  no_reply: 4,
+  queue_blocked: 5,
   advisor_paused: 6,
   backlog: 7,
   slow_response: 8,
@@ -917,9 +918,9 @@ const TEAM_ATTENTION_SUGGESTION: Record<TeamAttentionCode, string> = {
   misroute: '去实时服务流核对发送群',
   unverified: '去实时服务流核实是否送达',
   advisor_paused: '去顾问页确认是否恢复接单',
-  queue_blocked: '提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列',
+  queue_blocked: '提醒顾问在企微处理；处理不了，就跳过最早一条',
   no_reply: '查看对话，确认服务人员是否在忙，必要时转交',
-  backlog: '提醒顾问在企微确认待处理草稿；积压过多时在服务流释放队列',
+  backlog: '提醒顾问在企微处理待确认草稿；积压过多时跳过最早一条',
   slow_response: '查看该服务人员的服务流，确认是否负荷过高',
   high_revision: '查看草稿质量，必要时调整话术或补充知识',
 };
@@ -1097,11 +1098,13 @@ export function dashboardTeamAttention(input: {
     if (!accumulator) continue;
     accumulator.reasons.push({
       code: 'queue_blocked',
-      level: 'L1',
+      // 侧边栏让顾问能直接处理草稿，15 分钟只做今日跟进；超过 1 小时才算立即介入
+      level:
+        waitMinutes >= TEAM_ATTENTION_THRESHOLDS.queueBlockedL1Minutes ? 'L1' : 'L2',
       text:
         list.length === 1
-          ? `1 条草稿已推给顾问，${formatWaitMinutes(waitMinutes)}未确认`
-          : `${list.length} 条草稿已推给顾问、还没确认，最久 ${formatWaitMinutes(waitMinutes)}`,
+          ? `1 条草稿还没确认，已等 ${formatWaitMinutes(waitMinutes)}`
+          : `${list.length} 条草稿还没确认，最久 ${formatWaitMinutes(waitMinutes)}`,
       waitMinutes,
       draftId: oldest.id,
       ...(patient ? { patientId: patient.id } : {}),
@@ -1216,7 +1219,7 @@ export function dashboardTeamAttention(input: {
       accumulator.reasons.push({
         code: 'backlog',
         level: 'L2',
-        text: `待处理草稿 ${pending.length} 条（含已推送未确认），超过 ${TEAM_ATTENTION_THRESHOLDS.backlogCount} 条`,
+        text: `${pending.length} 条草稿待处理，超过 ${TEAM_ATTENTION_THRESHOLDS.backlogCount} 条`,
         waitMinutes,
         draftId: oldest.id,
         ...(patient ? { patientId: patient.id } : {}),

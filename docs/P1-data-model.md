@@ -803,7 +803,7 @@ QUEUED ──推送成功──> PUSHED ──顾问点「已发送」──> AC
 | `dashboard.team_attention` | 读时聚合：未解决告警（`open` / `acknowledged`）+ 草稿 + 患者 + 顾问 + 群绑定，按服务人员输出需要管理员介入的事项；不落新表 |
 
 `dashboard.team_attention` 的阈值固定在 `src/p1/console-views.ts` 的
-`TEAM_ATTENTION_THRESHOLDS`：`PUSHED` 超过 15 分钟、客户消息 30 / 60 分钟、
+`TEAM_ATTENTION_THRESHOLDS`：`PUSHED` 15 分钟起（满 60 分钟升 L1）、客户消息 30 / 60 分钟、
 `QUEUED + PUSHED` 超过 3 条、今日平均响应 ≥10 分钟且 ≥ 团队均值 2 倍、
 今日改稿或忽略率 ≥40%（至少 4 条）。只输出行为元数据，不包含消息正文或健康数值。
 

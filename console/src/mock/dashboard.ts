@@ -150,7 +150,7 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
           {
             code: 'queue_blocked',
             level: 'L1',
-            text: '1 条草稿已推给顾问，42 分钟未确认',
+            text: '1 条草稿还没确认，已等 42 分钟',
             waitMinutes: 42,
             draftId: 'draft_1009',
           },
@@ -161,7 +161,7 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
             waitMinutes: 26,
           },
         ],
-        suggestion: '提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列',
+        suggestion: '提醒顾问在企微处理；处理不了，就跳过最早一条',
         oldestWaitMinutes: 42,
         lastActivityAt: now - 42 * 60_000,
       },
