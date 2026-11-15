@@ -214,7 +214,21 @@ class ConsoleClient {
   async login(username: string, password: string): Promise<void> {
     const res = await this.request('POST', '/auth/login', { username, password });
     if (!res.ok) {
-      throw new ConsoleHttpError(res.status, 'LOGIN_FAILED', '登录失败，请检查账号或密码');
+      let code = 'LOGIN_FAILED';
+      try {
+        const parsed = (await res.json()) as { error?: { code?: string } };
+        code = parsed.error?.code ?? code;
+      } catch {
+        // 非 JSON 错误体，按普通登录失败处理
+      }
+      if (code === 'VALIDATION_FAILED') {
+        throw new ConsoleHttpError(
+          res.status,
+          code,
+          '目标控制台已启用登录验证码（#186），脚本无法自动登录；请改用关闭验证码的环境',
+        );
+      }
+      throw new ConsoleHttpError(res.status, code, '登录失败，请检查账号或密码');
     }
     const cookies =
       typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];

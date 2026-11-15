@@ -14,6 +14,7 @@ import {
   isOriginAllowed,
   SESSION_COOKIE,
 } from '../../src/p1/console-auth.ts';
+import { CaptchaService } from '../../src/p1/captcha.ts';
 import { AlertService } from '../../src/p1/console-alerts.ts';
 import { ConsoleError } from '../../src/p1/console-error.ts';
 import { ConsoleStore } from '../../src/p1/console-store.ts';
@@ -514,6 +515,12 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       : undefined;
     log(`企微扫码登录：${wecomLogin?.configured ? '已启用' : '未配置（仅密码登录）'}`);
 
+    // 密码登录数字验证码。默认开启；测试/内网可注入固定答案的服务并显式关闭配置。
+    const captcha = config.captcha.enabled
+      ? (ctx.get<CaptchaService>('zhibanCaptcha') ?? new CaptchaService())
+      : undefined;
+    if (captcha) log('密码登录：已启用数字验证码');
+
     const alerts = new AlertService({
       tenantId: config.tenantId,
       store,
@@ -672,6 +679,13 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       '/auth/login',
       async (rc) => {
         const body = await rc.json<Record<string, unknown>>();
+        // 验证码在密码校验之前消费：没有有效验证码的请求连哈希都不做，
+        // 也就不会占用「同一 IP + 用户名 5 次失败」的登录限流名额。
+        if (captcha && !captcha.verify(body.captchaId, body.captchaCode)) {
+          throw new ConsoleError('VALIDATION_FAILED', '验证码错误或已过期，请重新输入', [
+            { field: 'captchaCode', issue: 'invalid captcha' },
+          ]);
+        }
         const result = await auth.login(body.username, body.password, auth.requestIp(rc.req));
         jsonResponse(
           rc.res,
@@ -696,6 +710,31 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
               config.cookieSecure,
             ),
           },
+        );
+      },
+      { auth: false },
+    );
+
+    // 登录取图：公开接口。未启用验证码时返回 enabled=false，登录页据此隐藏该字段。
+    router.add(
+      'GET',
+      '/auth/captcha',
+      (rc) => {
+        if (!captcha) {
+          jsonResponse(rc.res, 200, { enabled: false }, rc.requestId);
+          return;
+        }
+        const challenge = captcha.issue(auth.requestIp(rc.req));
+        jsonResponse(
+          rc.res,
+          200,
+          {
+            enabled: true,
+            id: challenge.id,
+            image: challenge.image,
+            expiresIn: challenge.expiresIn,
+          },
+          rc.requestId,
         );
       },
       { auth: false },
