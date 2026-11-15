@@ -83,18 +83,11 @@ a {
 }
 
 .login-logo {
-  width: min(420px, 100%);
+  width: min(272px, 64vw);
   height: auto;
   display: block;
-  box-sizing: border-box;
-  /* 深色品牌区上用白色底板保证 wordmark 对比度 */
-  background: #fff;
-  padding: 14px 20px;
-  border-radius: 16px;
-}
-
-.login-logo + .login-subtitle {
-  margin-top: 28px;
+  /* 品牌色 wordmark 压在霞光上，用一点反差托住 */
+  filter: drop-shadow(0 1px 8px oklch(100% 0 0 / 0.5));
 }
 
 .brand-mark {
@@ -503,112 +496,353 @@ a {
   background: #f7faf9;
 }
 
-/* ---------- 登录页 ---------- */
-.login-page {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
-  background:
-    radial-gradient(circle at 8% 4%, rgba(20, 184, 166, 0.14), transparent 34%),
-    radial-gradient(circle at 88% 92%, rgba(15, 118, 110, 0.12), transparent 38%),
-    #f7fafc;
-}
-
-.login-brand {
+/* ---------- 登录页（Dusk） ----------
+   与「知伴守望台」同一套视觉：山谷暮霭实景 + 暗色磨砂玻璃卡。
+   控制台内部仍是浅色工作界面，这套 token 只在登录这一屏生效。 */
+.login-scene {
+  --dusk-ink: oklch(95% 0.008 85);
+  --dusk-ink-2: oklch(82% 0.012 85);
+  --dusk-ink-3: oklch(68% 0.014 85);
+  --dusk-day-ink: oklch(26% 0.03 252);
+  --dusk-day-ink-2: oklch(40% 0.025 252);
+  --dusk-accent: oklch(80% 0.095 274);
+  --dusk-accent-hi: oklch(87% 0.075 274);
+  --dusk-apricot: oklch(74% 0.13 62);
+  --dusk-glass: oklch(22% 0.018 268 / 0.64);
+  --dusk-glass-line: oklch(100% 0 0 / 0.14);
+  --dusk-glass-blur: 22px;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px clamp(32px, 6vw, 96px);
+  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
-  background:
-    linear-gradient(150deg, #0b3b3a 0%, #0f766e 52%, #14b8a6 100%);
-  color: #ecfeff;
+  isolation: isolate;
+  color: var(--dusk-ink);
+  background: #16222b;
+  color-scheme: dark;
 }
 
-.login-brand::after {
-  content: '';
+.login-photo {
   position: absolute;
-  inset: auto -12% -28% 18%;
-  height: 60%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  filter: blur(4px);
+  inset: -2%;
+  width: 104%;
+  height: 104%;
+  object-fit: cover;
+  object-position: center 46%;
+  animation: login-drift 56s ease-in-out infinite alternate;
 }
 
-.login-brand-inner {
+@keyframes login-drift {
+  from {
+    transform: scale(1.01) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.07) translate3d(-1.2%, -0.8%, 0);
+  }
+}
+
+/* 左侧留白给文字，右侧压暗托住玻璃卡 */
+.login-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      62% 82% at 18% 46%,
+      oklch(99% 0.008 95 / 0.78) 0%,
+      oklch(99% 0.008 95 / 0.52) 36%,
+      oklch(99% 0.008 95 / 0) 72%
+    ),
+    linear-gradient(
+      100deg,
+      oklch(20% 0.02 255 / 0) 30%,
+      oklch(17% 0.022 258 / 0.42) 68%,
+      oklch(14% 0.022 260 / 0.62) 100%
+    ),
+    linear-gradient(to top, oklch(16% 0.02 250 / 0.5), oklch(16% 0.02 250 / 0) 42%);
+}
+
+.login-shell {
   position: relative;
   z-index: 1;
-  max-width: 520px;
-}
-
-.login-subtitle {
-  color: rgba(236, 254, 255, 0.86) !important;
-  font-size: 18px;
-  line-height: 1.75;
-  margin-bottom: 40px !important;
-}
-
-.login-features {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 48px;
+  min-height: inherit;
   display: grid;
-  gap: 18px;
+  grid-template-rows: auto 1fr auto;
+  gap: clamp(28px, 5vh, 64px);
+  padding: clamp(22px, 3.4vw, 40px) clamp(20px, 4.6vw, 64px) clamp(24px, 4vw, 52px);
 }
 
-.login-features li {
+.login-top {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  font-size: 15px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.92);
+  align-items: center;
 }
 
-.login-features li .anticon {
-  flex: 0 0 auto;
-  margin-top: 4px;
-  font-size: 18px;
-  color: #99f6e4;
+.login-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(400px, 0.88fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.login-copy {
+  max-width: 540px;
+  padding-bottom: clamp(0px, 3vh, 32px);
+}
+
+.login-dateline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--dusk-day-ink-2);
+}
+
+.login-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dusk-apricot);
+  box-shadow: 0 0 0 4px oklch(74% 0.13 62 / 0.18);
+}
+
+.login-headline {
+  margin: 0 0 22px;
+  font-size: clamp(34px, 4.4vw, 54px);
+  font-weight: 500;
+  line-height: 1.14;
+  letter-spacing: -0.02em;
+  color: var(--dusk-day-ink);
+  text-wrap: balance;
+}
+
+.login-lede {
+  max-width: 24em;
+  margin: 0 0 26px;
+  font-size: clamp(14.5px, 1.15vw, 16.5px);
+  line-height: 1.85;
+  color: var(--dusk-day-ink-2);
+}
+
+.login-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: oklch(44% 0.02 250);
+}
+
+.login-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.5;
 }
 
 .login-panel {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px clamp(24px, 5vw, 80px);
+  justify-content: flex-end;
 }
 
 .login-card {
-  width: min(100%, 420px);
-  padding: 10px 8px 4px;
-  border-radius: 22px;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.1);
+  width: min(100%, 428px);
+  padding: 30px 28px 22px;
+  border-radius: 20px;
+  border: 1px solid var(--dusk-glass-line);
+  background: var(--dusk-glass);
+  box-shadow:
+    inset 0 1px 0 oklch(100% 0 0 / 0.16),
+    0 40px 90px -32px oklch(10% 0.02 260 / 0.7);
+  -webkit-backdrop-filter: blur(var(--dusk-glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--dusk-glass-blur)) saturate(1.35);
 }
 
 .login-card-head {
   margin-bottom: 22px;
 }
 
+.login-card-title {
+  margin: 0 0 6px;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--dusk-ink);
+}
+
+.login-card-sub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--dusk-ink-3);
+}
+
 .login-demo-hint,
 .login-error {
   margin-bottom: 18px;
+  border-radius: 12px;
+}
+
+.login-demo-hint {
+  border: 1px solid oklch(100% 0 0 / 0.16);
+  background: oklch(100% 0 0 / 0.08);
+}
+
+.login-demo-hint .ant-alert-icon {
+  color: var(--dusk-accent);
+}
+
+.login-card .login-demo-hint .ant-alert-icon {
+  color: var(--dusk-accent);
+}
+
+.login-demo-hint .ant-alert-message {
+  color: var(--dusk-ink);
+  font-size: 12.5px;
+}
+
+.login-demo-hint .ant-alert-description {
+  color: var(--dusk-ink-3);
+  font-size: 12px;
 }
 
 .login-demo-hint .ant-tag {
   margin-inline-end: 0;
+  margin-inline-start: 2px;
+  color: var(--dusk-ink);
+  background: oklch(100% 0 0 / 0.12);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.login-error {
+  border: 1px solid oklch(70% 0.16 25 / 0.42);
+  background: oklch(56% 0.17 25 / 0.22);
+}
+
+.login-error .ant-alert-message {
+  color: oklch(90% 0.04 30);
+  font-size: 12.5px;
+}
+
+.login-error .ant-alert-icon {
+  color: oklch(78% 0.13 28);
+}
+
+/* —— 表单：暗底上的输入 —— */
 .login-card .ant-form-item {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
+}
+
+.login-card .ant-form-item-label {
+  padding-bottom: 6px;
+}
+
+.login-card .ant-form-item-label > label {
+  height: auto;
+  font-size: 12.5px;
+  color: var(--dusk-ink-2);
+}
+
+.login-card .ant-form-item-explain-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: oklch(80% 0.12 28);
+}
+
+.login-card .ant-input-affix-wrapper,
+.login-card .ant-input {
+  min-height: 44px;
+  border-radius: 11px;
+  border-color: oklch(100% 0 0 / 0.18);
+  background: oklch(100% 0 0 / 0.07);
+  color: var(--dusk-ink);
+  box-shadow: none;
+}
+
+.login-card .ant-input-affix-wrapper:hover,
+.login-card .ant-input:hover {
+  border-color: oklch(100% 0 0 / 0.32);
+  background: oklch(100% 0 0 / 0.1);
+}
+
+.login-card .ant-input-affix-wrapper-focused,
+.login-card .ant-input-affix-wrapper:focus-within,
+.login-card .ant-input:focus {
+  border-color: var(--dusk-accent);
+  background: oklch(100% 0 0 / 0.12);
+  box-shadow: 0 0 0 3px oklch(80% 0.095 274 / 0.22);
+}
+
+.login-card .ant-input::placeholder {
+  color: oklch(70% 0.01 85 / 0.72);
+}
+
+.login-card .ant-input-prefix,
+.login-card .ant-input-password-icon,
+.login-card .ant-input-suffix .anticon {
+  color: var(--dusk-ink-3);
+}
+
+.login-card .ant-input-affix-wrapper > input.ant-input {
+  background: transparent;
+}
+
+/* 浏览器自动填充会盖成白底，这里保持暗底的文字色 */
+.login-card input:-webkit-autofill,
+.login-card input:-webkit-autofill:hover,
+.login-card input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--dusk-ink);
+  -webkit-box-shadow: 0 0 0 1000px oklch(30% 0.015 268) inset;
+  caret-color: var(--dusk-ink);
+  transition: background-color 9999s ease-out;
+}
+
+.login-card .ant-btn-primary {
+  margin-top: 6px;
+  height: 46px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dusk-accent);
+  color: oklch(24% 0.05 280);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  box-shadow: none;
+}
+
+.login-card .ant-btn-primary:not(:disabled):hover {
+  background: var(--dusk-accent-hi);
+  color: oklch(24% 0.05 280);
+}
+
+.login-card .ant-btn-primary:not(:disabled):active {
+  background: oklch(74% 0.1 274);
+  transform: translateY(1px);
+}
+
+.login-card .ant-btn-primary:focus-visible {
+  outline: 2px solid var(--dusk-accent-hi);
+  outline-offset: 3px;
 }
 
 .login-card-foot {
-  margin-top: 20px;
+  margin-top: 18px;
   text-align: center;
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: oklch(80% 0.01 85 / 0.78);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-photo {
+    animation: none;
+  }
 }
 
 /* ---------- C 档介绍页 ---------- */
@@ -638,25 +872,83 @@ a {
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1024px) {
-  .login-page {
-    grid-template-columns: 1fr;
+  .login-scrim {
+    background:
+      radial-gradient(78% 62% at 30% 22%, oklch(99% 0.008 95 / 0.8) 0%, oklch(99% 0.008 95 / 0.4) 46%, oklch(99% 0.008 95 / 0) 78%),
+      linear-gradient(to top, oklch(15% 0.022 258 / 0.62) 6%, oklch(16% 0.02 255 / 0.18) 62%, oklch(16% 0.02 255 / 0) 100%);
   }
 
-  .login-brand {
-    padding: 40px 28px 48px;
-    align-items: flex-start;
+  .login-shell {
+    gap: 32px;
   }
 
-  .login-features {
-    margin-bottom: 28px;
+  .login-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+    max-width: 560px;
+    padding-bottom: 8px;
+  }
+
+  .login-copy {
+    max-width: none;
+    padding-bottom: 0;
   }
 
   .login-panel {
-    padding: 32px 20px 48px;
+    justify-content: stretch;
+  }
+
+  .login-card {
+    width: min(100%, 480px);
+    background: oklch(21% 0.018 268 / 0.74);
   }
 }
 
 @media (max-width: 640px) {
+  /* 手机上文字区压在深色林线上，给上半屏加一层雾白，保证小字可读 */
+  .login-scrim {
+    background:
+      linear-gradient(
+        to bottom,
+        oklch(99% 0.008 95 / 0.7) 0%,
+        oklch(99% 0.008 95 / 0.6) 34%,
+        oklch(99% 0.008 95 / 0.24) 50%,
+        oklch(99% 0.008 95 / 0) 62%
+      ),
+      linear-gradient(to top, oklch(14% 0.02 260 / 0.55) 8%, oklch(14% 0.02 260 / 0) 56%);
+  }
+
+  .login-shell {
+    gap: 22px;
+    padding-bottom: 24px;
+  }
+
+  .login-headline {
+    margin-bottom: 16px;
+    font-size: clamp(30px, 8.6vw, 40px);
+  }
+
+  .login-lede {
+    margin-bottom: 20px;
+  }
+
+  .login-note {
+    font-size: 12px;
+  }
+
+  .login-card {
+    padding: 22px 20px 18px;
+    background: oklch(20% 0.018 268 / 0.82);
+  }
+
+  .login-card-head {
+    margin-bottom: 18px;
+  }
+
+  .login-card .ant-form-item {
+    margin-bottom: 14px;
+  }
+
   .console-footer {
     flex-direction: column;
     gap: 4px;
