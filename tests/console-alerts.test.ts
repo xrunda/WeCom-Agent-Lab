@@ -207,6 +207,52 @@ test('实时服务流核实未核验草稿：只关它名下的未核验告警�
   assert.equal(service.resolveDraftUnverified('draft_x', '再看一遍', ACTOR).resolved, 0);
 });
 
+test('告警更新补齐草稿关联，不覆盖已有字段与处理状态；缺记录时按创建找回', () => {
+  const { service, events } = setup();
+  const created = service.ingest({
+    id: 'alt_link',
+    kind: 'redline',
+    source: 'draft',
+    patientId: 'pat_1',
+    groupId: 'grp_1',
+    status: 'open',
+  })!;
+  assert.equal(created.draftId, null);
+  assert.equal(created.advisorId, null);
+  events.length = 0;
+
+  const updated = service.applyUpdate({
+    id: 'alt_link',
+    draftId: 'draft_9',
+    advisorId: 'adv_9',
+    patientId: 'pat_other',
+    updatedAt: created.createdAt + 5,
+  });
+  assert.equal(updated?.draftId, 'draft_9');
+  assert.equal(updated?.advisorId, 'adv_9');
+  // 已有值不被事件覆盖
+  assert.equal(updated?.patientId, 'pat_1');
+  assert.equal(updated?.status, 'open');
+  assert.equal(updated?.updatedAt, created.createdAt + 5);
+  assert.equal(events.filter((event) => event.type === 'alert.updated').length, 1);
+
+  service.resolve('alt_link', '已处理', ACTOR);
+  const afterResolve = service.applyUpdate({ id: 'alt_link', draftId: 'draft_10' });
+  assert.equal(afterResolve?.status, 'resolved');
+  assert.equal(afterResolve?.draftId, 'draft_9');
+
+  // 控制台漏掉创建事件时，更新事件仍能把告警找回来
+  const recovered = service.applyUpdate({
+    id: 'alt_late',
+    kind: 'redline',
+    draftId: 'draft_x',
+    source: 'draft',
+  });
+  assert.equal(recovered?.id, 'alt_late');
+  assert.equal(recovered?.draftId, 'draft_x');
+  assert.equal(service.list().total, 2);
+});
+
 test('get 只返回本租户告警', () => {
   const { service } = setup();
   service.ingest({ id: 'alt_other', kind: 'remind' });

@@ -159,6 +159,57 @@ export class AlertService {
     return record;
   }
 
+  /**
+   * 接收 `alert.updated`。目前 guard 用它补发草稿关联（draftId）：告警先于草稿
+   * 落库产生，创建事件里没有 draftId，回填后必须同步到控制台，否则服务流抽屉
+   * 按 draftId 查不到这条告警，告警就成了谁也看不到的孤儿。
+   *
+   * 只补空着的关联字段，不覆盖控制台已经处理过的状态；本地还没有这条告警
+   * （控制台重启、漏掉创建事件）时按创建处理，尽量把告警找回来。
+   */
+  applyUpdate(raw: unknown): AlertRecord | undefined {
+    if (raw === null || typeof raw !== 'object') return undefined;
+    const event = raw as Record<string, unknown>;
+    const id = asString(event.id);
+    if (!id) return undefined;
+    const existing = this.store.getAlert(id);
+    if (!existing) return this.ingest(raw);
+    if (existing.tenantId !== this.tenantId) return undefined;
+
+    const updated: AlertRecord = { ...existing };
+    let changed = false;
+    const draftId = asString(event.draftId);
+    if (draftId && !updated.draftId) {
+      updated.draftId = draftId;
+      changed = true;
+    }
+    const patientId = asString(event.patientId);
+    if (patientId && !updated.patientId) {
+      updated.patientId = patientId;
+      changed = true;
+    }
+    const advisorId = asString(event.advisorId);
+    if (advisorId && !updated.advisorId) {
+      updated.advisorId = advisorId;
+      changed = true;
+    }
+    const groupId = asString(event.groupId);
+    if (groupId && !updated.groupId) {
+      updated.groupId = groupId;
+      changed = true;
+    }
+    const sourceRaw = asString(event.source);
+    if (!updated.source && (sourceRaw === 'staff' || sourceRaw === 'draft')) {
+      updated.source = sourceRaw;
+      changed = true;
+    }
+    if (!changed) return existing;
+    updated.updatedAt = asNumber(event.updatedAt) ?? this.now();
+    this.store.saveAlert(updated);
+    this.emit('alert.updated', updated);
+    return updated;
+  }
+
   list(query: AlertQuery = {}): Page<AlertRecord> {
     const from = query.from;
     const to = query.to;

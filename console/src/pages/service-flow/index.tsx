@@ -36,7 +36,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
-import { resolveDraftUnverified } from '../../mock/alerts.ts';
+import { resolveAlert, resolveDraftUnverified } from '../../mock/alerts.ts';
 import {
   MOCK_EXPORT_NOTICE,
   exportDraftEvidencePdf,
@@ -55,6 +55,7 @@ import {
   subscribeServiceFlow,
   type FlowDetail,
   type FlowEvent,
+  type FlowGuardAlert,
   type ServiceFlowRow,
 } from '../../mock/service-flow.ts';
 import { formatDateTime } from '../../utils/format.ts';
@@ -140,6 +141,9 @@ export default function ServiceFlowPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewNote, setReviewNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [guardAlert, setGuardAlert] = useState<FlowGuardAlert | null>(null);
+  const [guardNote, setGuardNote] = useState('');
+  const [resolvingGuard, setResolvingGuard] = useState(false);
 
   // 从团队关注/告警带参跳转过来时，同步 URL 里的患者、服务人员与状态筛选。
   useEffect(() => {
@@ -289,6 +293,26 @@ export default function ServiceFlowPage() {
       setReviewing(false);
     }
   }, [detail, load, message, reviewNote]);
+
+  // 红线 / 急症告警挂在草稿上：处理备注必填，只关告警，不改草稿正文和状态
+  const submitGuardAlert = useCallback(async () => {
+    if (!guardAlert) return;
+    const note = guardNote.trim();
+    if (!note) return;
+    setResolvingGuard(true);
+    try {
+      await resolveAlert(guardAlert.id, note);
+      message.success('红线告警已处理');
+      setGuardAlert(null);
+      setGuardNote('');
+      await load();
+      setDetailRefresh((value) => value + 1);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '处理失败，请稍后重试');
+    } finally {
+      setResolvingGuard(false);
+    }
+  }, [guardAlert, guardNote, load, message]);
 
   useEffect(() => {
     let active = true;
@@ -696,6 +720,42 @@ export default function ServiceFlowPage() {
                   description="对应的未核验告警已经关闭；草稿状态保留「未核验」原样，不改成已送达。"
                 />
               ) : null)}
+            {detail.guardAlerts?.items
+              .filter((item) => item.status !== 'resolved')
+              .map((item) => (
+                <Alert
+                  key={item.id}
+                  type={item.severity === 'critical' ? 'error' : 'warning'}
+                  showIcon
+                  icon={<WarningOutlined />}
+                  message={item.kind === 'escalate' ? '急症升级，草稿已改为就医引导' : '草稿命中红线'}
+                  description={
+                    <Space direction="vertical" size={2}>
+                      <span>{item.message}</span>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {formatDateTime(item.createdAt)}
+                      </Text>
+                    </Space>
+                  }
+                  action={
+                    can('alert.write') ? (
+                      <Button size="small" onClick={() => setGuardAlert(item)}>
+                        处理
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ))}
+            {detail.guardAlerts &&
+              detail.guardAlerts.pending === 0 &&
+              detail.guardAlerts.resolved > 0 && (
+                <Alert
+                  type="success"
+                  showIcon
+                  message="红线告警已处理"
+                  description={`这条草稿的 ${detail.guardAlerts.resolved} 条红线 / 急症告警已由管理员处理；草稿正文与状态保持原样，不做事后修改。`}
+                />
+              )}
             <Descriptions bordered size="small" column={4}>
               <Descriptions.Item label="患者">{detail.patient.displayName}</Descriptions.Item>
               <Descriptions.Item label="群">{detail.group.name}</Descriptions.Item>
@@ -878,6 +938,41 @@ export default function ServiceFlowPage() {
             placeholder="例如：已在群里确认顾问 12:39 用自己的话回复了客户"
             value={reviewNote}
             onChange={(event) => setReviewNote(event.target.value)}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        open={Boolean(guardAlert)}
+        title="处理红线告警"
+        okText="确认已处理"
+        cancelText="取消"
+        confirmLoading={resolvingGuard}
+        okButtonProps={{ disabled: guardNote.trim() === '' }}
+        onOk={() => void submitGuardAlert()}
+        onCancel={() => {
+          setGuardAlert(null);
+          setGuardNote('');
+        }}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Alert
+            type={guardAlert?.severity === 'critical' ? 'error' : 'warning'}
+            showIcon
+            message={guardAlert?.title}
+            description={guardAlert?.message}
+          />
+          <Text type="secondary">
+            写下处理经过，会记到审计里。只关闭这条告警，草稿正文和状态不会改动。
+          </Text>
+          <Input.TextArea
+            rows={3}
+            maxLength={200}
+            showCount
+            placeholder="例如：已电话联系顾问，确认后续回复不再解释病因，只建议就医"
+            value={guardNote}
+            onChange={(event) => setGuardNote(event.target.value)}
           />
         </Space>
       </Modal>

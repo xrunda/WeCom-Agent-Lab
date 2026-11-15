@@ -743,14 +743,23 @@ export class GuardService {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  /** 草稿入队后回填 draftId，方便告警列表直接跳到草稿 */
+  /**
+   * 草稿入队后回填 draftId，方便告警列表直接跳到草稿。
+   *
+   * 告警是在草稿落库前产生的，`alert.created` 里还没有 draftId；只写回 guard
+   * 存储不够——控制台已经按没有 draftId 的版本入库了。所以回填后必须再发一次
+   * `alert.updated`，控制台据此把草稿关联补上，否则告警会变成谁也看不见的孤儿。
+   */
   linkDraft(alertId: string, draftId: string): void {
     const alert = this.alertLog.find((item) => item.id === alertId);
-    if (!alert || alert.draftId === draftId) return;
-    alert.draftId = draftId;
-    alert.updatedAt = this.now();
-    this.persistAlert(alert);
-    this.audit('system', 'alert.link_draft', alertId, 'ok');
+    if (!alert) return;
+    if (alert.draftId !== draftId) {
+      alert.draftId = draftId;
+      alert.updatedAt = this.now();
+      this.persistAlert(alert);
+      this.audit('system', 'alert.link_draft', alertId, 'ok');
+    }
+    this.emit('alert.updated', this.alertEvent(alert));
   }
 
   audits(): AuditEvent[] {
@@ -808,7 +817,13 @@ export class GuardService {
     this.audit(input.actor ?? 'system', 'alert.create', alert.id, 'ok', alert.kind);
     // 字段与控制台 AlertService.ingest 对齐：控制台用 id / advisorId / groupId
     // 把告警落到「质检与告警」和顾问个人记录里。
-    this.emit('alert.created', {
+    this.emit('alert.created', this.alertEvent(alert));
+    return alert;
+  }
+
+  /** alert.created / alert.updated 共用的事件载荷；控制台按这些字段入库和补关联 */
+  private alertEvent(alert: GuardAlertRecord): Record<string, unknown> {
+    return {
       id: alert.id,
       alertId: alert.id,
       kind: alert.kind,
@@ -816,14 +831,15 @@ export class GuardService {
       status: alert.status,
       title: alert.title,
       message: alert.message,
+      draftId: alert.draftId,
       patientId: alert.patientId,
       advisorId: alert.advisorId,
       groupId: alert.groupId,
       source: alert.source,
       ruleIds: alert.ruleIds,
       createdAt: alert.createdAt,
-    });
-    return alert;
+      updatedAt: alert.updatedAt,
+    };
   }
 
   private persistAlert(alert: GuardAlertRecord): void {

@@ -318,6 +318,32 @@ test('#37 运行链路：急症输入让草稿改写为就医引导，并通知�
   assert.equal(alert!.groupId, group.id);
 });
 
+test('#37 草稿命中红线：草稿落库后回填 draftId 并补发 alert.updated', async () => {
+  const h = harness();
+  const result = h.service.review({
+    body: '你这个情况基本可以诊断了，先按经验处理。',
+    riskLevel: 'low',
+    patientId: 'pt_5',
+    groupId: 'grp_5',
+    source: 'inbound',
+  });
+  assert.ok(result.alertId);
+  const created = h.events.find((event) => event.type === 'alert.created')!
+    .data as Record<string, unknown>;
+  assert.equal(created.id, result.alertId);
+  // 告警产生时草稿还没入队，创建事件里没有 draftId
+  assert.equal(created.draftId, undefined);
+
+  h.service.linkDraft(result.alertId!, 'draft_9');
+  const updated = h.events.find((event) => event.type === 'alert.updated')!
+    .data as Record<string, unknown>;
+  assert.equal(updated.id, result.alertId);
+  assert.equal(updated.draftId, 'draft_9');
+  assert.equal(updated.kind, 'redline');
+  await h.service.flush();
+  assert.equal(h.backend.alerts.get(result.alertId!)?.draftId, 'draft_9');
+});
+
 test('#37 急症规则不因草稿里的条件式提醒自触发', () => {
   const h = harness();
   const result = h.service.review({

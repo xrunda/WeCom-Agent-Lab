@@ -162,6 +162,25 @@ export interface ServiceFlowDetailView {
   audit: Array<{ id: string; action: string; actorName: string; result: string; at: number }>;
   /** 未核验草稿的人工核实状态：pending 为尚未关闭的未核验告警数 */
   unverifiedAlerts?: { pending: number; resolved: number };
+  /**
+   * 草稿命中红线 / 急症的告警。告警先于草稿落库产生，过去没有 draftId，
+   * 抽屉里既看不到也没法处理；现在按草稿聚合，pending 为待处理条数。
+   */
+  guardAlerts?: {
+    pending: number;
+    resolved: number;
+    items: Array<{
+      id: string;
+      kind: string;
+      severity: string;
+      status: string;
+      title: string;
+      message: string;
+      note: string | null;
+      createdAt: number;
+      resolvedAt: number | null;
+    }>;
+  };
   media: Array<{ id: string; kind: string; url: string; label: string }>;
 }
 

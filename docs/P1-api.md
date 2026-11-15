@@ -734,13 +734,16 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
     { "at": 1762646245000, "type": "verification", "actor": "system", "title": "核验通过" }
   ],
   "audit": [{ "id": "aud_...", "action": "draft.enqueue", "actorName": "system", "result": "success", "at": 1762645860000 }],
-  "unverifiedAlerts": { "pending": 1, "resolved": 0 }
+  "unverifiedAlerts": { "pending": 1, "resolved": 0 },
+  "guardAlerts": { "pending": 1, "resolved": 0, "items": [{ "id": "alt_...", "kind": "redline", "severity": "warning", "status": "open", "title": "草稿命中高风险规则", "message": "命中规则：不诊断；风险等级 high", "note": null, "createdAt": 1762645860000, "resolvedAt": null }] }
 }
 ```
 
 发错群时 `verification.matchedGroupName` 是实际群名；`deliveries[].roomId` 与 `draft.groupRoomId` 不同。
 
 `unverifiedAlerts` 统计这条草稿名下的未核验告警：`pending` 为尚未解决的条数。`status=UNVERIFIED` 且 `pending>0` 时，抽屉给出「标记已核实」入口（权限 `alert.write`）。
+
+`guardAlerts` 统计这条草稿名下的红线（`redline`）与急症升级（`escalate`）告警，`pending` 为尚未处理的条数；抽屉逐个展示规则、风险等级和创建时间，并给出「处理」入口（`POST /alerts/{id}/resolve`，权限 `alert.write`）。告警在草稿落库前产生，创建事件里没有 `draftId`；guard 回填后补发 `alert.updated`，控制台按事件把关联补上，抽屉才能按 `draftId` 查到。
 
 ### `POST /service-flow/{draftId}/review`
 
@@ -1419,7 +1422,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | `draft.failed` | 推送失败 / 死信 / 释放 | `{ draftId, status, errorCode? }` |
 | `draft.released` | 管理员释放队列 | `{ draftId, advisorId, nextDraftId? }` |
 | `alert.created` | 新告警 | `alert`（完整实体） |
-| `alert.updated` | 告警状态变化 | `alert` |
+| `alert.updated` | 告警状态变化或补上草稿关联 | `alert` |
 | `alert.resolved` | 告警处理完成 | `alert` |
 | `patient.created` / `patient.updated` | 患者变化 | `patient` 摘要 |
 | `memory.created` / `memory.updated` / `memory.deleted` | 记忆变化 | `{ memoryId, patientId, category, subject }` |
