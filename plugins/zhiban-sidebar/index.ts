@@ -117,6 +117,8 @@ interface PatientApiLike {
   }>;
   /** 慢病档案；旧版本 zhiban-patient 没有这个方法，调用处按可选处理 */
   getChronicProfile?(patientId: string): ChronicProfile | undefined;
+  /** 草稿生成进度；旧版本 zhiban-patient 没有这个方法时侧边栏不显示占位 */
+  draftProgress?(roomId: string): { state: 'queued' | 'generating'; since: number } | undefined;
 }
 
 /** 患者记录 → 侧边栏速览引用；群（按 id）与单聊（按外部 id）共用一份映射 */
@@ -297,6 +299,10 @@ export function apply(ctx: DshSidebarContext, rawConfig: unknown): void {
                     latestDraft: (roomId: string, since: number) =>
                       admin.latestSidebarDraft?.(roomId, since),
                   }
+                : {}),
+              // 草稿生成进度来自患者运行时（合并窗口 / 回合）；旧版本没有该方法时省略
+              ...(patient?.draftProgress
+                ? { draftProgress: (roomId: string) => patient.draftProgress?.(roomId) }
                 : {}),
             },
             advisor,

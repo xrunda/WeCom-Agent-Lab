@@ -145,6 +145,8 @@ export interface PatientRuntimeApi {
   stats(): RuntimeStats;
   /** #37：给 zhiban-guard 的 escalate_to_human 反查患者 */
   patientForSession(sessionId: string): string | undefined;
+  /** 侧边栏：客户消息已收到、草稿还没推到顾问侧时的生成进度 */
+  draftProgress(roomId: string): { state: 'queued' | 'generating'; since: number } | undefined;
   /** 员工发言语义复核：关键词命中后判断是否真的违规；不可用时返回 unknown */
   judgeStaffMessage(input: { text: string; ruleNames: string[] }): Promise<StaffVerdict>;
   systemPrompt(): string;
@@ -500,6 +502,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           runtime!.patientContextForSession(sessionId),
         stats: () => runtime!.stats(),
         patientForSession: (sessionId) => runtime!.patientForSession(sessionId),
+        draftProgress: (roomId) => runtime!.draftProgress(roomId),
         judgeStaffMessage: (input) => staffJudge.judge(input),
         systemPrompt: () => runtime!.systemPrompt(),
         applySettings: (patch) => {

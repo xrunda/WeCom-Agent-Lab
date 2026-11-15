@@ -21,6 +21,11 @@ declare global {
 
 const POLL_MS = 30_000;
 /**
+ * 草稿生成中改用短轮询：合并窗口 + 回合通常几十秒，
+ * 按 30 秒节奏要等一整拍才看到草稿，顾问会以为系统没反应。
+ */
+const FAST_POLL_MS = 3_000;
+/**
  * 企微客户端不保证预置可用的 wx：注入的对象可能没有 agentConfig。
  * index.html 已静态引入官方 SDK；仍拿不到时按顺序兜底注入。
  * 顺序不能反：jweixin 先定义 window.wx，jwxwork 再往上挂 agentConfig。
@@ -143,11 +148,16 @@ function writeAuthTried(value: boolean): void {
 
 let conversation: ConversationRef | undefined;
 let pollingTimer: number | undefined;
+let fastTimer: number | undefined;
 
 function stopPolling(): void {
   if (pollingTimer !== undefined) {
     window.clearInterval(pollingTimer);
     pollingTimer = undefined;
+  }
+  if (fastTimer !== undefined) {
+    window.clearInterval(fastTimer);
+    fastTimer = undefined;
   }
 }
 
@@ -157,6 +167,22 @@ function startPolling(redraw: () => void): void {
     if (document.hidden) return;
     redraw();
   }, POLL_MS);
+}
+
+/** 有草稿在生成时开 3 秒轮询，草稿出来或生成结束后切回 30 秒 */
+function syncFastPolling(waiting: boolean): void {
+  if (!waiting) {
+    if (fastTimer !== undefined) {
+      window.clearInterval(fastTimer);
+      fastTimer = undefined;
+    }
+    return;
+  }
+  if (fastTimer !== undefined || !root) return;
+  fastTimer = window.setInterval(() => {
+    if (document.hidden) return;
+    void refresh(root);
+  }, FAST_POLL_MS);
 }
 
 function handleAuthFailure(): void {
@@ -306,6 +332,10 @@ async function refresh(rootEl: HTMLElement, manual = false): Promise<void> {
     writeAuthTried(false);
     lastData = { kind: 'ready', data };
     render(rootEl, lastData, handlers(rootEl, redraw));
+    // 有草稿在生成时缩短轮询间隔：草稿一出来占位就换成真正的草稿卡片
+    syncFastPolling(
+      data.pending.open.some((item) => item.draft === null && item.draftState !== null),
+    );
     if (manual) {
       await pauseAtLeast(startedAt, 350);
       flashRefreshed(rootEl);

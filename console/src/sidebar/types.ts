@@ -46,6 +46,17 @@ export interface SidebarPendingView {
   hasDraft: boolean;
   /** 已生成、未发出的草稿；只挂在最新一条上 */
   draft: SidebarDraftView | null;
+  /** 草稿还没出来时的生成进度；只挂在最新一条上 */
+  draftState: SidebarDraftState | null;
+}
+
+/**
+ * 草稿生成进度：`queued` 已收到、在合并窗口里等客户说完；
+ * `generating` 模型正在写草稿。页面据此显示占位并加快轮询。
+ */
+export interface SidebarDraftState {
+  state: 'queued' | 'generating';
+  since: number;
 }
 
 export interface SidebarChronicMeasurementView {
