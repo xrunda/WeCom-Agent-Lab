@@ -679,7 +679,7 @@ export default function ServiceFlowPage() {
                   type="warning"
                   showIcon
                   message="未核验：存档里没有找到这条草稿的实发内容"
-                  description="顾问已回复，但正文和草稿对不上，系统无法确认这条是怎么发出去的。人工确认后可以标记已核实，关闭这条告警。"
+                  description="系统按草稿正文回读，没有在存档里匹配到实发消息，无法确认送达。人工核实后可以标记已核实，关闭这条告警。"
                   action={
                     can('alert.write') ? (
                       <Button size="small" onClick={() => setReviewOpen(true)}>
