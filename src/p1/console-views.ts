@@ -70,7 +70,11 @@ export interface DashboardKpisView {
 
 export interface ServiceFlowRowView {
   id: string;
-  source: 'inbound' | 'proactive';
+  /**
+   * inbound / proactive 是草稿；staff 是员工自己在群里发的消息。
+   * 员工发言没有草稿，行上带 alertId，点开去告警详情而不是草稿抽屉。
+   */
+  source: 'inbound' | 'proactive' | 'staff';
   groupId: string;
   groupName: string;
   patientId: string;
@@ -86,6 +90,8 @@ export interface ServiceFlowRowView {
   sandbox: boolean;
   demo: boolean;
   createdAt: number;
+  /** 员工发言行指向的告警；草稿行没有这个字段 */
+  alertId?: string;
   durations: {
     inboundToDraftMs?: number;
     draftToPushMs?: number;
@@ -438,6 +444,68 @@ export function serviceFlowRow(draft: Draft, lookups: DraftLookups): ServiceFlow
     demo: group?.demo ?? patient?.demo ?? false,
     createdAt: draft.createdAt,
     durations: draftDuration(draft),
+  };
+}
+
+/**
+ * 员工发言告警的正文形如：群「…」李光的发言命中规则：A、B。发言内容：「…」。
+ * 摘出引号里的原话供服务流摘要列展示；摘不出来时退回整条正文。
+ */
+export function staffAlertExcerpt(message: string): string {
+  const marker = '发言内容：「';
+  const start = message.indexOf(marker);
+  if (start < 0) return message.trim();
+  const rest = message.slice(start + marker.length);
+  const end = rest.lastIndexOf('」');
+  return (end > 0 ? rest.slice(0, end) : rest).trim();
+}
+
+/**
+ * 员工自己发的消息没有草稿，但管理员希望和服务流一起看。
+ * 这里把一条员工发言告警翻成服务流行：状态只有待处理 / 已处理，点开去告警。
+ */
+export function staffFlowRow(alert: AlertRecord, lookups: DraftLookups): ServiceFlowRowView {
+  const group = lookups.groups.find(
+    (item) => item.id === alert.groupId && item.deletedAt === undefined,
+  );
+  const binding = lookups.bindings.find(
+    (item) => item.groupId === alert.groupId && item.deletedAt === undefined,
+  );
+  const bound = livePatient(
+    lookups.patients.find((item) => item.id === binding?.patientId),
+  );
+  const patient =
+    bound ??
+    livePatient(lookups.patients.find((item) => item.id === alert.patientId));
+
+  const advisor =
+    lookups.advisors.find((item) => item.id === alert.advisorId) ??
+    (patient
+      ? lookups.advisors.find(
+          (item) => item.id === patientAdvisorId(patient, lookups.groups, lookups.bindings),
+        )
+      : undefined);
+  return {
+    id: alert.id,
+    source: 'staff',
+    alertId: alert.id,
+    groupId: group?.id ?? alert.groupId ?? '',
+    groupName: group?.name ?? alert.groupId ?? '未知群',
+    patientId: patient?.id ?? alert.patientId ?? '',
+    patientName: patient?.displayName ?? '',
+    advisorId: alert.advisorId ?? '',
+    advisorName: advisor?.name ?? alert.advisorId ?? '员工',
+    summary: staffAlertExcerpt(alert.message),
+    // 红线规则（不诊断 / 不调药 / 不承诺疗效）按高风险展示
+    riskLevel: 'high',
+    status: alert.status === 'resolved' ? 'STAFF_ALERT_RESOLVED' : 'STAFF_ALERT',
+    mediaKinds: [],
+    version: 0,
+    fallback: false,
+    sandbox: alert.sandbox,
+    demo: group?.demo ?? patient?.demo ?? false,
+    createdAt: alert.createdAt,
+    durations: {},
   };
 }
 

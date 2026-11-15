@@ -12,6 +12,7 @@ import knowledgeFixture from './fixtures/knowledge.json';
 import memoriesFixture from './fixtures/memories.json';
 import patientsFixture from './fixtures/patients.json';
 import verificationsFixture from './fixtures/verifications.json';
+import { listAlerts } from './alerts.ts';
 import { API_BASE, ApiError, apiRequest, isMockMode } from './http.ts';
 import { mediaUrl, type MediaItem, type MediaKind } from './media.ts';
 
@@ -25,10 +26,14 @@ export type FlowStatus =
   | 'UNVERIFIED'
   | 'RELEASED'
   | 'DEAD_LETTER'
-  | 'SKIPPED';
+  | 'SKIPPED'
+  // 员工自己发的消息没有草稿，只有告警：待处理 / 已处理
+  | 'STAFF_ALERT'
+  | 'STAFF_ALERT_RESOLVED';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type FlowSource = 'inbound' | 'proactive';
+/** staff = 员工群发言（不是草稿），行上带 alertId */
+export type FlowSource = 'inbound' | 'proactive' | 'staff';
 
 export interface FlowDurations {
   inboundToDraftMs?: number;
@@ -55,6 +60,8 @@ export interface ServiceFlowRow {
   sandbox: boolean;
   demo: boolean;
   createdAt: number;
+  /** 员工发言行指向的告警；草稿行没有 */
+  alertId?: string;
   durations: FlowDurations;
 }
 
@@ -247,14 +254,21 @@ const audits = auditFixture as unknown as {
   at: number;
 }[];
 const patients = patientsFixture as unknown as { id: string; displayName: string }[];
-const groups = groupsFixture as unknown as { id: string; name: string; roomId: string }[];
+const groups = groupsFixture as unknown as {
+  id: string;
+  name: string;
+  roomId: string;
+  patientIds?: string[];
+  advisorId?: string;
+  demo?: boolean;
+}[];
 const advisors = advisorsFixture as unknown as { id: string; name: string }[];
 
 const patientMap = new Map(patients.map((item) => [item.id, item]));
 const groupMap = new Map(groups.map((item) => [item.id, item]));
 const advisorMap = new Map(advisors.map((item) => [item.id, item]));
 
-/** 两条补充行：图片消息与语音消息（fixtures 里没有对应草稿，仅用于前端演示） */
+/** 补充行：图片 / 语音草稿，以及一条员工自己发言的红线（没有草稿，只有告警） */
 const SYNTHETIC_ROWS: ServiceFlowRow[] = [
   {
     id: 'draft_1015',
@@ -701,6 +715,41 @@ function allRows(): ServiceFlowRow[] {
   return [...liveRows.values(), ...SYNTHETIC_ROWS, ...fixtureRows];
 }
 
+/**
+ * 员工群发言没有草稿：mock 里按红线告警现生成服务流行，
+ * 与真实后端把 source=staff 的告警并进 /service-flow 的口径保持一致。
+ */
+async function staffFlowRows(): Promise<ServiceFlowRow[]> {
+  const list = await listAlerts({ kind: 'redline', source: 'staff', pageSize: 100 });
+  return list.items.map((alert) => {
+    const group = alert.groupId ? groupMap.get(alert.groupId) : undefined;
+    const patient = group?.patientIds?.[0] ? patientMap.get(group.patientIds[0]!) : undefined;
+    const advisor = alert.advisorId ? advisorMap.get(alert.advisorId) : undefined;
+    const quote = /发言内容：「([\s\S]*)」\s*$/.exec(alert.message)?.[1];
+    return {
+      id: alert.id,
+      source: 'staff',
+      alertId: alert.id,
+      groupId: group?.id ?? alert.groupId ?? '',
+      groupName: group?.name ?? alert.groupId ?? '未知群',
+      patientId: patient?.id ?? '',
+      patientName: patient?.displayName ?? '',
+      advisorId: alert.advisorId ?? '',
+      advisorName: advisor?.name ?? '员工',
+      summary: quote?.trim() || alert.message,
+      riskLevel: 'high',
+      status: alert.status === 'resolved' ? 'STAFF_ALERT_RESOLVED' : 'STAFF_ALERT',
+      mediaKinds: [],
+      version: 0,
+      fallback: false,
+      sandbox: false,
+      demo: Boolean(group?.demo),
+      createdAt: alert.createdAt,
+      durations: {},
+    } satisfies ServiceFlowRow;
+  });
+}
+
 function matches(row: ServiceFlowRow, query: ServiceFlowQuery): boolean {
   if (query.groupId && row.groupId !== query.groupId) return false;
   if (query.advisorId && row.advisorId !== query.advisorId) return false;
@@ -743,7 +792,7 @@ export async function listServiceFlow(query: ServiceFlowQuery = {}): Promise<Ser
     );
   }
 
-  const filtered = allRows()
+  const filtered = [...allRows(), ...(await staffFlowRows())]
     .filter((row) => matches(row, query))
     .sort((a, b) => b.createdAt - a.createdAt);
   const page = query.page ?? 1;
@@ -1095,6 +1144,8 @@ export const FLOW_STATUS_META: Record<
   RELEASED: { label: '已释放', color: 'gold', badge: 'warning' },
   DEAD_LETTER: { label: '推送死信', color: 'magenta', badge: 'error' },
   SKIPPED: { label: '已跳过', color: 'default', badge: 'default' },
+  STAFF_ALERT: { label: '待处理', color: 'red', badge: 'error' },
+  STAFF_ALERT_RESOLVED: { label: '已处理', color: 'green', badge: 'success' },
 };
 
 export const RISK_LABELS: Record<RiskLevel, { label: string; color: string }> = {
@@ -1106,4 +1157,5 @@ export const RISK_LABELS: Record<RiskLevel, { label: string; color: string }> = 
 export const SOURCE_LABELS: Record<FlowSource, string> = {
   inbound: '患者提问',
   proactive: 'Agent 主动',
+  staff: '员工发言',
 };

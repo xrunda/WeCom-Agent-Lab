@@ -64,6 +64,7 @@ import {
   patientView,
   serviceFlowDetail,
   serviceFlowRow,
+  staffFlowRow,
   type DashboardRange,
   type DraftLookups,
 } from '../../src/p1/console-views.ts';
@@ -2452,7 +2453,18 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         const fallback = rc.query.get('fallback');
         const from = parseTime(rc.query.get('from'), 'from');
         const to = parseTime(rc.query.get('to'), 'to');
-        let rows = consoleDrafts().map((draft) => serviceFlowRow(draft, lookups));
+        // 员工自己发的消息没有草稿，但也属于「服务群发生了什么」：
+        // 把员工发言红线并成独立行（source=staff），点开去告警详情。
+        const staffRows: ReturnType<typeof staffFlowRow>[] = [];
+        for (let staffPage = 1; ; staffPage += 1) {
+          const chunk = alerts.list({ source: 'staff', page: staffPage, pageSize: 100 });
+          staffRows.push(...chunk.items.map((alert) => staffFlowRow(alert, lookups)));
+          if (staffPage * 100 >= chunk.total) break;
+        }
+        let rows = [
+          ...consoleDrafts().map((draft) => serviceFlowRow(draft, lookups)),
+          ...staffRows,
+        ];
         if (groupId) rows = rows.filter((row) => row.groupId === groupId);
         if (advisorId) rows = rows.filter((row) => row.advisorId === advisorId);
         if (patientId) rows = rows.filter((row) => row.patientId === patientId);

@@ -32,7 +32,7 @@ import {
 import type { TableProps } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
@@ -117,6 +117,7 @@ function totalDuration(row: ServiceFlowRow): number | undefined {
 export default function ServiceFlowPage() {
   const { message, modal } = App.useApp();
   const { can } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlDraftId = searchParams.get('draftId');
   const urlPatientId = searchParams.get('patientId') ?? undefined;
@@ -183,6 +184,18 @@ export default function ServiceFlowPage() {
       updateParams((params) => params.set('draftId', draftId));
     },
     [updateParams],
+  );
+
+  // 员工发言行没有草稿抽屉，点开直接落到那条告警
+  const openRow = useCallback(
+    (row: ServiceFlowRow) => {
+      if (row.source === 'staff') {
+        navigate(`/alerts?alertId=${encodeURIComponent(row.alertId ?? row.id)}`);
+        return;
+      }
+      openDraft(row.id);
+    },
+    [navigate, openDraft],
   );
 
   const closeDetail = useCallback(() => {
@@ -452,8 +465,8 @@ export default function ServiceFlowPage() {
       key: 'action',
       width: 84,
       render: (_, row) => (
-        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDraft(row.id)}>
-          查看
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openRow(row)}>
+          {row.source === 'staff' ? '查看告警' : '查看'}
         </Button>
       ),
     },
@@ -479,7 +492,8 @@ export default function ServiceFlowPage() {
     <PageContainer
       header={{
         title: '实时服务流',
-        subTitle: '草稿从生成到核验的完整生命周期；发错群与未核验会醒目标出。',
+        subTitle:
+          '草稿从生成到核验的完整生命周期；员工自己发的消息命中的红线也并列在这里，发错群与未核验会醒目标出。',
       }}
       extra={[
         <Button
@@ -639,7 +653,7 @@ export default function ServiceFlowPage() {
               : ''
           }
           onRow={(row) => ({
-            onClick: () => openDraft(row.id),
+            onClick: () => openRow(row),
             style: { cursor: 'pointer' },
           })}
         />

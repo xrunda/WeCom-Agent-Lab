@@ -121,6 +121,28 @@ describe('WP-J 页面', () => {
     expect(screen.queryByText('我妈今天头晕，要不要去医院')).not.toBeInTheDocument();
   });
 
+  it('服务流把员工群发言的红线并成一行，操作指向告警', async () => {
+    await renderPage(<ServiceFlowPage />);
+
+    const quote = await screen.findByText(/这个月掉了八斤/);
+    expect(screen.getAllByText('员工发言').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('待处理').length).toBeGreaterThan(0);
+
+    const row = quote.closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('查看告警')).toBeInTheDocument();
+  });
+
+  it('深链 ?alertId= 直接打开员工发言告警详情', async () => {
+    await renderPage(<AlertsPage />, ['/alerts?alertId=alt_07']);
+
+    expect(await screen.findByText('红线告警详情')).toBeInTheDocument();
+    // 命中词会被拆成 <mark>，按抽屉里的整段文本断言（列表卡片也有引文，不能用全局选择器）
+    await waitFor(() => {
+      expect(document.querySelector('.ant-drawer')?.textContent).toContain('这个月掉了八斤');
+    });
+  });
+
   it('深链 ?draftId= 直接打开服务流详情抽屉', async () => {
     await renderPage(<ServiceFlowPage />, ['/service-flow?draftId=draft_1007']);
 

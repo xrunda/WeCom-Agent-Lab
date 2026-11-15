@@ -2035,6 +2035,73 @@ test('服务流：行来自真实草稿，详情只从存档证据生成送达�
   assert.equal(missing.status, 404);
 });
 
+test('服务流：员工群发言红线作为独立行，处理状态跟着告警走', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  ctx.emitTo('alert.created', {
+    id: 'alt_staff_1',
+    kind: 'redline',
+    severity: 'warning',
+    status: 'open',
+    title: '员工发言命中红线',
+    message: '群「客户-汪女士」李广的发言命中规则：不调药。发言内容：「建议口服一粒格华止」',
+    advisorId: 'adv_1',
+    groupId: 'grp_1',
+    source: 'staff',
+  });
+
+  const list = await call('GET', '/zhiban/api/service-flow?source=staff', { cookie });
+  assert.equal(list.status, 200);
+  const body = list.json() as {
+    total: number;
+    items: Array<{
+      id: string;
+      source: string;
+      alertId?: string;
+      status: string;
+      riskLevel: string;
+      summary: string;
+      groupId: string;
+      groupName: string;
+      advisorId: string;
+      advisorName: string;
+    }>;
+  };
+  assert.equal(body.total, 1);
+  const row = body.items[0]!;
+  assert.equal(row.id, 'alt_staff_1');
+  assert.equal(row.source, 'staff');
+  assert.equal(row.alertId, 'alt_staff_1');
+  assert.equal(row.status, 'STAFF_ALERT');
+  assert.equal(row.riskLevel, 'high');
+  // 摘要只放员工原话，不把「群「…」某人发言命中规则」的前缀倒进列表
+  assert.equal(row.summary, '建议口服一粒格华止');
+  assert.equal(row.groupId, 'grp_1');
+  assert.equal(row.groupName, '客户-汪女士');
+  assert.equal(row.advisorId, 'adv_1');
+  assert.equal(row.advisorName, '李广');
+
+  // 不筛选时员工发言和草稿并列出现
+  const all = await call('GET', '/zhiban/api/service-flow', { cookie });
+  const allIds = (all.json() as { items: Array<{ id: string }> }).items.map((item) => item.id);
+  assert.ok(allIds.includes('alt_staff_1'));
+  assert.ok(allIds.includes('draft_1'));
+
+  const resolved = await call('POST', '/zhiban/api/alerts/alt_staff_1/resolve', {
+    cookie,
+    body: { note: '已和顾问确认，客户没有按这条建议用药' },
+  });
+  assert.equal(resolved.status, 200);
+
+  const after = await call('GET', '/zhiban/api/service-flow?source=staff', { cookie });
+  assert.equal(
+    (after.json() as { items: Array<{ status: string }> }).items[0]!.status,
+    'STAFF_ALERT_RESOLVED',
+  );
+});
+
 test('未核验草稿：详情给出待处理告警数，人工核实后告警关闭', async () => {
   const { ctx, call } = await start();
   installRealDataPorts(ctx);
