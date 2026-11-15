@@ -568,6 +568,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       return {
         id: draft.id,
         summary: draft.inboundSummary,
+        // 红线质检的对象是草稿正文（顾问要说出去的话），告警详情要能直接看到它
+        body: draft.body,
         status: draft.status,
         riskLevel: draft.riskLevel,
       };

@@ -561,7 +561,9 @@ export default function AlertsPage() {
                     rules.filter((rule) => rule.action === 'flag'),
                   )
                 : allRuleKeywords;
-            const matched = isDraft ? [] : matchKeywords(parsed.quote, keywords);
+            // 草稿红线质检的是草稿正文；客户消息摘要只作背景，不能当成长原文。
+            const draftText = isDraft ? (detail.draft?.body ?? '') : parsed.quote;
+            const matched = matchKeywords(draftText, keywords);
             const advisorName = advisorNameOf(alert, detail.advisor?.name);
             const groupName = groupNameOf(alert);
             const riskLabel = draftRiskLabel(draftParts.riskLevel);
@@ -594,14 +596,30 @@ export default function AlertsPage() {
                     </div>
                     {isDraft ? (
                       <>
-                        {detail.draft?.summary ? (
+                        {draftText ? (
                           <blockquote className="alert-quote is-detail">
-                            {detail.draft.summary}
+                            <HighlightedQuote text={draftText} keywords={keywords} />
                           </blockquote>
                         ) : null}
-                        <div className="alert-step-hint">
-                          告警正文只记录命中规则，具体措辞请打开草稿查看。
-                        </div>
+                        {matched.length > 0 ? (
+                          <div className="alert-step-hint">
+                            命中词：
+                            {matched.map((word) => (
+                              <mark className="alert-hit" key={word}>
+                                {word}
+                              </mark>
+                            ))}
+                          </div>
+                        ) : draftText ? null : (
+                          <div className="alert-step-hint">
+                            告警正文只记录命中规则，具体措辞请打开草稿查看。
+                          </div>
+                        )}
+                        {detail.draft?.summary ? (
+                          <div className="alert-step-hint">
+                            客户消息摘要：{detail.draft.summary}
+                          </div>
+                        ) : null}
                         {alert.draftId ? (
                           <Button
                             size="small"

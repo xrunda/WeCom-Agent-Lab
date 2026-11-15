@@ -133,6 +133,9 @@ test('#37 草稿命中关键词：取最高风险，累加命中并记审计，�
   assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 1);
   assert.equal(h.service.alerts().length, 1);
   assert.equal(h.service.alerts()[0]?.kind, 'redline');
+  // 告警要能直接看到草稿里踩线的那句话，而不是只有规则名
+  const message = h.service.alerts()[0]?.message ?? '';
+  assert.match(message, /草稿内容：「您可以先停药观察两天。」/);
 
   const clean = h.service.review({
     body: '今晚吃点清淡的，早点休息。',
@@ -143,6 +146,20 @@ test('#37 草稿命中关键词：取最高风险，累加命中并记审计，�
   });
   assert.equal(clean.hits.length, 0);
   assert.equal(clean.riskLevel, 'low');
+});
+
+test('患者自己提到调药、草稿没调药：不产生红线告警', async () => {
+  const h = harness();
+  const result = h.service.review({
+    body: '收到，复测血压的数据我记下了，晚点请顾问帮您看一下。',
+    riskLevel: 'low',
+    patientId: 'pt_1',
+    source: 'inbound',
+    inboundText: '患者复测血压 150/85，较首次 170/100 回落，要不要减药？',
+  });
+  // 质检对象是顾问要说出去的话；患者问「要不要减药」不该算顾问调药
+  assert.deepEqual(result.hits, []);
+  assert.equal(h.service.alerts().length, 0);
 });
 
 test('#37 急症：只看患者输入也能升级，正文改写为就医引导，告警不带正文', async () => {

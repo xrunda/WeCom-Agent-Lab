@@ -106,6 +106,21 @@ describe('WP-J 页面', () => {
     expect(screen.getByText('处理情况')).toBeInTheDocument();
   });
 
+  it('草稿红线详情展示草稿正文，客户消息只作背景摘要', async () => {
+    const user = userEvent.setup();
+    await renderPage(<AlertsPage />);
+
+    await screen.findByText('草稿涉及急症信号，已标为高风险，需人工确认');
+    const card = cardOf('草稿涉及急症信号，已标为高风险，需人工确认');
+    await user.click(within(card).getByText('查看详情'));
+
+    // 被质检的是顾问要说出去的话，抽屉里先给草稿正文
+    expect(await screen.findByText(/阿姨如果只是短暂头晕/)).toBeInTheDocument();
+    expect(screen.getByText('客户消息摘要：我妈今天头晕，要不要去医院')).toBeInTheDocument();
+    // 客户原话不再冒充 AI 草稿原文
+    expect(screen.queryByText('我妈今天头晕，要不要去医院')).not.toBeInTheDocument();
+  });
+
   it('深链 ?draftId= 直接打开服务流详情抽屉', async () => {
     await renderPage(<ServiceFlowPage />, ['/service-flow?draftId=draft_1007']);
 

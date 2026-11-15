@@ -257,7 +257,7 @@ interface WecomAdminLike {
     actor?: string,
   ): { id: string; name: string; status: string; consecutiveMisroutes: number };
   getDraft?(draftId: string):
-    | { id: string; summary: string; status: string; riskLevel: string }
+    | { id: string; summary: string; body: string; status: string; riskLevel: string }
     | undefined;
   getAdvisor?(advisorId: string): { id: string; name: string; status: string } | undefined;
   getDraftEvidence?(draftId: string): Promise<unknown>;

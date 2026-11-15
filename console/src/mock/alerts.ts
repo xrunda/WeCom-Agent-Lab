@@ -56,7 +56,15 @@ export interface AlertList {
 
 export interface AlertDetail {
   alert: Alert;
-  draft: { id: string; summary: string; status: string; riskLevel: string } | null;
+  draft: {
+    id: string;
+    /** 客户本轮输入摘要（只作背景，不是被质检的原文） */
+    summary: string;
+    /** 被质检的草稿正文 */
+    body: string;
+    status: string;
+    riskLevel: string;
+  } | null;
   patient: { id: string; displayName: string } | null;
   advisor: { id: string; name: string } | null;
 }
@@ -87,6 +95,7 @@ interface DraftRaw {
   patientId: string;
   advisorId: string;
   inboundSummary: string;
+  body: string;
   status: string;
   riskLevel: string;
 }
@@ -242,6 +251,7 @@ export async function getAlertDetail(id: string): Promise<AlertDetail> {
       ? {
           id: draft.id,
           summary: draft.inboundSummary,
+          body: draft.body,
           status: draft.status,
           riskLevel: draft.riskLevel,
         }
