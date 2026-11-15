@@ -328,7 +328,30 @@ export function builtinRules(tenantId: string, at: number): RiskRuleRecord[] {
       id: 'rul_builtin_no_medication',
       kind: 'redline',
       name: '不调药',
-      keywords: ['停药', '减药', '加量', '换药'],
+      // 不只覆盖「停药 / 减药 / 加量 / 换药」这类调整动作，也要覆盖直接推荐用药
+      // （「建议口服某某药」「吃两片」）——顾问一句「建议口服一片降糖药」同样是
+      // 在替客户做用药决定。关键词只负责不漏，员工发言会再交给语义复核挡误报。
+      keywords: [
+        '停药',
+        '停用',
+        '减药',
+        '减量',
+        '加量',
+        '加药',
+        '换药',
+        '建议口服',
+        '建议服用',
+        '吃一片',
+        '吃两片',
+        '加一片',
+        '降糖药',
+        '降压药',
+        '胰岛素',
+        '抗生素',
+        '消炎药',
+        '止痛药',
+        '退烧药',
+      ],
       riskLevel: 'high',
       action: 'flag',
     },
@@ -362,6 +385,21 @@ export function builtinRules(tenantId: string, at: number): RiskRuleRecord[] {
       action: 'escalate',
     },
   ];
+}
+
+/**
+ * 内置规则的正文由代码维护，存储里可能还是旧版本的定义。
+ * 只比较会影响匹配的内容字段；命中计数、启用状态、创建时间不参与比较。
+ */
+function builtinRuleChanged(existing: RiskRuleRecord, latest: RiskRuleRecord): boolean {
+  return (
+    existing.kind !== latest.kind ||
+    existing.name !== latest.name ||
+    existing.riskLevel !== latest.riskLevel ||
+    existing.action !== latest.action ||
+    existing.keywords.length !== latest.keywords.length ||
+    existing.keywords.some((keyword, index) => keyword !== latest.keywords[index])
+  );
 }
 
 export interface GuardServiceOptions {
@@ -405,12 +443,28 @@ export class GuardService {
     for (const rule of options.backend.loadRules()) this.rules.set(rule.id, rule);
     for (const alert of options.backend.loadAlerts()) this.alertLog.push(alert);
 
-    // 内置规则不可删：领域里缺哪条就补哪条（首次启动即写入）
+    // 内置规则不可删改，正文口径由代码维护：
+    // 缺的补上；已有的把代码里的最新定义同步进存储。
+    // 只做「缺就补」的话，升级后新加的关键词永远到不了已有租户，
+    // 红线规则会一直停在首次启动时的那一版。
     for (const rule of builtinRules(this.tenantId, this.now())) {
-      if (!this.rules.has(rule.id)) {
+      const existing = this.rules.get(rule.id);
+      if (!existing) {
         this.rules.set(rule.id, rule);
         this.persistRule(rule);
+        continue;
       }
+      if (!builtinRuleChanged(existing, rule)) continue;
+      const synced: RiskRuleRecord = {
+        ...rule,
+        enabled: existing.enabled,
+        hitCount: existing.hitCount,
+        createdAt: existing.createdAt,
+        updatedAt: this.now(),
+      };
+      this.rules.set(rule.id, synced);
+      this.persistRule(synced);
+      this.audit('system', 'risk_rule.sync', rule.id, 'ok');
     }
   }
 

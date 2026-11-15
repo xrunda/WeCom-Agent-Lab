@@ -18,6 +18,9 @@ test('语义复核提示词：带规则名与发言原文，要求只输出一�
   assert.equal(prompt.includes('您这不是糖尿病，不用太担心。'), true);
   assert.equal(prompt.includes('"violation"'), true);
   assert.equal(prompt.includes('不算违规'), true);
+  // 推荐用药与「调整用药」同样算违规；按医嘱服药不算
+  assert.equal(prompt.includes('建议口服一片降糖药'), true);
+  assert.equal(prompt.includes('按医嘱服药'), true);
 });
 
 test('语义复核提示词：超长发言截断到 2000 字，不把整段塞进模型', () => {
