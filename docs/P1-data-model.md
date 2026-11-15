@@ -175,6 +175,7 @@ media：文件在磁盘，元数据随消息保存
 | `role` | enum | 否 | `admin` / `supervisor` / `viewer` / `platform` |
 | `scope` | enum | 否 | `tenant`（默认，看全租户）/ `self`（只看绑定顾问名下），见 [P1-multi-advisor.md](./P1-multi-advisor.md) |
 | `advisorId` | string | 是 | `scope=self` 时必填；`admin` 强制 `scope=tenant` 且为空 |
+| `wecomUserId` | string | 是 | 企微 userid，租户内唯一；扫码登录据此匹配账号（#181） |
 | `status` | enum | 否 | `active` / `disabled` |
 | `lastLoginAt` | number | 是 | |
 | `createdAt` | number | 否 | |

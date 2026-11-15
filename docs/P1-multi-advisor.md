@@ -70,6 +70,8 @@
 
 约束：`CHECK (scope = 'tenant' OR advisor_id IS NOT NULL)`；`admin` 角色写入时强制 `scope='tenant'`。
 
+> 登录方式（企微扫码）另见 #181：同一张表会新增 `wecomUserId`，扫码登录据此匹配账号；权限仍由本表的 `role` / `scope` 决定，不因扫码自动升权。
+
 ### 4.2 advisor（`advisors` 表）
 
 契约已完整（[P1-data-model §3.3](./P1-data-model.md)），只补约束与迁移：
