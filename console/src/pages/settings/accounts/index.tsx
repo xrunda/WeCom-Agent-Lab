@@ -30,7 +30,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
-import { getWecomBindUrl } from '../../../mock/api.ts';
+import { getWecomBindUrl, isMockMode } from '../../../mock/api.ts';
 import {
   createAccount,
   deleteAccount,
@@ -280,6 +280,8 @@ export default function AccountsSettingsPage() {
   }
 
   const isSelf = (account: Account) => session?.account.id === account.id;
+  // 扫码绑定绑定的是扫码人自己的身份，且 mock 模式没有企微后端
+  const canScanBind = Boolean(target && isSelf(target) && !isMockMode);
 
   const columns: ColumnsType<Account> = [
     {
@@ -627,7 +629,7 @@ export default function AccountsSettingsPage() {
         }}
         destroyOnHidden
       >
-        {target && isSelf(target) ? (
+        {canScanBind ? (
           <div className="wecom-bind-scan">
             <Button
               type="primary"
@@ -644,7 +646,7 @@ export default function AccountsSettingsPage() {
         ) : null}
         <Form<WecomFormValues> form={wecomForm} layout="vertical" requiredMark={false} preserve={false}>
           <Form.Item
-            label={target && isSelf(target) ? '或手动填写 userid' : '企微成员 userid'}
+            label={canScanBind ? '或手动填写 userid' : '企微成员 userid'}
             name="wecomUserId"
             rules={[
               { pattern: WECOM_USERID_PATTERN, message: '1–64 位字母、数字与 . _ @ -' },
