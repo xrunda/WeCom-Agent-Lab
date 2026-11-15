@@ -61,6 +61,7 @@ import {
 import { formatDateTime } from '../../utils/format.ts';
 import { diffSegments } from './diff.ts';
 import { deliveryEmptyText } from './delivery.ts';
+import { guardNextStep, guardRiskSituation } from './guard-guidance.ts';
 import './service-flow.css';
 
 const { Text, Paragraph } = Typography;
@@ -303,7 +304,7 @@ export default function ServiceFlowPage() {
     setResolvingGuard(true);
     try {
       await resolveAlert(guardAlert.id, note);
-      message.success('红线告警已处理');
+      message.success('已核实并关闭红线告警');
       setGuardAlert(null);
       setGuardNote('');
       await load();
@@ -651,14 +652,33 @@ export default function ServiceFlowPage() {
         destroyOnHidden
         loading={detailLoading}
         extra={
-          detail && can('export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
-            <Button
-              icon={<FilePdfOutlined />}
-              loading={exporting}
-              onClick={() => void exportEvidence(detail.draft.id)}
-            >
-              导出证据链 PDF
-            </Button>
+          detail ? (
+            <Space>
+              {can('alert.write') &&
+                detail.guardAlerts?.items.some((item) => item.status !== 'resolved') && (
+                  <Button
+                    type="primary"
+                    danger
+                    onClick={() => {
+                      const pending = detail.guardAlerts?.items.find(
+                        (item) => item.status !== 'resolved',
+                      );
+                      if (pending) setGuardAlert(pending);
+                    }}
+                  >
+                    核实并关闭告警
+                  </Button>
+                )}
+              {can('export') && EVIDENCE_STATUSES.has(detail.draft.status) ? (
+                <Button
+                  icon={<FilePdfOutlined />}
+                  loading={exporting}
+                  onClick={() => void exportEvidence(detail.draft.id)}
+                >
+                  导出证据链 PDF
+                </Button>
+              ) : null}
+            </Space>
           ) : undefined
         }
         title={
@@ -731,17 +751,19 @@ export default function ServiceFlowPage() {
                   icon={<WarningOutlined />}
                   message={item.kind === 'escalate' ? '急症升级，草稿已改为就医引导' : '草稿命中红线'}
                   description={
-                    <Space direction="vertical" size={2}>
+                    <Space direction="vertical" size={4}>
                       <span>{item.message}</span>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {formatDateTime(item.createdAt)}
                       </Text>
+                      <span>{guardRiskSituation(detail.draft.status)}</span>
+                      <Text type="secondary">{guardNextStep(can('alert.write'))}</Text>
                     </Space>
                   }
                   action={
                     can('alert.write') ? (
                       <Button size="small" onClick={() => setGuardAlert(item)}>
-                        处理
+                        核实并关闭
                       </Button>
                     ) : undefined
                   }
@@ -753,8 +775,8 @@ export default function ServiceFlowPage() {
                 <Alert
                   type="success"
                   showIcon
-                  message="红线告警已处理"
-                  description={`这条草稿的 ${detail.guardAlerts.resolved} 条红线 / 急症告警已由管理员处理；草稿正文与状态保持原样，不做事后修改。`}
+                  message="红线告警已核实关闭"
+                  description={`这条草稿的 ${detail.guardAlerts.resolved} 条红线 / 急症告警已由管理员核实并关闭；草稿正文与状态保持原样，不做事后修改。`}
                 />
               )}
             <Descriptions bordered size="small" column={4}>
@@ -945,8 +967,8 @@ export default function ServiceFlowPage() {
 
       <Modal
         open={Boolean(guardAlert)}
-        title="处理红线告警"
-        okText="确认已处理"
+        title="核实并关闭红线告警"
+        okText="确认已核实"
         cancelText="取消"
         confirmLoading={resolvingGuard}
         okButtonProps={{ disabled: guardNote.trim() === '' }}
@@ -965,13 +987,13 @@ export default function ServiceFlowPage() {
             description={guardAlert?.message}
           />
           <Text type="secondary">
-            写下处理经过，会记到审计里。只关闭这条告警，草稿正文和状态不会改动。
+            写下你怎么核实的（比如客户实际收到的话术、顾问怎么纠正的），会记到审计里。只关闭这条告警，草稿正文和状态不会改动。
           </Text>
           <Input.TextArea
             rows={3}
             maxLength={200}
             showCount
-            placeholder="例如：已电话联系顾问，确认后续回复不再解释病因，只建议就医"
+            placeholder="例如：已电话联系顾问，客户收到的是改后的回复，风险话术没有发出去"
             value={guardNote}
             onChange={(event) => setGuardNote(event.target.value)}
           />
