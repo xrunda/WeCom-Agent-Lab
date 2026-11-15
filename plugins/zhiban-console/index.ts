@@ -116,6 +116,19 @@ export const inject = ['webServer', 'storageDomain'];
 
 type EffectCleanup = void | (() => void | Promise<void>);
 
+/** 收起 guard 服务里控制台需要的那部分：按患者列出告警，用于补 draftId */
+interface GuardAlertLinkApi {
+  alerts?(patientId?: string): Array<{
+    id: string;
+    draftId?: string;
+    patientId?: string;
+    advisorId?: string;
+    groupId?: string;
+    source?: 'draft' | 'staff';
+    updatedAt?: number;
+  }>;
+}
+
 export interface DshWebRoute {
   kind: 'exact' | 'prefix';
   path: string;
@@ -544,6 +557,32 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         };
       },
     });
+
+    /**
+     * 历史孤儿告警校准：草稿关联是在告警创建之后才回填的，控制台若没收到
+     * `alert.updated`（旧版本、重启或漏事件），这条告警就永远查不到草稿。
+     * 打开草稿详情时按 guard 存储再对一次，只补空字段，可重复执行。
+     */
+    const syncGuardAlertLinks = (patientId: string): void => {
+      const guard = ctx.get<GuardAlertLinkApi>('zhibanGuard');
+      if (!guard?.alerts) return;
+      try {
+        for (const alert of guard.alerts(patientId)) {
+          if (!alert?.id || !alert.draftId) continue;
+          alerts.applyUpdate({
+            id: alert.id,
+            draftId: alert.draftId,
+            patientId: alert.patientId,
+            advisorId: alert.advisorId,
+            groupId: alert.groupId,
+            source: alert.source,
+            updatedAt: alert.updatedAt,
+          });
+        }
+      } catch (error) {
+        log(`告警关联校准失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
 
     const sandbox = new SandboxService({
       tenantId: config.tenantId,
@@ -2458,10 +2497,32 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         }));
         // 未核验是草稿终态，但挂在它上面的告警是可以人工关掉的：
         // 抽屉据此决定要不要给「标记已核实」入口，而不是把入口永远挂在这种状态上。
-        const related = alerts.list({ draftId: draft.id, kind: 'unverified', pageSize: 100 }).items;
+        // 红线 / 急症告警同样要按草稿聚合出来，否则草稿页看不到、也没法处理。
+        // 先按 guard 存储校准一次关联，历史告警即使漏了 alert.updated 也能补上。
+        syncGuardAlertLinks(detail.patient.id);
+        const related = alerts.list({ draftId: draft.id, pageSize: 100 }).items;
+        const unverified = related.filter((alert) => alert.kind === 'unverified');
         detail.unverifiedAlerts = {
-          pending: related.filter((alert) => alert.status !== 'resolved').length,
-          resolved: related.filter((alert) => alert.status === 'resolved').length,
+          pending: unverified.filter((alert) => alert.status !== 'resolved').length,
+          resolved: unverified.filter((alert) => alert.status === 'resolved').length,
+        };
+        const guardAlerts = related.filter(
+          (alert) => alert.kind === 'redline' || alert.kind === 'escalate',
+        );
+        detail.guardAlerts = {
+          pending: guardAlerts.filter((alert) => alert.status !== 'resolved').length,
+          resolved: guardAlerts.filter((alert) => alert.status === 'resolved').length,
+          items: guardAlerts.map((alert) => ({
+            id: alert.id,
+            kind: alert.kind,
+            severity: alert.severity,
+            status: alert.status,
+            title: alert.title,
+            message: alert.message,
+            note: alert.note,
+            createdAt: alert.createdAt,
+            resolvedAt: alert.resolvedAt,
+          })),
         };
         respond(rc, 200, detail);
       },
@@ -2927,6 +2988,17 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           alerts.ingest(data);
         } catch (error) {
           log(`告警入库失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }),
+    );
+    // 告警先于草稿产生，guard 在草稿落库后补发带 draftId 的 alert.updated；
+    // 不接这个事件，控制台里的告警就永远没有草稿关联，抽屉里看不到。
+    disposers.push(
+      ctx.on('alert.updated', (data) => {
+        try {
+          alerts.applyUpdate(data);
+        } catch (error) {
+          log(`告警更新失败：${error instanceof Error ? error.message : String(error)}`);
         }
       }),
     );

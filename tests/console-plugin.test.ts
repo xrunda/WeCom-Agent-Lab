@@ -1492,6 +1492,7 @@ function installKnowledgeApi(ctx: FakeConsoleContext): { records: Map<string, Kn
 /** 用真实 GuardService + 内存后端，验证控制台路由与内置红线只读语义。 */
 function installGuardApi(ctx: FakeConsoleContext): {
   rules: Map<string, RiskRuleRecord>;
+  service: GuardService;
 } {
   const rules = new Map<string, RiskRuleRecord>();
   const alerts: GuardAlertRecord[] = [];
@@ -1511,7 +1512,7 @@ function installGuardApi(ctx: FakeConsoleContext): {
         alerts.push(alert);
       },
     },
-    newId: () => `rul_kw_${++seq}`,
+    newId: (prefix: string) => `${prefix}_kw_${++seq}`,
   });
   ctx.provide('zhibanGuard', {
     listRules: (query?: { kind?: 'redline' | 'keyword'; enabled?: boolean }) =>
@@ -1520,8 +1521,9 @@ function installGuardApi(ctx: FakeConsoleContext): {
     createRule: (input: RiskRuleCreateInput) => service.create(input),
     updateRule: (id: string, patch: RiskRuleUpdateInput) => service.update(id, patch),
     deleteRule: (id: string) => service.remove(id),
+    alerts: (patientId?: string) => service.alerts(patientId),
   });
-  return { rules };
+  return { rules, service };
 }
 
 test('知识库：真实 CRUD、分页、重复标题与控制台审计', async () => {
@@ -2078,6 +2080,118 @@ test('未核验草稿：详情给出待处理告警数，人工核实后告警�
   });
   assert.equal(again.status, 200);
   assert.equal((again.json() as { resolved: number }).resolved, 0);
+});
+
+test('草稿红线告警：alert.updated 补上 draftId 后，服务流详情可见并能处理', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  // 告警先于草稿产生：创建事件里没有 draftId，服务流抽屉查不到
+  ctx.emitTo('alert.created', {
+    id: 'alt_guard_draft_1',
+    kind: 'redline',
+    severity: 'warning',
+    status: 'open',
+    title: '草稿命中高风险规则',
+    message: '命中规则：不诊断；风险等级 high',
+    patientId: 'pat_1',
+    groupId: 'grp_1',
+    source: 'draft',
+    createdAt: Date.now(),
+  });
+  const before = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  assert.equal(before.status, 200);
+  assert.equal(
+    (before.json() as { guardAlerts?: { pending: number } }).guardAlerts?.pending ?? 0,
+    0,
+  );
+
+  // guard 回填后补发 alert.updated，控制台必须把草稿关联补上
+  ctx.emitTo('alert.updated', {
+    id: 'alt_guard_draft_1',
+    kind: 'redline',
+    severity: 'warning',
+    status: 'open',
+    title: '草稿命中高风险规则',
+    message: '命中规则：不诊断；风险等级 high',
+    draftId: 'draft_1',
+    patientId: 'pat_1',
+    groupId: 'grp_1',
+    source: 'draft',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+
+  const after = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  const body = after.json() as {
+    guardAlerts: { pending: number; resolved: number; items: Array<{ id: string; message: string }> };
+  };
+  assert.equal(body.guardAlerts.pending, 1);
+  assert.equal(body.guardAlerts.resolved, 0);
+  assert.equal(body.guardAlerts.items[0]!.id, 'alt_guard_draft_1');
+  assert.match(body.guardAlerts.items[0]!.message, /不诊断/);
+
+  const resolved = await call('POST', '/zhiban/api/alerts/alt_guard_draft_1/resolve', {
+    cookie,
+    body: { note: '已联系顾问，后续不再解释病因' },
+  });
+  assert.equal(resolved.status, 200);
+
+  const done = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  const doneBody = done.json() as { guardAlerts: { pending: number; resolved: number } };
+  assert.equal(doneBody.guardAlerts.pending, 0);
+  assert.equal(doneBody.guardAlerts.resolved, 1);
+});
+
+test('漏掉 alert.updated 时，打开草稿详情会按 guard 存储补上草稿关联', async () => {
+  const { ctx, call } = await start();
+  installRealDataPorts(ctx);
+  const { service } = installGuardApi(ctx);
+  const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+
+  const review = service.review({
+    body: '这个情况基本可以诊断了，先按经验处理。',
+    riskLevel: 'low',
+    patientId: 'pat_1',
+    groupId: 'grp_1',
+    source: 'inbound',
+  });
+  const guardAlert = service.alerts('pat_1').find((item) => item.id === review.alertId)!;
+  service.linkDraft(guardAlert.id, 'draft_1');
+
+  // 模拟旧版本 / 漏事件：控制台只收到没有 draftId 的创建事件
+  ctx.emitTo('alert.created', {
+    id: guardAlert.id,
+    kind: 'redline',
+    severity: 'warning',
+    status: 'open',
+    title: '草稿命中高风险规则',
+    message: '命中规则：不诊断；风险等级 high',
+    patientId: 'pat_1',
+    groupId: 'grp_1',
+    source: 'draft',
+    createdAt: guardAlert.createdAt,
+  });
+  const listBefore = await call('GET', '/zhiban/api/alerts?kind=redline', { cookie });
+  assert.equal(
+    (listBefore.json() as { items: Array<{ draftId: string | null }> }).items[0]!.draftId,
+    null,
+  );
+
+  const detail = await call('GET', '/zhiban/api/service-flow/draft_1', { cookie });
+  const body = detail.json() as {
+    guardAlerts?: { pending: number; items: Array<{ id: string }> };
+  };
+  assert.equal(body.guardAlerts?.pending, 1);
+  assert.equal(body.guardAlerts?.items[0]?.id, guardAlert.id);
+
+  // 校准写回告警记录，之后不再依赖每次打开抽屉
+  const listAfter = await call('GET', '/zhiban/api/alerts?kind=redline', { cookie });
+  assert.equal(
+    (listAfter.json() as { items: Array<{ draftId: string | null }> }).items[0]!.draftId,
+    'draft_1',
+  );
 });
 
 test('顾问：队列深度来自真实草稿，暂停/恢复同时落到企微与患者域', async () => {

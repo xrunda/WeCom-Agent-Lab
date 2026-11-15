@@ -89,7 +89,7 @@ DSH 现有 hook 无法在 `reply_draft` 入队前改写参数（`tools/pre-execu
 
 - 领域：`zhiban_guard`（`rules` / `alerts` / `audit`）。
 - 提供 `zhibanGuard` 服务：`review`、`checkStaffMessage`、`reviewStaffMessage`、`dismissStaffMessage`、`linkDraft`、`listRules`、`getRule`、`createRule`、`updateRule`、`deleteRule`、`escalate`、`alerts`、`audits`、`flush`。
-- 事件：`risk_rule.created|updated|deleted|hit|dismissed`、`alert.created`、`draft.guard.hit`、`audit`。
+- 事件：`risk_rule.created|updated|deleted|hit|dismissed`、`alert.created`、`alert.updated`（草稿落库后回填 `draftId`）、`draft.guard.hit`、`audit`。
 
 ### 2.7 员工发言质检（人工消息也过红线）
 

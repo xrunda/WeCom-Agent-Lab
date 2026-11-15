@@ -132,6 +132,18 @@ export interface FlowAuditItem {
   at: number;
 }
 
+export interface FlowGuardAlert {
+  id: string;
+  kind: string;
+  severity: string;
+  status: string;
+  title: string;
+  message: string;
+  note: string | null;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
 export interface FlowDetail {
   draft: FlowDraft;
   patient: { id: string; displayName: string };
@@ -149,6 +161,12 @@ export interface FlowDetail {
   note?: string;
   /** 未核验草稿的告警状态：pending 为尚未关闭的未核验告警数 */
   unverifiedAlerts?: { pending: number; resolved: number };
+  /** 草稿命中红线 / 急症的告警：抽屉里直接展示并提供处理入口 */
+  guardAlerts?: {
+    pending: number;
+    resolved: number;
+    items: FlowGuardAlert[];
+  };
 }
 
 export interface ServiceFlowQuery {
