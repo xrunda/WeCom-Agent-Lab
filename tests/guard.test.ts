@@ -84,6 +84,36 @@ test('#37 初始化即补齐四条内置规则，且不可改删', async () => {
   assert.throws(() => h.service.remove('rul_builtin_emergency'), /IMMUTABLE_RESOURCE/);
 });
 
+test('#37 内置规则升级：已有规则同步为代码里的最新关键词，保留命中计数与创建时间', async () => {
+  const clock = new FakeClock(1_700_000_000_000);
+  const backend = new MemoryGuardBackend();
+  const latest = builtinRules('tn_test', clock.now()).find(
+    (rule) => rule.id === 'rul_builtin_no_medication',
+  )!;
+  // 模拟老版本落盘的内置规则：关键词只有最早那四个
+  const legacy: RiskRuleRecord = {
+    ...latest,
+    keywords: ['停药', '减药', '加量', '换药'],
+    hitCount: 7,
+    createdAt: 1_600_000_000_000,
+  };
+  backend.rules.set(legacy.id, legacy);
+
+  const service = new GuardService({ tenantId: 'tn_test', backend, now: () => clock.now() });
+  await service.flush();
+
+  const synced = service.get('rul_builtin_no_medication')!;
+  assert.deepEqual(synced.keywords, latest.keywords);
+  assert.equal(synced.hitCount, 7);
+  assert.equal(synced.createdAt, 1_600_000_000_000);
+  assert.ok(
+    service.audits().some((event) => event.action === 'risk_rule.sync' && event.target === legacy.id),
+  );
+  // 缺的三条照常补齐，已有规则不会被当成新规则重复写入
+  assert.equal(service.list().length, 4);
+  assert.equal(backend.rules.size, 4);
+});
+
 test('#37 草稿命中关键词：取最高风险，累加命中并记审计，不阻断', async () => {
   const h = harness();
   const result = h.service.review({
@@ -623,6 +653,33 @@ test('员工发言命中红线：告警带顾问 / 群 / msgid 与原文摘录�
   assert.equal(created.source, 'staff');
   // 控制台靠 alert.created 拿到详情，事件里必须带摘录
   assert.equal(String(created.message).includes(text), true);
+});
+
+test('员工推荐用药也命中「不调药」：初筛进复核，告警摘录带触发句', () => {
+  const h = harness();
+  const text = '血糖要是还高，建议口服一片降糖药试试。';
+
+  // 只是推荐用药、没有「停药 / 减量」这类调整动作，也必须进语义复核
+  const pre = h.service.checkStaffMessage({ text, advisorId: 'adv_test' });
+  assert.deepEqual(pre.hits, ['rul_builtin_no_medication']);
+  assert.deepEqual(pre.hitNames, ['不调药']);
+  assert.equal(pre.alertId, undefined);
+
+  const result = h.service.reviewStaffMessage({
+    text,
+    advisorId: 'adv_test',
+    advisorName: '顾问甲',
+    groupId: 'wr_test_2',
+    groupName: '测试服务群',
+    messageId: 'msg_med_1',
+  });
+  assert.ok(result.hits.includes('rul_builtin_no_medication'));
+  assert.ok(result.alertId);
+  const alert = h.service.alerts()[0]!;
+  assert.equal(alert.source, 'staff');
+  assert.equal(alert.message.includes('建议口服'), true);
+  // 摘录进告警详情供人工复核；审计、事件与日志仍不带正文
+  assert.equal(JSON.stringify(h.service.audits()).includes(text), false);
 });
 
 test('员工发言质检：否定句、症状复述不算违规；同一 msgid 只记一次', () => {
