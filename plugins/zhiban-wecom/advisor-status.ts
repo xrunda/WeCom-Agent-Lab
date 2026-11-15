@@ -1,14 +1,16 @@
 /**
- * 顾问 1:1 的「我的待办 / 我的草稿」确定性查询。
+ * 顾问 1:1 的「我的待办」确定性命令（#167 §9）。
  *
- * 只回答本人名下的事实：未完成草稿、今日到期承诺、未处理告警。
- * 不带草稿正文、不带客户消息，也不调用模型；数据不齐时如实说没有。
- * 日志由调用方按 userid 尾号记录，本模块不落日志。
+ * 命令表已收窄：帮助 / 重置对话 / 我的待办 / 纯编号。我的草稿、知识、话术、
+ * 为什么红线等关键词路径全部退役为 Agent 工具，这里只保留待办命令。
+ * 输出与 `advisor_overview` 工具共用 `src/p1/advisor/format.ts` 的同一个函数，
+ * 避免两边数字或措辞不一致。不带草稿正文，不调用模型。
  */
-import { humanWait } from '../../src/c2/message.ts';
-import { shanghaiDayStart } from '../../src/c2/promises.ts';
+import { buildTodoSnapshot, formatTodoText } from '../../src/p1/advisor/format.ts';
+import type { TodoSnapshot } from '../../src/p1/advisor/types.ts';
 
 export interface StatusDraft {
+  id: string;
   groupName: string;
   riskLevel: 'low' | 'medium' | 'high';
   status: string;
@@ -24,7 +26,7 @@ export interface StatusPromise {
 }
 
 export interface StatusAlert {
-  /** 已脱敏的告警标题，如「员工发言命中红线」 */
+  id: string;
   title: string;
   at: number;
 }
@@ -33,40 +35,20 @@ export interface AdvisorStatusDeps {
   drafts(advisorId: string): StatusDraft[];
   promises(advisorId: string): StatusPromise[];
   alerts(advisorId: string): StatusAlert[];
+  /** 待回复会话数；侧边栏未接入时 undefined */
+  pendingReplies?(advisorId: string): number | undefined;
   now?: () => number;
 }
 
 const TODO_COMMAND = /^(?:(?:我的|今天)\s*)?待办(?:事项)?$/;
-const DRAFTS_COMMAND = /^(?:我的\s*)?草稿(?:列表)?$/;
 
-const DRAFT_LIMIT = 5;
-const DAY_MS = 24 * 60 * 60_000;
-
-export type AdvisorStatusCommand = 'todo' | 'drafts';
+export type AdvisorStatusCommand = 'todo';
 
 export function isAdvisorStatusCommand(text: string): AdvisorStatusCommand | undefined {
   const trimmed = text.trim();
   if (TODO_COMMAND.test(trimmed)) return 'todo';
-  if (DRAFTS_COMMAND.test(trimmed)) return 'drafts';
   return undefined;
 }
-
-const RISK_LABELS: Record<StatusDraft['riskLevel'], string> = {
-  high: '高风险',
-  medium: '中风险',
-  low: '低风险',
-};
-
-const DRAFT_STATUS_LABELS: Record<string, string> = {
-  QUEUED: '排队中',
-  PUSHED: '待确认',
-  FAILED: '推送失败',
-  UNVERIFIED: '待核验',
-  MISROUTE_ALERT: '疑似发错群',
-};
-
-/** 仍在顾问手里的草稿；已确认、忽略、已验证、已释放都不算待办 */
-const OPEN_DRAFT_STATUSES = new Set(Object.keys(DRAFT_STATUS_LABELS));
 
 export class AdvisorStatusService {
   private readonly deps: AdvisorStatusDeps;
@@ -79,65 +61,16 @@ export class AdvisorStatusService {
     return this.deps.now?.() ?? Date.now();
   }
 
-  /** 命中指令时返回回复文本；不是指令返回 undefined，交给改稿流程 */
+  /** 命中待办指令时返回回复文本；不是指令返回 undefined */
   reply(advisorId: string, text: string): string | undefined {
-    const command = isAdvisorStatusCommand(text);
-    if (!command) return undefined;
-    const open = this.deps
-      .drafts(advisorId)
-      .filter((draft) => OPEN_DRAFT_STATUSES.has(draft.status));
-    if (command === 'drafts') return this.draftsText(open);
-    return this.todoText(advisorId, open);
-  }
-
-  private draftsText(drafts: StatusDraft[]): string {
-    if (drafts.length === 0) return '你名下没有未完成的草稿。';
-    const now = this.now();
-    const lines = drafts
-      .slice(0, DRAFT_LIMIT)
-      .map((draft, index) => {
-        const status = DRAFT_STATUS_LABELS[draft.status] ?? draft.status;
-        const wait = humanWait(Math.max(0, now - draft.since));
-        const version = draft.version && draft.version > 1 ? ` · 第 ${draft.version} 版` : '';
-        return `${index + 1}. ${draft.groupName} · ${status} · ${RISK_LABELS[draft.riskLevel]} · 已等 ${wait}${version}`;
-      });
-    const more = drafts.length > DRAFT_LIMIT ? `\n只列出前 ${DRAFT_LIMIT} 条。` : '';
-    return (
-      `你名下 ${drafts.length} 条未完成草稿：\n${lines.join('\n')}${more}\n\n` +
-      '正文在企微侧边栏查看；收到草稿后直接回复一句话可以改稿。'
-    );
-  }
-
-  private todoText(advisorId: string, drafts: StatusDraft[]): string {
-    const now = this.now();
-    const dayStart = shanghaiDayStart(now);
-    const dayEnd = dayStart + DAY_MS;
-    const promises = this.deps
-      .promises(advisorId)
-      .filter((promise) => promise.dueAt < dayEnd);
-    const alerts = this.deps.alerts(advisorId);
-    const total = drafts.length + promises.length + alerts.length;
-    if (total === 0) {
-      return '现在没有待办：没有未完成草稿、今天没有到期承诺、也没有未处理告警。';
-    }
-
-    const facts: string[] = [];
-    if (drafts.length > 0) {
-      const oldest = Math.min(...drafts.map((draft) => draft.since));
-      facts.push(`待处理草稿 ${drafts.length} 条（最久 ${humanWait(Math.max(0, now - oldest))}）`);
-    }
-    if (promises.length > 0) {
-      const next = [...promises].sort((a, b) => a.dueAt - b.dueAt)[0]!;
-      facts.push(`今日到期承诺 ${promises.length} 条（最近 ${next.dueLabel}）`);
-    }
-    if (alerts.length > 0) {
-      const latest = [...alerts].sort((a, b) => b.at - a.at)[0]!;
-      facts.push(`未处理告警 ${alerts.length} 条（最近：${latest.title}）`);
-    }
-
-    return (
-      `今天待办：\n· ${facts.join('\n· ')}\n\n` +
-      '草稿正文在企微侧边栏查看；告警详情在控制台「质检与告警」。'
-    );
+    if (isAdvisorStatusCommand(text) !== 'todo') return undefined;
+    const snapshot: TodoSnapshot = buildTodoSnapshot({
+      drafts: this.deps.drafts(advisorId),
+      promises: this.deps.promises(advisorId),
+      alerts: this.deps.alerts(advisorId),
+      pendingReplies: this.deps.pendingReplies?.(advisorId),
+      now: this.now(),
+    });
+    return formatTodoText(snapshot);
   }
 }
