@@ -76,6 +76,23 @@
   font-size: 12px;
 }
 
+/* 系统提示词原文：管理员要能逐条核对，不用等宽字体，保留换行 */
+.agent-prompt {
+  max-height: 360px;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border: 1px solid var(--zb-line);
+  border-radius: var(--zb-radius-sm);
+  background: var(--zb-surface-2);
+  color: var(--zb-ink-2);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 企微状态 */
 .wecom-status-grid {
   display: grid;

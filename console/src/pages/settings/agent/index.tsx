@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '../../../auth/AuthContext.tsx';
 import { ENABLED_CAPABILITIES } from '../../../capabilities.ts';
+import { getAgentPrompt } from '../../../mock/api.ts';
 import {
   PATIENT_TERM_MAX_LENGTH,
   PATIENT_TERMS,
@@ -40,6 +41,8 @@ export default function AgentSettingsPage() {
   const { message } = App.useApp();
   const canWrite = can('tenant.write');
   const [saving, setSaving] = useState(false);
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const [promptLoading, setPromptLoading] = useState(true);
   const [form] = Form.useForm<AgentFormValues>();
 
   useEffect(() => {
@@ -51,6 +54,26 @@ export default function AgentSettingsPage() {
       tone: tenant.tone,
     });
   }, [form, tenant]);
+
+  // 展示当前实际注入的提示词；保存设定后 tenant.updatedAt 变化，重新取一版
+  useEffect(() => {
+    let alive = true;
+    setPromptLoading(true);
+    getAgentPrompt()
+      .then((value) => {
+        if (alive) setPrompt(value);
+      })
+      .catch(() => {
+        // 患者 Agent 未运行时读不到；页面其他部分仍可用
+        if (alive) setPrompt(null);
+      })
+      .finally(() => {
+        if (alive) setPromptLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [tenant?.updatedAt]);
 
   const agentName = Form.useWatch('agentName', form) ?? tenant?.agentName ?? 'Agent';
   const agentAvatar = Form.useWatch('agentAvatar', form) ?? tenant?.agentAvatar ?? null;
@@ -181,10 +204,34 @@ export default function AgentSettingsPage() {
             示例回复仅用于预览文案与称谓；真实回复会带上机构知识、记忆与红线约束。
           </Paragraph>
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Text type="secondary">系统提示词包含：名字、称谓、语气说明，以及不诊断、不调药、不承诺疗效、急症引导就医四条红线。</Text>
+            <Text type="secondary">
+              系统提示词包含：名字、称谓、语气说明、说话方式（像真人顾问、60–150 字、不分点），以及健康红线和工具约定。
+            </Text>
           </Space>
         </Card>
       </div>
+
+      <Card
+        className="zb-card"
+        variant="borderless"
+        title="系统提示词"
+        extra={<Text type="secondary">只读 · 每轮对话注入</Text>}
+        style={{ marginTop: 16 }}
+      >
+        <Paragraph type="secondary" style={{ marginTop: 0 }}>
+          由上面的名字、称谓、语气说明和平台统一规则拼成。说话方式与红线由平台维护，
+          机构不能在这里改；修改「语气说明」保存后，下一轮草稿立即生效。
+        </Paragraph>
+        {promptLoading ? (
+          <Text type="secondary">正在读取当前提示词…</Text>
+        ) : prompt ? (
+          <pre className="agent-prompt">{prompt}</pre>
+        ) : (
+          <Text type="secondary">
+            暂时读不到系统提示词（患者 Agent 未运行）。上面的设定仍会保存并在 Agent 恢复后生效。
+          </Text>
+        )}
+      </Card>
 
       <Card
         className="zb-card"

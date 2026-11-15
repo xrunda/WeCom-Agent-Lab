@@ -141,6 +141,11 @@ describe('WP-L 系统设置', () => {
     expect(screen.getByText(/已保存，下一条草稿与沙盒中的名字立即同步/)).toBeInTheDocument();
     expect(screen.getByText('已启用能力')).toBeInTheDocument();
     expect(screen.getByText('餐食图片识别')).toBeInTheDocument();
+
+    // 系统提示词要能在页面上看到，而不只存在后端
+    expect(await screen.findByText('系统提示词')).toBeInTheDocument();
+    expect(await screen.findByText(/像语音转文字/)).toBeInTheDocument();
+    expect(screen.getAllByText(/60–150 字/).length).toBeGreaterThan(0);
   });
 
   it('只读账号能查看 Agent 设定但不能修改', async () => {
