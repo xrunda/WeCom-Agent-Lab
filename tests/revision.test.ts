@@ -7,7 +7,9 @@ import type { DraftReviewResult } from '../src/p1/guard.ts';
 import { setupPatient, observeServiceGroup, FakeSessions, c2Bridge, SETTINGS } from './p1-helpers.ts';
 import { setup as setupC2, bindDefaultAdvisor } from './helpers.ts';
 
-function buildHarness(options: { guard?: DraftGuardPort } = {}) {
+function buildHarness(
+  options: { guard?: DraftGuardPort; notifyFails?: () => boolean } = {},
+) {
   const c2 = setupC2();
   bindDefaultAdvisor(c2.service, { advisorId: 'adv_1', chatId: 'chat_a1' });
   c2.service.bindGroup({
@@ -20,6 +22,13 @@ function buildHarness(options: { guard?: DraftGuardPort } = {}) {
   const patient = setupPatient();
   const sessions = new FakeSessions();
   const bridge = c2Bridge(c2.service);
+  if (options.notifyFails) {
+    const send = bridge.notifyAdvisor.bind(bridge);
+    bridge.notifyAdvisor = async (text) => {
+      if (options.notifyFails!()) throw new Error('BOT_DOWN');
+      await send(text);
+    };
+  }
   const events: Array<{ type: string; data: unknown }> = [];
   const logs: string[] = [];
   const runtime = new PatientAgentRuntime({
@@ -245,4 +254,51 @@ test('同一份草稿逐版命中风险，1:1 只提醒一次', async () => {
   await h.c2.service.tick();
   await h.runtime.handleAdvisorText('wang.guwen', '再短一点');
   assert.equal(draftNotices().length, 2);
+});
+
+test('风险提醒发送失败不占用去重窗口，机器人恢复后下一次命中仍提醒', async () => {
+  const review: DraftReviewResult = {
+    riskLevel: 'high',
+    hits: ['rul_builtin_emergency'],
+    hitNames: ['急症只引导就医'],
+    actions: [],
+    escalate: false,
+    guideOnly: false,
+  };
+  let botDown = true;
+  const h = buildHarness({ guard: { review: () => review }, notifyFails: () => botDown });
+  h.sessions.onPrompt = async (sessionId) => {
+    await h.runtime.replyDraft(sessionId, {
+      body: '第一版：先别紧张，让叔叔休息。',
+      inboundSummary: '胸痛',
+      riskLevel: 'medium',
+      citedMemoryIds: [],
+      citedKnowledgeIds: [],
+    });
+  };
+
+  const draftNotices = () =>
+    h.c2.bot
+      .texts()
+      .map((record) => (record.message.msgtype === 'text' ? record.message.text.content : ''))
+      .filter((text) => text.startsWith('【风险草稿】'));
+
+  h.runtime.routeInbound(inbound('我爸胸口疼'));
+  h.patient.clock.advance(30_000);
+  await h.runtime.flushDue();
+  // 等 1:1 提醒的失败回执落地
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(draftNotices().length, 0);
+  assert.ok(h.logs.some((line) => line.includes('回执失败')));
+
+  // 30 分钟窗口内再次命中：失败过就不能算已提醒，仍要送一次
+  botDown = false;
+  await h.c2.service.tick();
+  await h.runtime.handleAdvisorText('wang.guwen', '写短一点');
+  assert.equal(draftNotices().length, 1);
+
+  // 成功送达后才进入去重窗口
+  await h.c2.service.tick();
+  await h.runtime.handleAdvisorText('wang.guwen', '再短一点');
+  assert.equal(draftNotices().length, 1);
 });
