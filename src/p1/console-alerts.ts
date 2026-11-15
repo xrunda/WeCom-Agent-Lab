@@ -44,6 +44,7 @@ export interface AlertQuery {
   status?: string;
   advisorId?: string;
   patientId?: string;
+  draftId?: string;
   /** 告警来源：staff（员工群发言）/ draft（AI 草稿） */
   source?: string;
   from?: number;
@@ -169,6 +170,7 @@ export class AlertService {
       .filter((alert) => (query.status ? alert.status === query.status : true))
       .filter((alert) => (query.advisorId ? alert.advisorId === query.advisorId : true))
       .filter((alert) => (query.patientId ? alert.patientId === query.patientId : true))
+      .filter((alert) => (query.draftId ? alert.draftId === query.draftId : true))
       .filter((alert) => (query.source ? alert.source === query.source : true))
       .filter((alert) => (from === undefined ? true : alert.createdAt >= from))
       .filter((alert) => (to === undefined ? true : alert.createdAt < to))
@@ -218,6 +220,49 @@ export class AlertService {
     this.emit('alert.resolved', updated);
     this.emit('alert.updated', updated);
     return updated;
+  }
+
+  /**
+   * 实时服务流里人工核实一条「未核验」草稿：把挂在它上面的未核验告警一并关掉。
+   *
+   * UNVERIFIED 是草稿终态，草稿本身不改状态；要清掉的是它产生的待办告警。
+   * 备注必填，审计记在草稿上；重复核实只会再记一条审计，不会报错。
+   */
+  resolveDraftUnverified(
+    draftId: string,
+    note: unknown,
+    actor: AlertActor,
+  ): { resolved: number; alertIds: string[] } {
+    const clean = this.validateNote(note, true)!;
+    const pending = this.store
+      .listAlerts()
+      .filter(
+        (alert) =>
+          alert.tenantId === this.tenantId &&
+          !alert.sandbox &&
+          alert.draftId === draftId &&
+          alert.kind === 'unverified' &&
+          alert.status !== 'resolved',
+      );
+    const now = this.now();
+    for (const alert of pending) {
+      const updated: AlertRecord = {
+        ...alert,
+        status: 'resolved',
+        note: clean,
+        resolvedBy: actor.id,
+        resolvedAt: now,
+        updatedAt: now,
+      };
+      this.store.saveAlert(updated);
+      this.emit('alert.resolved', updated);
+      this.emit('alert.updated', updated);
+    }
+    this.audit(actor, 'draft.unverified.reviewed', 'draft', draftId, 'success', {
+      noteLength: clean.length,
+      alertIds: pending.map((alert) => alert.id),
+    });
+    return { resolved: pending.length, alertIds: pending.map((alert) => alert.id) };
   }
 
   async releaseQueue(

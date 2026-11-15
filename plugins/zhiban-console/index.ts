@@ -959,6 +959,7 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       status: rc.query.get('status') ?? undefined,
       advisorId: rc.query.get('advisorId') ?? undefined,
       patientId: rc.query.get('patientId') ?? undefined,
+      draftId: rc.query.get('draftId') ?? undefined,
       source: parseAlertSource(rc.query.get('source')),
       from: parseTime(rc.query.get('from'), 'from'),
       to: parseTime(rc.query.get('to'), 'to'),
@@ -2455,9 +2456,34 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           ...item,
           url: `${API_PREFIX}/media/${item.id}`,
         }));
+        // 未核验是草稿终态，但挂在它上面的告警是可以人工关掉的：
+        // 抽屉据此决定要不要给「标记已核实」入口，而不是把入口永远挂在这种状态上。
+        const related = alerts.list({ draftId: draft.id, kind: 'unverified', pageSize: 100 }).items;
+        detail.unverifiedAlerts = {
+          pending: related.filter((alert) => alert.status !== 'resolved').length,
+          resolved: related.filter((alert) => alert.status === 'resolved').length,
+        };
         respond(rc, 200, detail);
       },
       { permission: 'draft.read' },
+    );
+
+    // 未核验草稿的人工核实：关闭它名下的未核验告警，并在草稿审计里留痕
+    router.add(
+      'POST',
+      '/service-flow/:id/review',
+      async (rc) => {
+        const id = rc.params.id!;
+        await idempotent(rc, `draft.review:${id}`, async () => {
+          const actor = tenantActor(rc);
+          const body = await rc.json<Record<string, unknown>>();
+          return {
+            status: 200,
+            body: alerts.resolveDraftUnverified(id, body.note, auditActor(actor)),
+          };
+        });
+      },
+      { permission: 'alert.write' },
     );
 
     // ---------- 沙盒（#40） ----------

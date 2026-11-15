@@ -1,5 +1,5 @@
 import { applyTransition } from './state-machine.ts';
-import { matchSentMessage } from './matcher.ts';
+import { diceCoefficient, matchSentMessage, normalizeText } from './matcher.ts';
 import type { Alert, AlertKind, Draft, VerificationResult } from './types.ts';
 import type { ArchivePort, Clock, Store } from './ports.ts';
 
@@ -102,7 +102,7 @@ export class Verifier {
       });
     }
 
-    const res = matchSentMessage({
+    let res = matchSentMessage({
       body: draft.body,
       expectedRoomId: draft.groupRoomId,
       messages,
@@ -113,6 +113,26 @@ export class Verifier {
 
     // 上层要靠 draftId 找回草稿才能通知员工；UNVERIFIED 也要带，否则失败时静默
     res.draftId = draft.id;
+
+    // 存档 watcher 已经确认顾问在本群发过言（ackSource=archive）。此时正文对不上
+    // 只能说明顾问没用草稿原文，送达本身是确凿的：按「改稿后发送」收口，
+    // 不再反复回读、也不出「未核验」告警。UNVERIFIED 只留给「声称已发但查无实据」。
+    if (res.outcome === 'UNVERIFIED' && !autoAck && draft.ackSource === 'archive') {
+      const replied = messages.find((message) => message.roomid === draft.groupRoomId);
+      if (replied) {
+        res = {
+          draftId: draft.id,
+          outcome: 'EDIT_SENT',
+          matchedMsgId: replied.msgid,
+          matchedRoomId: replied.roomid,
+          similarity: diceCoefficient(
+            normalizeText(draft.body),
+            normalizeText(replied.text),
+          ),
+          checkedAt: now,
+        };
+      }
+    }
 
     if (res.outcome === 'UNVERIFIED') {
       // 自动回读（员工尚未点确认）时，不判失败，继续等

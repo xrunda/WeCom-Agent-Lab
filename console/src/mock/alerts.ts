@@ -280,6 +280,52 @@ export async function resolveAlert(id: string, note: string): Promise<Alert> {
   return { ...target };
 }
 
+export interface DraftReviewResult {
+  resolved: number;
+  alertIds: string[];
+}
+
+/**
+ * 实时服务流里人工核实一条未核验草稿：关闭它名下的未核验告警。
+ *
+ * 草稿状态保持 UNVERIFIED——我们确认的是「需要人看的这条已经看过了」，
+ * 不把没有到手的事实改写成「已送达」。
+ */
+export async function resolveDraftUnverified(
+  draftId: string,
+  note: string,
+): Promise<DraftReviewResult> {
+  const trimmed = note.trim();
+  if (!trimmed) throw new ApiError('VALIDATION_FAILED', '核实备注不能为空', 422);
+  if (trimmed.length > 200) {
+    throw new ApiError('VALIDATION_FAILED', '核实备注不能超过 200 字', 422);
+  }
+
+  if (!isMockMode) {
+    const result = await apiRequest<DraftReviewResult>(
+      `/service-flow/${encodeURIComponent(draftId)}/review`,
+      { method: 'POST', body: JSON.stringify({ note: trimmed }) },
+    );
+    notify();
+    return result;
+  }
+
+  const items = readState();
+  const now = Date.now();
+  const targets = items.filter(
+    (item) => item.draftId === draftId && item.kind === 'unverified' && item.status !== 'resolved',
+  );
+  for (const target of targets) {
+    target.status = 'resolved';
+    target.note = trimmed;
+    target.resolvedBy = 'acc_01';
+    target.resolvedAt = now;
+    target.updatedAt = now;
+  }
+  if (targets.length > 0) writeState(items);
+  return { resolved: targets.length, alertIds: targets.map((item) => item.id) };
+}
+
 export async function releaseQueue(id: string): Promise<{
   alert: Alert;
   releasedDraftId: string;

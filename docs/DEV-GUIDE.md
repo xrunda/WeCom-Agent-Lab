@@ -159,7 +159,7 @@ docs/
 ### 4.3 编码规则
 
 - **契约优先**：接口、事件、字段以 `docs/P1-api.md` 和 `docs/P1-data-model.md` 为准。需要改契约时，在自己的 PR 里**只做新增**（加字段、加接口），并在 PR 描述的「契约变更」一节列出；要删改已有字段，先在 #62 下评论，等项目负责人确认
-- **C2 核心不改逻辑**：`C2Service`、`SerialQueue`、`Verifier`、`ArchiveTrigger` 只换端口实现。原有 73 个测试必须一直通过
+- **C2 核心不改逻辑**：`C2Service`、`SerialQueue`、`Verifier`、`ArchiveTrigger` 只换端口实现。原有 73 个测试必须一直通过。唯一例外是 `Verifier` 的未核验判定：存档已确认顾问在本群发言（`ackSource=archive`）而正文不符时记 EDIT_SENT，不改写送达事实（见 [P1-scope.md](P1-scope.md) §3）
 - **通用化**：代码、界面、示例数据里不出现「七通」（`grep -ri 七通` 必须为空）。机构名、Agent 名、称谓一律从租户设置读取
 - **分档**：B 档页面用 `<SampleDataTag/>`，C 档页面用 `<ComingSoonPage/>`；A 档页面禁止使用写死的假数据
 - **隐私**：日志里不打消息正文（#31 的规则对所有新代码都生效）；测试和示例只用虚构数据

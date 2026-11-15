@@ -733,11 +733,20 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
     { "at": 1762646060000, "type": "ack", "actor": "李顾问", "title": "点击已发送" },
     { "at": 1762646245000, "type": "verification", "actor": "system", "title": "核验通过" }
   ],
-  "audit": [{ "id": "aud_...", "action": "draft.enqueue", "actorName": "system", "result": "success", "at": 1762645860000 }]
+  "audit": [{ "id": "aud_...", "action": "draft.enqueue", "actorName": "system", "result": "success", "at": 1762645860000 }],
+  "unverifiedAlerts": { "pending": 1, "resolved": 0 }
 }
 ```
 
 发错群时 `verification.matchedGroupName` 是实际群名；`deliveries[].roomId` 与 `draft.groupRoomId` 不同。
+
+`unverifiedAlerts` 统计这条草稿名下的未核验告警：`pending` 为尚未解决的条数。`status=UNVERIFIED` 且 `pending>0` 时，抽屉给出「标记已核实」入口（权限 `alert.write`）。
+
+### `POST /service-flow/{draftId}/review`
+
+角色：admin / supervisor（`alert.write`）。请求 `{ "note": "已在群里确认顾问用自己的话回复了客户" }`（必填，≤ 200 字）。响应 `200`：`{ "resolved": 1, "alertIds": ["alt_..."] }`。
+
+关闭该草稿名下所有未解决的未核验告警，写审计 `draft.unverified.reviewed`（含备注长度与告警 id）。**草稿状态保持 `UNVERIFIED`**：核实的是「需要人看的这条已经看过了」，不把没有到手的事实改写成已送达。重复提交返回 `resolved: 0`，不报错。
 
 ### `GET /drafts/{draftId}/evidence.pdf`
 
@@ -905,7 +914,7 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 9. 质检与告警
 
-### `GET /alerts?kind=&status=&advisorId=&patientId=&source=&from=&to=&page=`
+### `GET /alerts?kind=&status=&advisorId=&patientId=&draftId=&source=&from=&to=&page=`
 
 角色：全部。默认按 `createdAt` 倒序，排除沙盒。`source` 取 `staff`（员工群发言）或 `draft`（AI 草稿）；取值非法时忽略该条件。响应 `200`：`{ "items": [alert], ... }`。
 
@@ -1453,6 +1462,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 患者 Agent 主页 | 服务计划 | `GET /patients/{id}/service-plan`（`sample:true`） | B |
 | 实时服务流 | 列表 + SSE | `GET /service-flow`、`GET /stream` | A |
 | 实时服务流 | 详情抽屉 | `GET /service-flow/{id}` | A |
+| 实时服务流 | 未核验人工核实 | `POST /service-flow/{id}/review` | A |
 | 实时服务流 | 图片缩略图 | `mediaKinds` + `GET /media/{id}` | A |
 | 体验中心 | 沙盒全流程 | §12 全部接口 + `sandbox.*` SSE | A |
 | 质检与告警 | 列表、详情 | `GET /alerts`、`GET /alerts/{id}` | A |
