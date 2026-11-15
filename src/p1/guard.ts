@@ -590,11 +590,23 @@ export class GuardService {
 
     let alert: GuardAlertRecord | undefined;
     if (hits.length > 0 && (escalate || riskLevel === 'high')) {
+      // 管理员要一眼看到「草稿里哪句话踩了线」，而不是只有规则名；
+      // 只有急症 / 就医引导这类看患者输入的规则才没有草稿摘录。
+      const bodyHit = hits
+        .filter((rule) => rule.action === 'flag')
+        .flatMap((rule) => rule.keywords)
+        .map((keyword) => ({ keyword, index: input.body.indexOf(keyword) }))
+        .find((hit) => hit.index >= 0);
+      const bodyExcerpt = bodyHit
+        ? excerptAroundHit(input.body, bodyHit.index, bodyHit.keyword.length)
+        : undefined;
       alert = this.createAlert({
         kind: escalate ? 'escalate' : 'redline',
         severity: escalate ? 'critical' : 'warning',
         title: escalate ? '急症关键词命中，草稿已改为就医引导' : '草稿命中高风险规则',
-        message: `命中规则：${hitNames.join('、')}；风险等级 ${riskLevel}`,
+        message:
+          `命中规则：${hitNames.join('、')}；风险等级 ${riskLevel}` +
+          (bodyExcerpt ? `。草稿内容：「${bodyExcerpt}」` : ''),
         patientId: input.patientId,
         groupId: input.groupId,
         sessionId: input.sessionId,
