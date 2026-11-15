@@ -119,6 +119,11 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 - `platform` 是部署侧平台超管，不属于任何租户，不出现在租户账号列表；只在运维通道使用，可处理开通申请。租户接口对 `platform` 一律按 `404` 处理（除开通申请处理）。
 - 权限不足统一 `403 FORBIDDEN`；不返回「该功能需要某角色」以外的实现细节。
 
+**数据范围（`account.scope`）**：权限矩阵之上再叠一层数据范围，规则详见 [P1-multi-advisor.md](./P1-multi-advisor.md)。
+
+- `scope=tenant`（默认）：本租户全部数据，与本节矩阵一致。
+- `scope=self`：只读取绑定顾问名下的患者、群、草稿、告警、导出与 SSE 事件；访问他人资源一律 `404 NOT_FOUND`（不返回 `403`，避免暴露资源存在性）。`self` 账号不授予审计、账号与角色、数据与安全、开通页。
+
 ### 1.7 `sandbox` 与 `demo`
 
 - 列表默认 `sandbox=false`；沙盒页面显式传 `sandbox=true`。
@@ -1173,11 +1178,11 @@ Agent 回合异步进行，结果通过 SSE `sandbox.*` 推送；无 SSE 时用 
 
 ### `POST /accounts`
 
-角色：admin。请求：`{ "username": "wang.guwen", "displayName": "王顾问", "role": "supervisor", "password": "**********" }`。响应 `201`：account。错误：`CONFLICT`（用户名重复）。
+角色：admin。请求：`{ "username": "wang.guwen", "displayName": "王顾问", "role": "viewer", "scope": "self", "advisorId": "adv_...", "password": "**********" }`。响应 `201`：account。错误：`CONFLICT`（用户名重复）；`scope=self` 未绑定顾问或顾问不存在返回 `422 VALIDATION_FAILED`；`admin` 只能 `scope=tenant`。
 
 ### `PATCH /accounts/{id}`
 
-角色：admin。请求：`displayName`、`role`、`status`。不能停用或降级自己（`409`）。响应 `200`：account。
+角色：admin。请求：`displayName`、`role`、`status`、`scope`、`advisorId`。不能停用或降级自己（`409`）。响应 `200`：account。
 
 ### `POST /accounts/{id}/reset-password`
 

@@ -173,6 +173,8 @@ media：文件在磁盘，元数据随消息保存
 | `username` | string | 否 | 登录名，租户内唯一 |
 | `displayName` | string | 否 | 显示名 |
 | `role` | enum | 否 | `admin` / `supervisor` / `viewer` / `platform` |
+| `scope` | enum | 否 | `tenant`（默认，看全租户）/ `self`（只看绑定顾问名下），见 [P1-multi-advisor.md](./P1-multi-advisor.md) |
+| `advisorId` | string | 是 | `scope=self` 时必填；`admin` 强制 `scope=tenant` 且为空 |
 | `status` | enum | 否 | `active` / `disabled` |
 | `lastLoginAt` | number | 是 | |
 | `createdAt` | number | 否 | |
@@ -181,6 +183,7 @@ media：文件在磁盘，元数据随消息保存
 
 - `platform` 由部署配置生成，`tenantId` 为 `null`，不出现在租户的账号列表里。
 - 角色权限矩阵见 [P1-api.md](./P1-api.md) §2。
+- `scope=self` 的账号只能读取其 `advisorId` 名下的患者、群、草稿、告警与导出；越权按 `NOT_FOUND` 处理。
 
 ### 3.3 advisor
 
@@ -204,6 +207,7 @@ media：文件在磁盘，元数据随消息保存
 
 - `online`、`queueDepth` 是**读时派生字段**，不落库。
 - C2 的 `noChatIdAlerted` 不对外暴露，转为 `chatBound=false` 与告警。
+- 名册由控制台维护（`POST/PATCH /advisors`），`wecomUserId` 在租户内唯一；一位自然人一个席位，从企微与控制台进入都映射到同一条记录。见 [P1-multi-advisor.md](./P1-multi-advisor.md)。
 
 ### 3.4 group
 
