@@ -203,6 +203,7 @@ export type TeamAttentionLevel = 'L1' | 'L2';
 
 export type TeamAttentionCode =
   | 'redline'
+  | 'draft_redline'
   | 'misroute'
   | 'unverified'
   | 'advisor_paused'

@@ -136,6 +136,24 @@
   margin-top: 8px;
 }
 
+/* 草稿红线没有引文，正文就是「命中规则 + 风险等级」的摘要 */
+.alert-draft-body {
+  padding: 10px 14px;
+  background: #fff6f4;
+  border-left: 3px solid var(--zb-danger);
+  border-radius: 0 var(--zb-radius-sm) var(--zb-radius-sm) 0;
+  color: var(--zb-ink);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.alert-card.is-resolved .alert-draft-body {
+  background: var(--zb-surface-2);
+  border-left-color: var(--zb-line-strong);
+  color: var(--zb-ink-2);
+}
+
 .alert-card.is-resolved .alert-quote {
   background: var(--zb-surface-2);
   border-left-color: var(--zb-line-strong);

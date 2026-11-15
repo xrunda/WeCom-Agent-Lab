@@ -81,7 +81,12 @@ describe('WP-J mock：实时服务流', () => {
 describe('WP-J mock：质检与告警', () => {
   it('未处理数、必填备注、重复处理与详情', async () => {
     expect(await unresolvedCount()).toEqual({ open: 6, acknowledged: 1, total: 7 });
-    // 菜单角标只算员工群发言红线
+    // 菜单角标只算红线：员工群发言与 AI 草稿都算，运维告警不占角标
+    expect(await unresolvedCount(undefined, 'redline')).toEqual({
+      open: 3,
+      acknowledged: 0,
+      total: 3,
+    });
     expect(await unresolvedCount('staff')).toEqual({ open: 2, acknowledged: 0, total: 2 });
 
     await expect(resolveAlert('alt_01', '   ')).rejects.toThrow('处理备注不能为空');

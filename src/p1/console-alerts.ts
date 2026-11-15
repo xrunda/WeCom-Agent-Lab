@@ -230,14 +230,19 @@ export class AlertService {
   }
 
   /**
-   * 未解决告警计数。传 `source` 时只算该来源——控制台菜单角标只关心
-   * 员工群发言红线，避免超时、推送失败等运维告警把数字冲高。
+   * 未解决告警计数。传 `source` 时只算该来源，传 `kind` 时只算该类型——
+   * 控制台菜单角标只关心红线（员工发言与草稿两类），
+   * 避免超时、推送失败等运维告警把数字冲高。
    */
-  unresolvedCount(source?: 'staff' | 'draft'): { open: number; acknowledged: number; total: number } {
+  unresolvedCount(
+    source?: 'staff' | 'draft',
+    kind?: string,
+  ): { open: number; acknowledged: number; total: number } {
     const items = this.store
       .listAlerts()
       .filter((alert) => alert.tenantId === this.tenantId && !alert.sandbox)
-      .filter((alert) => (source ? alert.source === source : true));
+      .filter((alert) => (source ? alert.source === source : true))
+      .filter((alert) => (kind ? alert.kind === kind : true));
     const open = items.filter((alert) => alert.status === 'open').length;
     const acknowledged = items.filter((alert) => alert.status === 'acknowledged').length;
     return { open, acknowledged, total: open + acknowledged };

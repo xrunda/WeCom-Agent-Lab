@@ -22,7 +22,7 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import { listAdvisors } from '../../mock/advisors.ts';
@@ -32,7 +32,6 @@ import {
   listAlerts,
   resolveAlert,
   subscribeAlerts,
-  unresolvedCount,
   type Alert as AlertItem,
   type AlertCount,
   type AlertDetail,
@@ -45,8 +44,10 @@ import { alertGuidance, alertReason } from './alert-insights.ts';
 import {
   keywordsForRules,
   matchKeywords,
+  parseDraftAlert,
   parseStaffAlert,
   splitByKeywords,
+  draftRiskLabel,
 } from './alert-text.ts';
 import './alerts.css';
 
@@ -54,10 +55,10 @@ const { Text } = Typography;
 
 const PAGE_SIZE = 20;
 
-/** 本页只收员工群发言，状态文案用「复核」而不是通用的「处理」 */
+/** 员工发言与 AI 草稿都可能触发红线，状态文案统一用中性的「处理」 */
 const STATUS_LABELS: { value: AlertStatus; label: string }[] = [
-  { value: 'open', label: '待复核' },
-  { value: 'acknowledged', label: '复核中' },
+  { value: 'open', label: '待处理' },
+  { value: 'acknowledged', label: '处理中' },
   { value: 'resolved', label: '已处理' },
 ];
 
@@ -76,6 +77,17 @@ function asAlertStatus(value: string | null): AlertStatus | undefined {
     ? value
     : undefined;
 }
+
+type AlertSource = 'staff' | 'draft';
+
+function asAlertSource(value: string | null): AlertSource | undefined {
+  return value === 'staff' || value === 'draft' ? value : undefined;
+}
+
+const SOURCE_OPTIONS: { value: AlertSource; label: string }[] = [
+  { value: 'staff', label: '员工发言' },
+  { value: 'draft', label: 'AI 草稿' },
+];
 
 /** 把发言原文按命中词加底色；没有关键词时按普通文本展示 */
 function HighlightedQuote({ text, keywords }: { text: string; keywords: string[] }) {
@@ -102,6 +114,8 @@ interface AlertCardProps {
   canWrite: boolean;
   onView: () => void;
   onResolve: () => void;
+  /** 草稿红线：直接打开命中红线的草稿，处理入口在抽屉里 */
+  onOpenDraft?: () => void;
 }
 
 function AlertCard({
@@ -112,21 +126,34 @@ function AlertCard({
   canWrite,
   onView,
   onResolve,
+  onOpenDraft,
 }: AlertCardProps) {
+  /** 员工发言有引文；草稿红线只有规则与等级摘要，两类要分开渲染 */
+  const isDraft = alert.source !== 'staff';
   const parsed = parseStaffAlert(alert.message);
+  const draft = parseDraftAlert(alert.message);
+  const ruleNames = isDraft ? draft.rules : parsed.rules;
+  const riskLabel = isDraft ? draftRiskLabel(draft.riskLevel) : undefined;
   const resolved = alert.status === 'resolved';
 
   return (
     <article className={`alert-card${resolved ? ' is-resolved' : ''}`}>
       <header className="alert-card-head">
         <span className="alert-avatar" aria-hidden="true">
-          {advisorName.slice(0, 1)}
+          {isDraft ? '稿' : advisorName.slice(0, 1)}
         </span>
         <div className="alert-who">
           <span className="alert-name">{advisorName}</span>
-          <span className="alert-where">在「{groupName}」发言</span>
+          <span className="alert-where">
+            {isDraft ? '命中健康红线' : `在「${groupName}」发言`}
+          </span>
         </div>
         <div className="alert-meta">
+          {isDraft ? (
+            <Tag bordered={false} className="alert-rule-tag">
+              AI 草稿
+            </Tag>
+          ) : null}
           <span className="alert-time" title={formatDateTime(alert.createdAt)}>
             {formatRelative(alert.createdAt)}
           </span>
@@ -136,11 +163,15 @@ function AlertCard({
         </div>
       </header>
 
-      <blockquote className="alert-quote">
-        {parsed.hasQuote ? '“' : null}
-        <HighlightedQuote text={parsed.quote} keywords={keywords} />
-        {parsed.hasQuote ? '”' : null}
-      </blockquote>
+      {isDraft ? (
+        <div className="alert-draft-body">{alert.message}</div>
+      ) : (
+        <blockquote className="alert-quote">
+          {parsed.hasQuote ? '“' : null}
+          <HighlightedQuote text={parsed.quote} keywords={keywords} />
+          {parsed.hasQuote ? '”' : null}
+        </blockquote>
+      )}
 
       {resolved && alert.note ? (
         <div className="alert-note">
@@ -152,8 +183,8 @@ function AlertCard({
       <footer className="alert-card-foot">
         <div className="alert-rules">
           <span className="alert-rules-label">命中规则</span>
-          {parsed.rules.length > 0 ? (
-            parsed.rules.map((rule) => (
+          {ruleNames.length > 0 ? (
+            ruleNames.map((rule) => (
               <Tag bordered={false} key={rule} className="alert-rule-tag">
                 {rule}
               </Tag>
@@ -163,8 +194,18 @@ function AlertCard({
               健康红线
             </Tag>
           )}
+          {riskLabel ? (
+            <Tag bordered={false} color="red" className="alert-rule-tag">
+              风险{riskLabel}
+            </Tag>
+          ) : null}
         </div>
         <Space size={8} className="alert-card-actions">
+          {onOpenDraft ? (
+            <Button type="link" size="small" onClick={onOpenDraft}>
+              打开草稿
+            </Button>
+          ) : null}
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={onView}>
             查看详情
           </Button>
@@ -183,8 +224,10 @@ export default function AlertsPage() {
   const { can } = useAuth();
   const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const urlStatus = searchParams.get('status');
   const urlAdvisorId = searchParams.get('advisorId') ?? undefined;
+  const urlSource = searchParams.get('source');
   const canWrite = can('alert.write');
 
   const [items, setItems] = useState<AlertItem[]>([]);
@@ -195,6 +238,9 @@ export default function AlertsPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<AlertStatus | undefined>(() => asAlertStatus(urlStatus));
   const [advisorFilter, setAdvisorFilter] = useState<string | undefined>(urlAdvisorId);
+  const [sourceFilter, setSourceFilter] = useState<AlertSource | undefined>(() =>
+    asAlertSource(urlSource),
+  );
   const [advisorNames, setAdvisorNames] = useState<Record<string, string>>({});
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
   const [rules, setRules] = useState<RiskRule[]>([]);
@@ -217,12 +263,13 @@ export default function AlertsPage() {
     };
   }, []);
 
-  // 工作台「团队关注」深链：status / advisorId 从 URL 恢复。
+  // 工作台「团队关注」深链：status / advisorId / source 从 URL 恢复。
   useEffect(() => {
     setStatus(asAlertStatus(urlStatus));
     setAdvisorFilter(urlAdvisorId);
+    setSourceFilter(asAlertSource(urlSource));
     setPage(1);
-  }, [urlStatus, urlAdvisorId]);
+  }, [urlStatus, urlAdvisorId, urlSource]);
 
   const clearAdvisorFilter = () => {
     setAdvisorFilter(undefined);
@@ -234,22 +281,19 @@ export default function AlertsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, unresolved, resolved, advisors, groups] = await Promise.all([
-        listAlerts({
-          source: 'staff',
-          status,
-          advisorId: advisorFilter,
-          page,
-          pageSize: PAGE_SIZE,
-        }),
-        unresolvedCount('staff'),
-        listAlerts({ source: 'staff', status: 'resolved', pageSize: 1 }),
+      // 只看红线：员工的群发言与 AI 草稿各是一条来源，计数与列表用同一套筛选，避免数字对不上
+      const base = { kind: 'redline', source: sourceFilter } as const;
+      const [list, open, acknowledged, resolved, advisors, groups] = await Promise.all([
+        listAlerts({ ...base, status, advisorId: advisorFilter, page, pageSize: PAGE_SIZE }),
+        listAlerts({ ...base, status: 'open', pageSize: 1 }),
+        listAlerts({ ...base, status: 'acknowledged', pageSize: 1 }),
+        listAlerts({ ...base, status: 'resolved', pageSize: 1 }),
         listAdvisors(),
         listGroups({ pageSize: 100 }).catch(() => ({ items: [] })),
       ]);
       setItems(list.items);
       setTotal(list.total);
-      setCount(unresolved);
+      setCount({ open: open.total, acknowledged: acknowledged.total, total: open.total + acknowledged.total });
       setResolvedTotal(resolved.total);
       setAdvisorNames(Object.fromEntries(advisors.map((item) => [item.id, item.name])));
       setGroupNames(
@@ -262,7 +306,7 @@ export default function AlertsPage() {
     } finally {
       setLoading(false);
     }
-  }, [advisorFilter, page, status, message]);
+  }, [advisorFilter, page, sourceFilter, status, message]);
 
   useEffect(() => {
     void load();
@@ -332,6 +376,8 @@ export default function AlertsPage() {
   const advisorNameOf = (alert: AlertItem, fallback?: string | null): string => {
     if (alert.advisorId && advisorNames[alert.advisorId]) return advisorNames[alert.advisorId]!;
     if (fallback) return fallback;
+    // 草稿告警正文里没有发言人，退回「AI 草稿」而不是「员工」
+    if (alert.source !== 'staff') return 'AI 草稿';
     const parsed = parseStaffAlert(alert.message).senderName;
     return parsed ?? '员工';
   };
@@ -350,15 +396,20 @@ export default function AlertsPage() {
     setAdvisorFilter(value);
     setPage(1);
   };
+  const changeSource = (value: AlertSource | undefined) => {
+    setSourceFilter(value);
+    setPage(1);
+  };
 
-  const filtersActive = Boolean(status || advisorFilter);
+  const filtersActive = Boolean(status || advisorFilter || sourceFilter);
 
   return (
     <PageContainer
       className="alerts-page"
       header={{
         title: '质检与告警',
-        subTitle: '只看员工在服务群里的发言是否触发健康红线；点开核对原话、命中规则与处理结果。',
+        subTitle:
+          '服务群里的员工发言与 AI 草稿都会在这里留下红线记录；点开核对命中规则与处理结果。',
       }}
       extra={[
         <Button key="refresh" icon={<ReloadOutlined />} onClick={() => void load()}>
@@ -372,12 +423,12 @@ export default function AlertsPage() {
             <span className={`alert-summary-value${count.open > 0 ? ' is-danger' : ''}`}>
               {count.open}
             </span>
-            <span className="alert-summary-label">待复核</span>
+            <span className="alert-summary-label">待处理</span>
           </div>
           <span className="alert-summary-divider" aria-hidden="true" />
           <div className="alert-summary-item">
             <span className="alert-summary-value">{count.acknowledged}</span>
-            <span className="alert-summary-label">复核中</span>
+            <span className="alert-summary-label">处理中</span>
           </div>
           <span className="alert-summary-divider" aria-hidden="true" />
           <div className="alert-summary-item">
@@ -412,6 +463,14 @@ export default function AlertsPage() {
               />
               <Select
                 allowClear
+                placeholder="全部来源"
+                style={{ width: 140 }}
+                value={sourceFilter}
+                onChange={changeSource}
+                options={SOURCE_OPTIONS}
+              />
+              <Select
+                allowClear
                 placeholder="全部状态"
                 style={{ width: 140 }}
                 value={status}
@@ -431,12 +490,12 @@ export default function AlertsPage() {
           <div className="alert-empty">
             <CheckCircleOutlined className="alert-empty-icon" />
             <div className="alert-empty-title">
-              {filtersActive ? '当前筛选下没有发言告警' : '最近没有员工发言命中健康红线'}
+              {filtersActive ? '当前筛选下没有红线记录' : '最近没有命中健康红线的记录'}
             </div>
             <div className="alert-empty-hint">
               {filtersActive
-                ? '换个顾问或状态看看；清除筛选可查看全部记录。'
-                : '顾问在服务群里的发言命中诊断、调药、疗效承诺等规则时，会出现在这里。'}
+                ? '换个来源、顾问或状态看看；清除筛选可查看全部记录。'
+                : '员工在服务群的发言，或 AI 起草的回复命中诊断、调药、疗效承诺等规则时，会出现在这里。'}
             </div>
           </div>
         ) : (
@@ -450,6 +509,11 @@ export default function AlertsPage() {
                 keywords={keywordsByAlert.get(alert.id) ?? allRuleKeywords}
                 canWrite={canWrite}
                 onView={() => void openDetail(alert.id)}
+                onOpenDraft={
+                  alert.source !== 'staff' && alert.draftId
+                    ? () => navigate(`/service-flow?draftId=${encodeURIComponent(alert.draftId!)}`)
+                    : undefined
+                }
                 onResolve={() => {
                   setResolveTarget(alert);
                   setNote('');
@@ -476,15 +540,20 @@ export default function AlertsPage() {
         width={640}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
-        title="发言告警详情"
+        title="红线告警详情"
         destroyOnHidden
       >
         {detail ? (
           (() => {
             const alert = detail.alert;
+            const isDraft = alert.source !== 'staff';
             const parsed = parseStaffAlert(alert.message);
-            const ruleNames =
-              parsed.rules.length > 0 ? parsed.rules : ruleNamesFor(alert);
+            const draftParts = parseDraftAlert(alert.message);
+            const ruleNames = isDraft
+              ? draftParts.rules
+              : parsed.rules.length > 0
+                ? parsed.rules
+                : ruleNamesFor(alert);
             const keywords =
               ruleNames.length > 0
                 ? keywordsForRules(
@@ -492,15 +561,21 @@ export default function AlertsPage() {
                     rules.filter((rule) => rule.action === 'flag'),
                   )
                 : allRuleKeywords;
-            const matched = matchKeywords(parsed.quote, keywords);
+            const matched = isDraft ? [] : matchKeywords(parsed.quote, keywords);
             const advisorName = advisorNameOf(alert, detail.advisor?.name);
             const groupName = groupNameOf(alert);
+            const riskLabel = draftRiskLabel(draftParts.riskLevel);
             return (
               <Space direction="vertical" size={20} style={{ width: '100%' }}>
                 <Space wrap size={8}>
                   <Tag bordered={false} color={statusColor(alert.status)}>
                     {statusLabel(alert.status)}
                   </Tag>
+                  {isDraft ? (
+                    <Tag bordered={false} className="alert-rule-tag">
+                      AI 草稿
+                    </Tag>
+                  ) : null}
                   <Text type="secondary">{formatDateTime(alert.createdAt)}</Text>
                 </Space>
 
@@ -509,25 +584,56 @@ export default function AlertsPage() {
                     <span className="alert-step-index" aria-hidden="true">
                       1
                     </span>
-                    <div className="alert-step-title">员工发言</div>
+                    <div className="alert-step-title">{isDraft ? 'AI 草稿' : '员工发言'}</div>
                     <div className="alert-step-meta">
-                      {advisorName} · 「{groupName}」 · {formatDateTime(alert.createdAt)}
+                      {isDraft
+                        ? `${advisorName} · ${
+                            detail.draft?.id ?? alert.draftId ?? '未关联草稿'
+                          } · ${formatDateTime(alert.createdAt)}`
+                        : `${advisorName} · 「${groupName}」 · ${formatDateTime(alert.createdAt)}`}
                     </div>
-                    <blockquote className="alert-quote is-detail">
-                      {parsed.hasQuote ? '“' : null}
-                      <HighlightedQuote text={parsed.quote} keywords={keywords} />
-                      {parsed.hasQuote ? '”' : null}
-                    </blockquote>
-                    {matched.length > 0 ? (
-                      <div className="alert-step-hint">
-                        命中词：
-                        {matched.map((word) => (
-                          <mark className="alert-hit" key={word}>
-                            {word}
-                          </mark>
-                        ))}
-                      </div>
-                    ) : null}
+                    {isDraft ? (
+                      <>
+                        {detail.draft?.summary ? (
+                          <blockquote className="alert-quote is-detail">
+                            {detail.draft.summary}
+                          </blockquote>
+                        ) : null}
+                        <div className="alert-step-hint">
+                          告警正文只记录命中规则，具体措辞请打开草稿查看。
+                        </div>
+                        {alert.draftId ? (
+                          <Button
+                            size="small"
+                            onClick={() =>
+                              navigate(
+                                `/service-flow?draftId=${encodeURIComponent(alert.draftId!)}`,
+                              )
+                            }
+                          >
+                            打开草稿处理
+                          </Button>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <blockquote className="alert-quote is-detail">
+                          {parsed.hasQuote ? '“' : null}
+                          <HighlightedQuote text={parsed.quote} keywords={keywords} />
+                          {parsed.hasQuote ? '”' : null}
+                        </blockquote>
+                        {matched.length > 0 ? (
+                          <div className="alert-step-hint">
+                            命中词：
+                            {matched.map((word) => (
+                              <mark className="alert-hit" key={word}>
+                                {word}
+                              </mark>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </section>
 
                   <section className="alert-step">
@@ -541,6 +647,11 @@ export default function AlertsPage() {
                           {rule}
                         </Tag>
                       ))}
+                      {riskLabel ? (
+                        <Tag bordered={false} color="red" className="alert-rule-tag">
+                          风险{riskLabel}
+                        </Tag>
+                      ) : null}
                     </Space>
                     <div className="alert-step-hint">
                       {alertReason(alert.kind, alert.source)}
@@ -556,7 +667,9 @@ export default function AlertsPage() {
                       「{alert.title}」 · {formatDateTime(alert.createdAt)}
                     </div>
                     <div className="alert-step-hint">
-                      该发言已进入人工复核，未自动撤回或改动群内消息。
+                      {isDraft
+                        ? '红线告警只做提示与留痕，不会自动撤回草稿或改动已发出的消息。'
+                        : '该发言已进入人工复核，未自动撤回或改动群内消息。'}
                     </div>
                   </section>
                 </div>
@@ -629,10 +742,14 @@ export default function AlertsPage() {
         {resolveTarget && (
           <Space direction="vertical" size={10} style={{ width: '100%' }}>
             <Text strong>
-              {advisorNameOf(resolveTarget)}在「{groupNameOf(resolveTarget)}」的发言
+              {resolveTarget.source !== 'staff'
+                ? `${advisorNameOf(resolveTarget)}的 AI 草稿命中红线`
+                : `${advisorNameOf(resolveTarget)}在「${groupNameOf(resolveTarget)}」的发言`}
             </Text>
             <Text type="secondary">
-              {parseStaffAlert(resolveTarget.message).quote}
+              {resolveTarget.source !== 'staff'
+                ? resolveTarget.message
+                : parseStaffAlert(resolveTarget.message).quote}
             </Text>
             <Input.TextArea
               rows={3}

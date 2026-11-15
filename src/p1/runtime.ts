@@ -1161,7 +1161,11 @@ export class PatientAgentRuntime {
     void this.notify(
       `【风险草稿】命中「${review.hitNames.join('、')}」，` +
         `风险等级 ${riskLabel(review.riskLevel)}${suffix}。请重点审核，打开企微侧边栏处理。`,
-    );
+    ).then((delivered) => {
+      // 发送失败时释放去重窗口：下次命中还要提醒，
+      // 不能让一次机器人掉线把这份草稿的提醒吞掉 30 分钟。
+      if (!delivered) this.guardThrottle.release(draftId);
+    });
   }
 
   async replySkip(sessionId: string, _input: AgentReplySkipInput): Promise<{ skipped: true }> {
@@ -1388,11 +1392,13 @@ export class PatientAgentRuntime {
 
   // ---------- 工具 ----------
 
-  private async notify(text: string): Promise<void> {
+  private async notify(text: string): Promise<boolean> {
     try {
       await this.bridge.notifyAdvisor(text);
+      return true;
     } catch (error) {
       this.log(`回执失败：${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
   }
 

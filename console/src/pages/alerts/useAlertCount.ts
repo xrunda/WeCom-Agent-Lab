@@ -3,14 +3,14 @@ import { useEffect, useState } from 'react';
 import { subscribeAlerts, unresolvedCount } from '../../mock/alerts.ts';
 
 /** 菜单角标：打开页面时校准一次，之后由 SSE / 本地告警事件增量刷新。
- *  只算员工群发言红线，超时、推送失败等运维告警不占角标。 */
+ *  只算健康红线（员工发言 + AI 草稿），超时、推送失败等运维告警不占角标。 */
 export function useAlertCount(): number {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
     let active = true;
     const refresh = () => {
-      unresolvedCount('staff')
+      unresolvedCount(undefined, 'redline')
         .then((value) => {
           if (active) setCount(value.total);
         })

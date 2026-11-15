@@ -108,6 +108,45 @@ export function parseStaffAlert(message: string): StaffAlertParts {
   };
 }
 
+export type DraftRiskLevel = 'low' | 'medium' | 'high';
+
+export interface DraftAlertParts {
+  /** 命中规则名，例如「不诊断」「不调药」 */
+  rules: string[];
+  riskLevel?: DraftRiskLevel;
+}
+
+const RISK_LEVEL_LABEL: Record<DraftRiskLevel, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+};
+
+export function draftRiskLabel(level: DraftRiskLevel | undefined): string | undefined {
+  return level ? RISK_LEVEL_LABEL[level] : undefined;
+}
+
+/**
+ * 拆解草稿红线告警正文：命中规则：A、B；风险等级 high
+ *
+ * 与员工发言告警不同，草稿告警没有引文，正文本身就是规则与等级的摘要。
+ */
+export function parseDraftAlert(message: string): DraftAlertParts {
+  const rulesMatch = /命中规则：([^；\n]+)/.exec(message);
+  const rules = rulesMatch?.[1]
+    ? rulesMatch[1]
+        .split('、')
+        .map((rule) => rule.trim())
+        .filter(Boolean)
+    : [];
+  const levelMatch = /风险等级\s*(low|medium|high)/i.exec(message);
+  const level = levelMatch?.[1]?.toLowerCase();
+  return {
+    rules,
+    ...(level === 'low' || level === 'medium' || level === 'high' ? { riskLevel: level } : {}),
+  };
+}
+
 /** 返回文字里真实出现过的关键词（保留规则里的原始写法，去重） */
 export function matchKeywords(text: string, keywords: string[]): string[] {
   const lower = text.toLowerCase();
