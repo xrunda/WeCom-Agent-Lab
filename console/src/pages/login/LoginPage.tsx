@@ -1,13 +1,12 @@
-import { LockOutlined, SafetyCertificateOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Card, Form, Input, Spin, Tag, Typography } from 'antd';
+import { LockOutlined, UserOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Form, Input, Spin, Tag } from 'antd';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
+import loginPhoto from '../../assets/login-dusk.jpg';
 import logoUrl from '../../assets/zhiban-logo.png';
 import { MOCK_PASSWORD, isMockMode } from '../../mock/api.ts';
-
-const { Paragraph, Text, Title } = Typography;
 
 interface LoginForm {
   username: string;
@@ -50,93 +49,99 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login-page">
-      <section className="login-brand">
-        <div className="login-brand-inner">
+    <div className="login-scene">
+      <img className="login-photo" src={loginPhoto} alt="" aria-hidden="true" />
+      <div className="login-scrim" aria-hidden="true" />
+
+      <div className="login-shell">
+        <header className="login-top">
           <img className="login-logo" src={logoUrl} alt="知伴健康 Agent" />
-          <Paragraph className="login-subtitle">
-            让健康管理团队的每一次回复，都有依据、可核验、能复盘。
-          </Paragraph>
-          <ul className="login-features">
-            <li>
-              <ThunderboltOutlined />
-              <span>服务流实时可见，草稿从生成到核验一条线</span>
-            </li>
-            <li>
-              <SafetyCertificateOutlined />
-              <span>健康红线前置校验，风险分级交给顾问决定</span>
-            </li>
-            <li>
-              <LockOutlined />
-              <span>会话存档只处理服务群，正文不落日志</span>
-            </li>
-          </ul>
-        </div>
-      </section>
+        </header>
 
-      <section className="login-panel">
-        <Card className="login-card" variant="borderless">
-          <div className="login-card-head">
-            <Title level={3} style={{ marginBottom: 4 }}>
-              登录控制台
-            </Title>
-            <Text type="secondary">使用机构管理员分配的账号登录</Text>
-          </div>
+        <main className="login-grid">
+          <section className="login-copy">
+            <p className="login-dateline">
+              <span className="login-dot" aria-hidden="true" />
+              管理控制台
+            </p>
+            <h1 className="login-headline">
+              每一次回复，
+              <br />
+              都有依据。
+            </h1>
+            <p className="login-lede">
+              让团队的每一次回复都留下依据，可核验、能复盘。
+            </p>
+            <p className="login-note">
+              <span>服务流实时可见</span>
+              <span className="login-sep" aria-hidden="true" />
+              <span>健康红线前置校验</span>
+              <span className="login-sep" aria-hidden="true" />
+              <span>正文不落日志</span>
+            </p>
+          </section>
 
-          {isMockMode ? (
-            <Alert
-              className="login-demo-hint"
-              type="info"
-              showIcon
-              message={
-                <span>
-                  演示模式：账号 <Tag bordered={false}>admin</Tag> / 密码{' '}
-                  <Tag bordered={false}>{MOCK_PASSWORD}</Tag>
-                </span>
-              }
-              description="也可以使用 supervisor / viewer 体验不同角色。"
-            />
-          ) : null}
+          <section className="login-panel">
+            <div className="login-card">
+              <div className="login-card-head">
+                <h2 className="login-card-title">登录控制台</h2>
+                <p className="login-card-sub">使用机构管理员分配的账号登录</p>
+              </div>
 
-          {error ? (
-            <Alert className="login-error" type="error" showIcon message={error} />
-          ) : null}
+              {isMockMode ? (
+                <Alert
+                  className="login-demo-hint"
+                  type="info"
+                  showIcon
+                  message={
+                    <span>
+                      演示模式：账号 <Tag bordered={false}>admin</Tag> / 密码{' '}
+                      <Tag bordered={false}>{MOCK_PASSWORD}</Tag>
+                    </span>
+                  }
+                  description="也可以使用 supervisor / viewer 体验不同角色。"
+                />
+              ) : null}
 
-          <Form<LoginForm>
-            layout="vertical"
-            size="large"
-            initialValues={{ username: 'admin', password: isMockMode ? MOCK_PASSWORD : '' }}
-            onFinish={(values) => void handleSubmit(values)}
-            requiredMark={false}
-          >
-            <Form.Item
-              label="用户名"
-              name="username"
-              rules={[{ required: true, message: '请输入用户名' }]}
-            >
-              <Input prefix={<UserOutlined />} placeholder="admin" autoComplete="username" />
-            </Form.Item>
-            <Form.Item
-              label="密码"
-              name="password"
-              rules={[{ required: true, message: '请输入密码' }]}
-            >
-              <Input.Password
-                prefix={<LockOutlined />}
-                placeholder="请输入密码"
-                autoComplete="current-password"
-              />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" block loading={submitting}>
-              登录
-            </Button>
-          </Form>
+              {error ? (
+                <Alert className="login-error" type="error" showIcon message={error} />
+              ) : null}
 
-          <div className="login-card-foot">
-            <Text type="secondary">登录即表示同意机构的数据使用与隐私规范。</Text>
-          </div>
-        </Card>
-      </section>
+              <Form<LoginForm>
+                layout="vertical"
+                size="large"
+                initialValues={{ username: 'admin', password: isMockMode ? MOCK_PASSWORD : '' }}
+                onFinish={(values) => void handleSubmit(values)}
+                requiredMark={false}
+              >
+                <Form.Item
+                  label="用户名"
+                  name="username"
+                  rules={[{ required: true, message: '请输入用户名' }]}
+                >
+                  <Input prefix={<UserOutlined />} placeholder="admin" autoComplete="username" />
+                </Form.Item>
+                <Form.Item
+                  label="密码"
+                  name="password"
+                  rules={[{ required: true, message: '请输入密码' }]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="请输入密码"
+                    autoComplete="current-password"
+                  />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" block loading={submitting}>
+                  登录
+                </Button>
+              </Form>
+
+              <div className="login-card-foot">登录即表示同意机构的数据使用与隐私规范。</div>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
