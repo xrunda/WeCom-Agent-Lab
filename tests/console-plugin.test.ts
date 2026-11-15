@@ -2624,3 +2624,90 @@ test('#181 扫码登录：回调签发会话、state 防重放、未绑定与不
     stub.restore();
   }
 });
+
+test('#183 扫码绑定：已登录发起、回调绑定当前账号、失败回账号页', async () => {
+  const stub = stubWecomFetch((code) =>
+    code === 'CODE_BIND_SCOPE'
+      ? { errcode: 60011, errmsg: 'no privilege' }
+      : { errcode: 0, userid: code === 'CODE_BIND_OTHER' ? 'other.user' : 'admin.user' },
+  );
+  try {
+    const { call } = await start({
+      wecom: {
+        corpId: 'corp_test',
+        agentId: '1000212',
+        agentSecret: 'secret_test',
+        publicBaseUrl: 'https://console.example.com',
+      },
+    });
+
+    // 未登录不能发起绑定
+    const anonymous = await call('POST', '/zhiban/api/auth/wecom/bind');
+    assert.equal(anonymous.status, 401);
+
+    const { cookie } = await login(call, 'admin', ADMIN_PASSWORD);
+    const startBind = await call('POST', '/zhiban/api/auth/wecom/bind', { cookie });
+    assert.equal(startBind.status, 200);
+    const started = startBind.json() as { enabled: boolean; url: string };
+    assert.equal(started.enabled, true);
+    const state = new URL(started.url).searchParams.get('state')!;
+
+    // 扫码成功后绑到当前账号，并 302 回账号页
+    const callback = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_BIND_OK&state=${encodeURIComponent(state)}`,
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.location, '/settings/accounts?wecom=bound');
+    assert.equal(callback.headers['set-cookie'], undefined);
+
+    const accounts = await call('GET', '/zhiban/api/accounts', { cookie });
+    const admin = (
+      accounts.json() as { items: Array<{ id: string; username: string; wecomUserId?: string }> }
+    ).items.find((item) => item.username === 'admin')!;
+    assert.equal(admin.wecomUserId, 'admin.user');
+
+    // 同一个 state 重放：回账号页提示重新扫码，不重复绑定
+    const replay = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_BIND_OK&state=${encodeURIComponent(state)}`,
+    );
+    assert.equal(replay.headers.location, '/settings/accounts?wecom=expired');
+
+    // userid 已被别的账号占用 → conflict
+    const created = await call('POST', '/zhiban/api/accounts', {
+      cookie,
+      body: {
+        username: 'advisor02',
+        displayName: '李顾问',
+        role: 'viewer',
+        password: 'AdvisorPass123',
+        wecomUserId: 'other.user',
+      },
+    });
+    assert.equal(created.status, 201);
+    const conflictStart = await call('POST', '/zhiban/api/auth/wecom/bind', { cookie });
+    const conflictState = new URL(
+      (conflictStart.json() as { url: string }).url,
+    ).searchParams.get('state')!;
+    const conflict = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_BIND_OTHER&state=${encodeURIComponent(conflictState)}`,
+    );
+    assert.equal(conflict.status, 302);
+    assert.equal(conflict.headers.location, '/settings/accounts?wecom=conflict');
+
+    // 不在可见范围 → scope，且不回登录页
+    const scopeStart = await call('POST', '/zhiban/api/auth/wecom/bind', { cookie });
+    const scopeState = new URL(
+      (scopeStart.json() as { url: string }).url,
+    ).searchParams.get('state')!;
+    const scope = await call(
+      'GET',
+      `/zhiban/api/auth/wecom/callback?code=CODE_BIND_SCOPE&state=${encodeURIComponent(scopeState)}`,
+    );
+    assert.equal(scope.headers.location, '/settings/accounts?wecom=scope');
+  } finally {
+    stub.restore();
+  }
+});

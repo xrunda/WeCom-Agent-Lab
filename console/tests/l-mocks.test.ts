@@ -244,6 +244,38 @@ describe('账号与审计 mock', () => {
     expect(list.total).toBe(3);
   });
 
+  it('企微 userid 可创建时绑定、可解绑重绑，且不能被两个账号同时绑定（#181）', async () => {
+    await login('admin', MOCK_PASSWORD);
+    const created = await createAccount({
+      username: 'wecom.advisor',
+      displayName: '扫码顾问',
+      role: 'viewer',
+      password: 'demo-pass-123',
+      wecomUserId: 'wang.guwen',
+    });
+    expect(created.wecomUserId).toBe('wang.guwen');
+
+    await expect(
+      createAccount({
+        username: 'wecom.dup',
+        displayName: '重复绑定',
+        role: 'viewer',
+        password: 'demo-pass-123',
+        wecomUserId: 'wang.guwen',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
+
+    await expect(updateAccount(created.id, { wecomUserId: 'bad userid!' })).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+
+    const unbound = await updateAccount(created.id, { wecomUserId: null });
+    expect(unbound.wecomUserId).toBeUndefined();
+
+    const rebound = await updateAccount(created.id, { wecomUserId: 'li.guwen' });
+    expect(rebound.wecomUserId).toBe('li.guwen');
+  });
+
   it('不能停用或删除自己', async () => {
     const session = await login('admin', MOCK_PASSWORD);
     await expect(updateAccount(session.account.id, { status: 'disabled' })).rejects.toMatchObject({

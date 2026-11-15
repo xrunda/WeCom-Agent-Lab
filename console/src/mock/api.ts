@@ -122,6 +122,23 @@ export async function getWecomQrUrl(from?: string): Promise<string | null> {
   }
 }
 
+/**
+ * 企微扫码绑定 URL（#183）：已登录用户发起，扫码成功后企微身份自动绑到当前账号，
+ * 回调把人送回 /settings/accounts?wecom=bound。mock 模式或后端未配置时返回 null，
+ * 页面据此退回手动填写 userid。
+ */
+export async function getWecomBindUrl(): Promise<string | null> {
+  if (isMockMode) return null;
+  try {
+    const result = await request<{ enabled?: boolean; url?: string }>('/auth/wecom/bind', {
+      method: 'POST',
+    });
+    return result.enabled === true && typeof result.url === 'string' ? result.url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getSession(): Promise<Session | null> {
   if (!isMockMode) {
     try {
