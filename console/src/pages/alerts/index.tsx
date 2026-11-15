@@ -228,6 +228,7 @@ export default function AlertsPage() {
   const urlStatus = searchParams.get('status');
   const urlAdvisorId = searchParams.get('advisorId') ?? undefined;
   const urlSource = searchParams.get('source');
+  const urlAlertId = searchParams.get('alertId');
   const canWrite = can('alert.write');
 
   const [items, setItems] = useState<AlertItem[]>([]);
@@ -327,6 +328,21 @@ export default function AlertsPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '详情加载失败');
     }
+  };
+
+  // 服务流的员工发言行深链到具体告警：?alertId= 直接打开那条详情
+  useEffect(() => {
+    if (urlAlertId) void openDetail(urlAlertId);
+    // 只在 URL 里的告警变化时重开；openDetail 每次渲染都是新函数，不能进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlAlertId]);
+
+  const closeDetail = () => {
+    setDetailOpen(false);
+    if (!searchParams.has('alertId')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('alertId');
+    setSearchParams(next, { replace: true });
   };
 
   const submitResolve = async () => {
@@ -539,7 +555,7 @@ export default function AlertsPage() {
       <Drawer
         width={640}
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={closeDetail}
         title="红线告警详情"
         destroyOnHidden
       >
