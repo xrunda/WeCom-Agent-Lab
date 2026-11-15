@@ -52,6 +52,8 @@ export interface Account {
   displayName: string;
   role: Role;
   status: 'active' | 'disabled';
+  /** 绑定的企微成员 userid；有值才能扫码登录（#181） */
+  wecomUserId?: string;
   lastLoginAt: number | null;
   createdAt: number;
   updatedAt: number;

@@ -3,6 +3,7 @@ import {
   DeleteOutlined,
   KeyOutlined,
   PlusOutlined,
+  QrcodeOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
@@ -50,12 +51,20 @@ interface CreateFormValues {
   displayName: string;
   role: Role;
   password: string;
+  wecomUserId?: string;
 }
 
 interface ResetFormValues {
   newPassword: string;
   confirmPassword: string;
 }
+
+interface WecomFormValues {
+  wecomUserId?: string;
+}
+
+/** 与后端一致：1–64 位字母、数字与 `._@-` */
+const WECOM_USERID_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请稍后重试';
@@ -72,12 +81,13 @@ export default function AccountsSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<Role | undefined>();
   const [statusFilter, setStatusFilter] = useState<Account['status'] | undefined>();
-  const [modal, setModal] = useState<'create' | 'reset' | null>(null);
+  const [modal, setModal] = useState<'create' | 'reset' | 'wecom' | null>(null);
   const [target, setTarget] = useState<Account | null>(null);
   const [saving, setSaving] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [createForm] = Form.useForm<CreateFormValues>();
   const [resetForm] = Form.useForm<ResetFormValues>();
+  const [wecomForm] = Form.useForm<WecomFormValues>();
 
   const load = useCallback(async () => {
     if (!canWrite) {
@@ -109,8 +119,15 @@ export default function AccountsSettingsPage() {
       displayName: '',
       role: 'supervisor',
       password: '',
+      wecomUserId: '',
     });
     setModal('create');
+  };
+
+  const openWecom = (account: Account) => {
+    setTarget(account);
+    wecomForm.setFieldsValue({ wecomUserId: account.wecomUserId ?? '' });
+    setModal('wecom');
   };
 
   const openReset = (account: Account) => {
@@ -123,7 +140,7 @@ export default function AccountsSettingsPage() {
     const values = await createForm.validateFields();
     setSaving(true);
     try {
-      await createAccount(values);
+      await createAccount({ ...values, wecomUserId: values.wecomUserId?.trim() || undefined });
       message.success('账号已创建，请通过安全渠道把初始密码交给本人');
       setModal(null);
       setTarget(null);
@@ -146,6 +163,25 @@ export default function AccountsSettingsPage() {
       setModal(null);
       setTarget(null);
       resetForm.resetFields();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitWecom = async () => {
+    if (!target) return;
+    const values = await wecomForm.validateFields();
+    const next = values.wecomUserId?.trim() ?? '';
+    setSaving(true);
+    try {
+      const updated = await updateAccount(target.id, { wecomUserId: next === '' ? null : next });
+      setAccounts((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      message.success(next === '' ? '已解绑企微成员' : '已绑定企微成员，对方可直接扫码登录');
+      setModal(null);
+      setTarget(null);
+      wecomForm.resetFields();
     } catch (error) {
       message.error(errorMessage(error));
     } finally {
@@ -221,6 +257,14 @@ export default function AccountsSettingsPage() {
       render: (value: Role) => <Tag color={ROLE_META[value].color}>{ROLE_META[value].label}</Tag>,
     },
     {
+      title: '企微成员',
+      dataIndex: 'wecomUserId',
+      key: 'wecomUserId',
+      width: 170,
+      render: (value?: string) =>
+        value ? <Text code>{value}</Text> : <Text type="secondary">未绑定</Text>,
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -257,9 +301,12 @@ export default function AccountsSettingsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 190,
+      width: 260,
       render: (_, account) => (
         <Space size={4}>
+          <Button type="link" size="small" icon={<QrcodeOutlined />} onClick={() => openWecom(account)}>
+            企微登录
+          </Button>
           <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => openReset(account)}>
             重置密码
           </Button>
@@ -381,7 +428,7 @@ export default function AccountsSettingsPage() {
             columns={columns}
             dataSource={accounts}
             pagination={false}
-            scroll={{ x: 900 }}
+            scroll={{ x: 1060 }}
             locale={{ emptyText: '没有匹配的账号' }}
           />
         </Card>
@@ -446,6 +493,16 @@ export default function AccountsSettingsPage() {
             />
           </Form.Item>
           <Form.Item
+            label="企微成员 userid（可选）"
+            name="wecomUserId"
+            rules={[
+              { pattern: WECOM_USERID_PATTERN, message: '1–64 位字母、数字与 . _ @ -' },
+            ]}
+            extra="填企微通讯录里的成员「账号」；填了对方就能扫码登录，留空则只能用密码登录。"
+          >
+            <Input autoComplete="off" placeholder="例如：wang.guwen" />
+          </Form.Item>
+          <Form.Item
             label="初始密码"
             name="password"
             rules={[
@@ -501,6 +558,37 @@ export default function AccountsSettingsPage() {
             <Input.Password autoComplete="new-password" placeholder="再次输入" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`企微扫码登录${target ? ` · ${target.displayName}` : ''}`}
+        open={modal === 'wecom'}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={saving}
+        onOk={() => void submitWecom()}
+        onCancel={() => {
+          setModal(null);
+          setTarget(null);
+          wecomForm.resetFields();
+        }}
+        destroyOnHidden
+      >
+        <Form<WecomFormValues> form={wecomForm} layout="vertical" requiredMark={false} preserve={false}>
+          <Form.Item
+            label="企微成员 userid"
+            name="wecomUserId"
+            rules={[
+              { pattern: WECOM_USERID_PATTERN, message: '1–64 位字母、数字与 . _ @ -' },
+            ]}
+            extra="在企业微信通讯录里查看成员详情中的「账号」（UserID）。绑定后该成员可扫码登录；清空并保存即解绑。"
+          >
+            <Input autoComplete="off" placeholder="例如：wang.guwen" />
+          </Form.Item>
+        </Form>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          登录门槛是「知伴顾问助手」的可见范围：把成员移出可见范围后，最多 8 小时内其会话失效。
+        </Text>
       </Modal>
     </PageContainer>
   );

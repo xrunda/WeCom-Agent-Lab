@@ -173,13 +173,20 @@ export interface AccountInput {
   displayName: string;
   role: Role;
   password: string;
+  /** 企微成员 userid；不填表示只能用密码登录 */
+  wecomUserId?: string;
 }
 
 export interface AccountPatch {
   displayName?: string;
   role?: Role;
   status?: Account['status'];
+  /** 传 null 表示解绑 */
+  wecomUserId?: string | null;
 }
+
+/** 与后端保持一致：1–64 位字母、数字与 `._@-` */
+const WECOM_USERID_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
 
 /** GET /accounts */
 export async function listAccounts(
@@ -220,6 +227,14 @@ export async function createAccount(input: AccountInput): Promise<Account> {
   );
   if (exists) throw new ApiError('CONFLICT', '用户名已存在', 409);
 
+  const wecomUserId = input.wecomUserId?.trim() || undefined;
+  if (wecomUserId && !WECOM_USERID_PATTERN.test(wecomUserId)) {
+    throw new ApiError('VALIDATION_FAILED', '企微 userid 只能是 1–64 位字母、数字与 . _ @ -', 422);
+  }
+  if (wecomUserId && items.some((account) => account.deletedAt === null && account.wecomUserId === wecomUserId)) {
+    throw new ApiError('CONFLICT', '该企微成员已绑定其他账号', 409);
+  }
+
   const now = Date.now();
   const account: Account = {
     id: mockId('acc'),
@@ -232,6 +247,7 @@ export async function createAccount(input: AccountInput): Promise<Account> {
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
+    ...(wecomUserId ? { wecomUserId } : {}),
   };
   saveAccounts([...items, account]);
   await recordAudit({ action: 'account.create', targetType: 'account', targetId: account.id });
@@ -260,19 +276,35 @@ export async function updateAccount(id: string, patch: AccountPatch): Promise<Ac
   if (patch.displayName !== undefined && !patch.displayName.trim()) {
     throw new ApiError('VALIDATION_FAILED', '请填写显示名', 422);
   }
+  const { wecomUserId: bound, ...rest } = patch;
   const next: Account = {
     ...items[index],
-    ...patch,
+    ...rest,
     displayName: patch.displayName?.trim() ?? items[index].displayName,
     updatedAt: Date.now(),
   };
+  if (bound !== undefined) {
+    const value = bound === null ? '' : bound.trim();
+    if (value === '') {
+      delete next.wecomUserId;
+    } else {
+      if (!WECOM_USERID_PATTERN.test(value)) {
+        throw new ApiError('VALIDATION_FAILED', '企微 userid 只能是 1–64 位字母、数字与 . _ @ -', 422);
+      }
+      const taken = items.some(
+        (account) => account.id !== id && account.deletedAt === null && account.wecomUserId === value,
+      );
+      if (taken) throw new ApiError('CONFLICT', '该企微成员已绑定其他账号', 409);
+      next.wecomUserId = value;
+    }
+  }
   items[index] = next;
   saveAccounts(items);
   await recordAudit({
     action: 'account.update',
     targetType: 'account',
     targetId: id,
-    detail: { role: next.role, status: next.status },
+    detail: { role: next.role, status: next.status, wecomBound: Boolean(next.wecomUserId) },
   });
   return next;
 }
