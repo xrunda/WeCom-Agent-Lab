@@ -140,8 +140,8 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
     generatedAt: now,
     people: [
       {
-        advisorId: 'adv_sample_1',
-        advisorName: '王顾问',
+        advisorId: 'adv_01',
+        advisorName: '李顾问',
         online: true,
         patientCount: 12,
         pendingCount: 4,
@@ -150,9 +150,9 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
           {
             code: 'queue_blocked',
             level: 'L1',
-            text: '草稿已推送 42 分钟未处理，队列可能阻塞',
+            text: '1 条草稿已推给顾问，42 分钟未确认',
             waitMinutes: 42,
-            draftId: 'draft_sample_blocked',
+            draftId: 'draft_1009',
           },
           {
             code: 'unverified',
@@ -161,13 +161,13 @@ export async function getDashboardTeamAttention(): Promise<TeamAttention> {
             waitMinutes: 26,
           },
         ],
-        suggestion: '去实时服务流查看阻塞草稿，必要时释放队列',
+        suggestion: '提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列',
         oldestWaitMinutes: 42,
         lastActivityAt: now - 42 * 60_000,
       },
       {
         advisorId: 'adv_sample_2',
-        advisorName: '李顾问',
+        advisorName: '王顾问',
         online: false,
         patientCount: 8,
         pendingCount: 1,

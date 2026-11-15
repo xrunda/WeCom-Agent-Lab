@@ -161,6 +161,12 @@ test('队列阻塞从 15 分钟起算，客户消息 30 / 60 分钟分 L2 与 L1
   assert.equal(blocked.people[0]!.level, 'L1');
   assert.equal(blocked.people[0]!.reasons[0]!.code, 'queue_blocked');
   assert.equal(blocked.people[0]!.reasons[0]!.waitMinutes, 19);
+  // 文案要说清是「已推给顾问、顾问未确认」，而不是笼统的「队列阻塞」
+  assert.equal(blocked.people[0]!.reasons[0]!.text, '1 条草稿已推给顾问，19 分钟未确认');
+  assert.equal(
+    blocked.people[0]!.suggestion,
+    '提醒顾问在企微点「已发送」或「忽略」；顾问处理不了，就在服务流释放队列',
+  );
 
   const notYet = build({
     advisors: [advisor({ id: 'adv_1', name: '王顾问' })],

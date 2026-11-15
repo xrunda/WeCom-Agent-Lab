@@ -72,8 +72,12 @@ function attentionTarget(person: TeamAttentionPerson): string {
       return `/patients?patientId=${encodeURIComponent(reason.patientId)}&tab=timeline`;
     case 'queue_blocked':
       params.set('status', 'PUSHED');
+      // 直接打开最久未确认的那条草稿，而不是让主管在列表里自己找
+      if (reason.draftId) params.set('draftId', reason.draftId);
       return `/service-flow?${params.toString()}`;
     case 'backlog':
+      if (reason.draftId) params.set('draftId', reason.draftId);
+      return `/service-flow?${params.toString()}`;
     case 'slow_response':
     case 'high_revision':
       return `/service-flow?${params.toString()}`;

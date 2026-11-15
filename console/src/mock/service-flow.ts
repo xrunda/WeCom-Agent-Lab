@@ -12,7 +12,7 @@ import knowledgeFixture from './fixtures/knowledge.json';
 import memoriesFixture from './fixtures/memories.json';
 import patientsFixture from './fixtures/patients.json';
 import verificationsFixture from './fixtures/verifications.json';
-import { API_BASE, ApiError, isMockMode } from './http.ts';
+import { API_BASE, ApiError, apiRequest, isMockMode } from './http.ts';
 import { mediaUrl, type MediaItem, type MediaKind } from './media.ts';
 
 export type FlowStatus =
@@ -374,6 +374,11 @@ function makeRow(raw: DraftRaw): ServiceFlowRow {
 
 const fixtureRows = drafts.map(makeRow);
 
+/** mock 里释放队列会改状态，测试之间要能还原，避免污染后续用例。 */
+const FIXTURE_STATE = new Map(
+  drafts.map((item) => [item.id, { status: item.status, pushedAt: item.pushedAt }]),
+);
+
 /* ----------------------------- 实时演示流 ----------------------------- */
 
 export interface FlowEvent {
@@ -399,6 +404,16 @@ export function resetServiceFlowMock(): void {
   currentStep = 0;
   liveRows.clear();
   liveDetails.clear();
+  for (const draft of drafts) {
+    const snapshot = FIXTURE_STATE.get(draft.id);
+    if (!snapshot) continue;
+    draft.status = snapshot.status;
+    draft.pushedAt = snapshot.pushedAt;
+  }
+  for (const row of fixtureRows) {
+    const draft = drafts.find((item) => item.id === row.id);
+    if (draft) row.status = draft.status as FlowStatus;
+  }
 }
 
 function liveStatus(step: number): FlowStatus {
@@ -719,6 +734,52 @@ export async function listServiceFlow(query: ServiceFlowQuery = {}): Promise<Ser
   };
 }
 
+export interface QueueReleaseResult {
+  releasedDraftId: string;
+  nextDraftId: string | null;
+}
+
+/**
+ * 释放某位顾问当前阻塞的队列：把最早一条「已推送待确认」标为已释放，
+ * 并把队首的排队草稿推给顾问。与 POST /advisors/{id}/queue/release 一致。
+ */
+export async function releaseAdvisorQueue(advisorId: string): Promise<QueueReleaseResult> {
+  if (!isMockMode) {
+    return apiRequest<QueueReleaseResult>(
+      `/advisors/${encodeURIComponent(advisorId)}/queue/release`,
+      { method: 'POST' },
+    );
+  }
+
+  const blocked = drafts
+    .filter((item) => item.advisorId === advisorId && item.status === 'PUSHED')
+    .sort((left, right) => (left.pushedAt ?? left.createdAt) - (right.pushedAt ?? right.createdAt))[0];
+  if (!blocked) {
+    throw new ApiError('NO_ACTIVE_DRAFT', '该顾问没有等待确认的草稿', 409);
+  }
+
+  blocked.status = 'RELEASED';
+  const blockedRow = fixtureRows.find((item) => item.id === blocked.id);
+  if (blockedRow) blockedRow.status = 'RELEASED';
+
+  const next = drafts
+    .filter(
+      (item) =>
+        item.advisorId === advisorId &&
+        item.id !== blocked.id &&
+        ['QUEUED', 'PUSHED'].includes(item.status),
+    )
+    .sort((left, right) => left.createdAt - right.createdAt)[0];
+  if (next) {
+    next.status = 'PUSHED';
+    next.pushedAt = Date.now();
+    const nextRow = fixtureRows.find((item) => item.id === next.id);
+    if (nextRow) nextRow.status = 'PUSHED';
+  }
+
+  return { releasedDraftId: blocked.id, nextDraftId: next?.id ?? null };
+}
+
 export async function getServiceFlowDetail(draftId: string): Promise<FlowDetail> {
   if (!isMockMode) {
     return apiGet<FlowDetail>(`/service-flow/${draftId}`);
@@ -1003,7 +1064,7 @@ export const FLOW_STATUS_META: Record<
   { label: string; color: string; badge: 'success' | 'processing' | 'error' | 'warning' | 'default' }
 > = {
   QUEUED: { label: '排队中', color: 'default', badge: 'default' },
-  PUSHED: { label: '已推送', color: 'blue', badge: 'processing' },
+  PUSHED: { label: '已推送待确认', color: 'blue', badge: 'processing' },
   ACKNOWLEDGED: { label: '顾问已确认', color: 'cyan', badge: 'processing' },
   VERIFIED: { label: '✅ 已核验', color: 'green', badge: 'success' },
   EDIT_SENT: { label: '✏️ 改后发送', color: 'purple', badge: 'success' },

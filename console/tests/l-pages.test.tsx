@@ -109,6 +109,33 @@ describe('团队关注深链', () => {
       ).not.toBeNull(),
     );
   });
+
+  it('工作台点去处理直接打开最久未确认的那条草稿', async () => {
+    await renderAt('/dashboard');
+
+    fireEvent.click(await screen.findByRole('button', { name: /去处理/ }));
+
+    expect((await screen.findAllByText('draft_1009')).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText(/草稿已发到顾问企微卡片，等顾问点「已发送」或「忽略」/),
+    ).toBeInTheDocument();
+  });
+
+  it('已推送草稿提供解释和释放队列入口', async () => {
+    await renderAt('/service-flow?advisorId=adv_01&status=PUSHED&draftId=draft_1009');
+
+    expect((await screen.findAllByText('draft_1009')).length).toBeGreaterThan(0);
+    const releaseButtons = await screen.findAllByRole('button', { name: /释放队列/ });
+    expect(releaseButtons.length).toBeGreaterThan(0);
+
+    fireEvent.click(releaseButtons[0]!);
+    expect(
+      (await screen.findAllByText(/释放 .* 的阻塞队列？/)).length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: '确认释放' }));
+
+    expect(await screen.findByText(/已释放 draft_1009/)).toBeInTheDocument();
+  });
 });
 
 describe('WP-L 技能与方案包', () => {
