@@ -76,7 +76,7 @@ export const REPLY_DRAFT_PARAMETERS = {
     body: {
       type: 'string',
       description:
-        '要发给患者的正文（顾问会直接复制到客户群），纯文本，一般 80–200 字、最多 300 字；以顾问口吻直接回复，口语自然，不写来源说明或内部流程',
+        '要发给患者的正文（顾问会直接复制到客户群），纯文本，60–150 字、最多 200 字；以顾问口吻直接回复，口语自然，不分点，不写来源说明或内部流程',
     },
     inboundSummary: { type: 'string', description: '本轮患者输入摘要，只用于卡片，不超过 80 字' },
     riskLevel: {

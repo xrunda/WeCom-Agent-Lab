@@ -52,8 +52,8 @@ test('系统提示词要求草稿正文可直接转发到客户群', () => {
   assert.match(prompt, /直接复制发到客户群/);
   assert.match(prompt, /不要出现「群里」/);
   assert.match(prompt, /不要写「家属说」「群里有人提到」/);
-  assert.match(prompt, /80–200 字/);
-  assert.match(prompt, /最多 300 字/);
+  assert.match(prompt, /60–150 字/);
+  assert.match(prompt, /最多 200 字/);
   // 旧规则要求把来源写进正文，正是「群里有人问到」的来源
   assert.doesNotMatch(prompt, /引用时要写明/);
 });
@@ -62,11 +62,13 @@ test('说话方式：像真人顾问在微信里回话，不是分点罗列的�
   const prompt = buildSystemPrompt(SETTINGS);
 
   assert.match(prompt, /【说话方式】/);
-  assert.match(prompt, /像认识一段时间的朋友/);
+  assert.match(prompt, /像语音转文字/);
   assert.match(prompt, /不要客服腔，也不要 AI 腔/);
-  assert.match(prompt, /不要「示例一\/示例二」「几个关键点」「总结」/);
-  assert.match(prompt, /不要堆编号清单/);
+  assert.match(prompt, /不要分点/);
+  assert.match(prompt, /不用 1）\/2）\/3）、-/);
+  assert.match(prompt, /「示例一\/示例二」「几个关键点」「总结」「另外提醒」/);
   assert.match(prompt, /不过度热情，不连续追问/);
+  assert.match(prompt, /参考语气/);
   // 不要把「健康助理」的第三人称写进草稿口吻
   assert.match(prompt, /草稿会以顾问的身份直接发到客户群/);
 });
