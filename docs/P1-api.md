@@ -891,9 +891,11 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 ## 9. 质检与告警
 
-### `GET /alerts?kind=&status=&advisorId=&patientId=&from=&to=&page=`
+### `GET /alerts?kind=&status=&advisorId=&patientId=&source=&from=&to=&page=`
 
-角色：全部。默认按 `createdAt` 倒序，排除沙盒。响应 `200`：`{ "items": [alert], ... }`。
+角色：全部。默认按 `createdAt` 倒序，排除沙盒。`source` 取 `staff`（员工群发言）或 `draft`（AI 草稿）；取值非法时忽略该条件。响应 `200`：`{ "items": [alert], ... }`。
+
+控制台「质检与告警」页只展示员工群发言红线（`source=staff`）；发错群、未核验、超时、推送失败等运维类告警不在该页展示，分别到实时服务流与顾问页处理。
 
 员工在服务群里的发言也会过红线质检，分两层：关键词初筛负责「不漏」，命中后交模型做语义复核，负责「不误报」。
 
@@ -903,9 +905,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 告警的 `message` 带发言人、群名、命中规则与**发言原文摘录**：以最早命中词为中心截取前后各 80 字，压成一行，超长时首尾标 `…`，保证触发告警的那句话一定在摘录里。日志、审计（含 `dismiss`）与规则命中事件仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
-### `GET /alerts/unresolved-count`
+### `GET /alerts/unresolved-count?source=`
 
-角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。菜单角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。
+角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。可传 `source` 只看某一来源；菜单角标用 `source=staff`，只统计员工群发言红线，避免超时、推送失败等运维告警把数字冲高。角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。
 
 ### `GET /alerts/{id}`
 
@@ -1441,7 +1443,7 @@ data: {"id":"evt_...","type":"draft.pushed","at":1762646400000,"tenantId":"tn_..
 | 体验中心 | 沙盒全流程 | §12 全部接口 + `sandbox.*` SSE | A |
 | 质检与告警 | 列表、详情 | `GET /alerts`、`GET /alerts/{id}` | A |
 | 质检与告警 | 三种操作 | `resolve`、`release-queue`、`restore-advisor` | A |
-| 质检与告警 | 菜单角标 | `GET /alerts/unresolved-count` + SSE | A |
+| 质检与告警 | 菜单角标（员工群发言红线） | `GET /alerts/unresolved-count?source=staff` + SSE | A |
 | 服务群 | 列表、状态、改名、绑定 | §7 | A |
 | 服务群 | 成员角色标注 | `GET/PATCH /groups/{id}/members` | A |
 | 服务群 | 同意状态 | `group.consent` | A |

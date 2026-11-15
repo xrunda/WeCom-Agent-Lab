@@ -70,3 +70,65 @@ export function splitByKeywords(text: string, keywords: string[]): HighlightSegm
   if (plain !== '') segments.push({ text: plain, hit: false });
   return segments;
 }
+
+export interface StaffAlertParts {
+  /** 发言所在群（正文里自带的群名，接口群名优先） */
+  groupName?: string;
+  /** 发言人（正文里自带的名称，接口顾问名优先） */
+  senderName?: string;
+  /** 命中的规则名 */
+  rules: string[];
+  /** 触发告警的发言原文；拆不出来时退回整条正文 */
+  quote: string;
+  /** 是否成功拆出引文（告警正文被截断时为 false） */
+  hasQuote: boolean;
+}
+
+/**
+ * 拆解员工发言告警正文：
+ * 群「…」NAME的发言命中规则：A、B。发言内容：「…」
+ *
+ * 正文可能被服务端截断到 500 字，拆不出引文时返回整条正文，
+ * 界面仍然按关键词高亮，只是没有「原话」的引号容器。
+ */
+export function parseStaffAlert(message: string): StaffAlertParts {
+  const parts = splitStaffQuote(message);
+  const head = /^群「([^」]+)」([\s\S]+?)的发言命中规则：([\s\S]+?)。/.exec(message);
+  return {
+    groupName: head?.[1]?.trim() || undefined,
+    senderName: head?.[2]?.trim() || undefined,
+    rules: head?.[3]
+      ? head[3]
+          .split('、')
+          .map((rule) => rule.trim())
+          .filter(Boolean)
+      : [],
+    quote: parts.quote ?? message,
+    hasQuote: parts.quote !== undefined,
+  };
+}
+
+/** 返回文字里真实出现过的关键词（保留规则里的原始写法，去重） */
+export function matchKeywords(text: string, keywords: string[]): string[] {
+  const lower = text.toLowerCase();
+  return [...new Set(keywords.map((word) => word.trim()).filter(Boolean))].filter((word) =>
+    lower.includes(word.toLowerCase()),
+  );
+}
+
+export interface KeywordRule {
+  name: string;
+  keywords: string[];
+}
+
+/**
+ * 命中规则对应的关键词；规则名对不上（改名 / 已删除）时退回全部规则的关键词，
+ * 宁可多高亮一个词，也不要让触发告警的那句话没有任何标记。
+ */
+export function keywordsForRules(ruleNames: string[], rules: KeywordRule[]): string[] {
+  const hit = rules.filter((rule) => ruleNames.includes(rule.name));
+  const pool = hit.length > 0 ? hit : rules;
+  return [...new Set(pool.flatMap((rule) => rule.keywords).map((word) => word.trim()))].filter(
+    Boolean,
+  );
+}

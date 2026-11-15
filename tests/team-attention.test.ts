@@ -117,10 +117,12 @@ test('未解决告警按服务人员收敛成一行，L1 优先且不重复', ()
   const view = build({
     patients: [patient({ lastActiveAt: at(5) })],
     alerts: [
-      alert({ id: 'a1', kind: 'redline', createdAt: at(20) }),
-      alert({ id: 'a2', kind: 'redline', createdAt: at(10) }),
+      alert({ id: 'a1', kind: 'redline', source: 'staff', createdAt: at(20) }),
+      alert({ id: 'a2', kind: 'redline', source: 'staff', createdAt: at(10) }),
       alert({ id: 'a3', kind: 'misroute', createdAt: at(5), status: 'acknowledged' }),
       alert({ id: 'a4', kind: 'unverified', createdAt: at(3), status: 'resolved' }),
+      // 草稿红线在服务流按草稿处理，不进团队关注的红线提醒
+      alert({ id: 'a5', kind: 'redline', source: 'draft', createdAt: at(2) }),
     ],
   });
 
@@ -132,10 +134,10 @@ test('未解决告警按服务人员收敛成一行，L1 优先且不重复', ()
     person.reasons.map((reason) => reason.code),
     ['redline', 'misroute'],
   );
-  assert.equal(person.reasons[0]!.text, '高风险草稿 2 条待处理');
+  assert.equal(person.reasons[0]!.text, '员工发言红线 2 条待复核');
   assert.equal(person.reasons[0]!.waitMinutes, 20);
   assert.equal(person.oldestWaitMinutes, 20);
-  assert.equal(person.suggestion, '去质检与告警跟进高风险草稿');
+  assert.equal(person.suggestion, '去质检与告警复核员工发言');
   assert.equal(view.summary.peopleCount, 1);
   assert.equal(view.summary.immediateCount, 1);
   // 告警正文与患者姓名不应出现在团队关注里。

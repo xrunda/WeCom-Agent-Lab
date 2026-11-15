@@ -72,6 +72,8 @@ export interface AlertQuery {
   status?: AlertStatus | string;
   advisorId?: string;
   patientId?: string;
+  /** 告警来源：staff（员工群发言）/ draft（AI 草稿） */
+  source?: 'staff' | 'draft' | string;
   from?: number;
   to?: number;
   page?: number;
@@ -183,6 +185,7 @@ export async function listAlerts(query: AlertQuery = {}): Promise<AlertList> {
         status: query.status,
         advisorId: query.advisorId,
         patientId: query.patientId,
+        source: query.source,
         from: query.from,
         to: query.to,
         page: query.page,
@@ -197,6 +200,7 @@ export async function listAlerts(query: AlertQuery = {}): Promise<AlertList> {
     .filter((item) => (query.status ? item.status === query.status : true))
     .filter((item) => (query.advisorId ? item.advisorId === query.advisorId : true))
     .filter((item) => (query.patientId ? item.patientId === query.patientId : true))
+    .filter((item) => (query.source ? item.source === query.source : true))
     .filter((item) => (query.from ? item.createdAt >= query.from : true))
     .filter((item) => (query.to ? item.createdAt <= query.to : true))
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -211,9 +215,13 @@ export async function listAlerts(query: AlertQuery = {}): Promise<AlertList> {
   };
 }
 
-export async function unresolvedCount(): Promise<AlertCount> {
-  if (!isMockMode) return apiRequest<AlertCount>('/alerts/unresolved-count');
-  const items = readState().filter((item) => !item.sandbox);
+export async function unresolvedCount(source?: 'staff' | 'draft'): Promise<AlertCount> {
+  if (!isMockMode) {
+    return apiRequest<AlertCount>(`/alerts/unresolved-count${queryString({ source })}`);
+  }
+  const items = readState()
+    .filter((item) => !item.sandbox)
+    .filter((item) => (source ? item.source === source : true));
   const open = items.filter((item) => item.status === 'open').length;
   const acknowledged = items.filter((item) => item.status === 'acknowledged').length;
   return { open, acknowledged, total: open + acknowledged };

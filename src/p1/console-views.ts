@@ -913,11 +913,11 @@ const TEAM_ATTENTION_PRIORITY: Record<TeamAttentionCode, number> = {
 };
 
 const TEAM_ATTENTION_SUGGESTION: Record<TeamAttentionCode, string> = {
-  redline: '去质检与告警跟进高风险草稿',
-  misroute: '去质检与告警核对发送群',
-  unverified: '去质检与告警核实是否送达',
-  advisor_paused: '去质检与告警查看暂停原因',
-  queue_blocked: '去实时服务流查看阻塞草稿，必要时在告警台账释放队列',
+  redline: '去质检与告警复核员工发言',
+  misroute: '去实时服务流核对发送群',
+  unverified: '去实时服务流核实是否送达',
+  advisor_paused: '去顾问页确认是否恢复接单',
+  queue_blocked: '去实时服务流查看阻塞草稿，必要时释放队列',
   no_reply: '查看对话，确认服务人员是否在忙，必要时转交',
   backlog: '查看待处理草稿，确认是否需要催办或释放队列',
   slow_response: '查看该服务人员的服务流，确认是否负荷过高',
@@ -1024,6 +1024,8 @@ export function dashboardTeamAttention(input: {
   for (const alert of input.alerts) {
     if (!alertTargetAdvisor.has(alert.id)) continue;
     if (!['redline', 'misroute', 'unverified', 'advisor_paused'].includes(alert.kind)) continue;
+    // 质检与告警页只收员工群发言红线；草稿红线在服务流里按草稿处理，不重复提醒。
+    if (alert.kind === 'redline' && alert.source !== 'staff') continue;
     const key = `${alert.kind}|${alertTargetAdvisor.get(alert.id)}`;
     const list = alertGroups.get(key) ?? [];
     list.push(alert);
@@ -1036,7 +1038,7 @@ export function dashboardTeamAttention(input: {
     const waitMinutes = minutesSince(now, oldest.createdAt);
     const text =
       kind === 'redline'
-        ? `高风险草稿 ${list.length} 条待处理`
+        ? `员工发言红线 ${list.length} 条待复核`
         : kind === 'misroute'
           ? `发错群 ${list.length} 条待核对`
           : kind === 'unverified'

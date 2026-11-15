@@ -113,6 +113,23 @@ test('列表按时间倒序、支持筛选与分页；未解决计数不含已�
   assert.equal(service.list({ status: 'resolved' }).total, 1);
 });
 
+test('按来源筛选；未解决计数可以只算员工群发言', () => {
+  const { service } = setup();
+  service.ingest({ id: 'alt_staff', kind: 'redline', source: 'staff', advisorId: 'adv_1' });
+  service.ingest({ id: 'alt_draft', kind: 'redline', source: 'draft', advisorId: 'adv_1' });
+  service.ingest({ id: 'alt_old', kind: 'misroute', advisorId: 'adv_1' });
+
+  assert.equal(service.list().total, 3);
+  assert.deepEqual(
+    service.list({ source: 'staff' }).items.map((alert) => alert.id),
+    ['alt_staff'],
+  );
+  assert.equal(service.list({ source: 'draft' }).total, 1);
+  // 没有 source 的历史告警不算进员工发言口径
+  assert.deepEqual(service.unresolvedCount('staff'), { open: 1, acknowledged: 0, total: 1 });
+  assert.deepEqual(service.unresolvedCount(), { open: 3, acknowledged: 0, total: 3 });
+});
+
 test('resolve 必须有备注，只能处理一次，写入处理人并派发事件', () => {
   const { service, events, store } = setup();
   service.ingest({ id: 'alt_x', kind: 'misroute', advisorId: 'adv_1' });
