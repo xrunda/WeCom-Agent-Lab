@@ -10,8 +10,8 @@ import {
   WecomOAuthClient,
   WecomOAuthError,
   isSameOrigin,
-} from '../plugins/zhiban-sidebar/wecom-oauth.ts';
-import type { WecomFetch } from '../plugins/zhiban-sidebar/wecom-oauth.ts';
+} from '../src/p1/wecom-oauth.ts';
+import type { WecomFetch } from '../src/p1/wecom-oauth.ts';
 
 function fakeFetch(responses: unknown[]): { fn: WecomFetch; calls: string[] } {
   const calls: string[] = [];

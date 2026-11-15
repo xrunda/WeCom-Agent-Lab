@@ -76,9 +76,11 @@ import type {
 } from '../../src/p1/types.ts';
 import { mealLogView, sniffImageMediaType, type MealLogRecord } from '../../src/p1/vision.ts';
 
+import { WecomOAuthClient } from '../../src/p1/wecom-oauth.ts';
 import { ConsoleAuthService, publicAccount } from './auth.ts';
 import type { AuthActor } from './auth.ts';
 import { parseConsoleConfig } from './config.ts';
+import { RECHECK_INTERVAL_MS, WecomLoginError, WecomLoginService } from './wecom-login.ts';
 import type { ConsoleConfig } from './config.ts';
 import { DomainConsoleBackend, consoleDomain } from './domain.ts';
 import {
@@ -493,6 +495,25 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     });
     await auth.initialize();
 
+    // #181 企微扫码登录：只在配置齐全时启用，密码登录始终保留作兜底
+    const wecomLogin = config.wecom
+      ? new WecomLoginService({
+          oauth: new WecomOAuthClient({
+            corpId: config.wecom.corpId,
+            agentId: config.wecom.agentId,
+            agentSecret: config.wecom.agentSecret,
+            publicBaseUrl: config.wecom.publicBaseUrl,
+            log: (line) => log(line),
+          }),
+          config: config.wecom,
+          tenantId: config.tenantId,
+          store,
+          auth,
+          log: (line) => log(line),
+        })
+      : undefined;
+    log(`企微扫码登录：${wecomLogin?.configured ? '已启用' : '未配置（仅密码登录）'}`);
+
     const alerts = new AlertService({
       tenantId: config.tenantId,
       store,
@@ -698,6 +719,92 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       await auth.changePassword(actor, body.currentPassword, body.newPassword);
       emptyResponse(rc.res, 204, rc.requestId);
     });
+
+    // ---------- 企微扫码登录（#181） ----------
+
+    /** 未配置时 enabled=false，登录页据此隐藏入口（本地 dev 不受影响） */
+    router.add(
+      'GET',
+      '/auth/wecom/qr',
+      (rc) => {
+        if (!wecomLogin?.configured) {
+          respond(rc, 200, { enabled: false });
+          return;
+        }
+        respond(rc, 200, {
+          enabled: true,
+          url: wecomLogin.createQrUrl(rc.query.get('from')),
+        });
+      },
+      { auth: false },
+    );
+
+    /**
+     * 企微回调：校验一次性 state → 换 userid → 绑定账号 → 签发会话。
+     * 这是浏览器顶层跳转，成功与失败都用 302 回站内，失败原因放在 `?wecom=`
+     * 由登录页给出文案；不会在这里渲染 HTML。
+     */
+    router.add(
+      'GET',
+      '/auth/wecom/callback',
+      async (rc) => {
+        const redirect = (location: string, cookie?: string): void => {
+          rc.res.writeHead(302, {
+            location,
+            'cache-control': 'no-store',
+            'x-request-id': rc.requestId,
+            ...(cookie ? { 'set-cookie': cookie } : {}),
+          });
+          rc.res.end();
+        };
+        const fail = (reason: string): void => {
+          redirect(`/login?wecom=${encodeURIComponent(reason)}`);
+        };
+
+        if (!wecomLogin?.configured || !config.wecom) {
+          fail('unavailable');
+          return;
+        }
+        try {
+          const { userid, returnTo } = await wecomLogin.completeCallback(
+            rc.query.get('code'),
+            rc.query.get('state'),
+          );
+          const result = await auth.loginWithWecom(userid, auth.requestIp(rc.req));
+          redirect(
+            returnTo,
+            setCookieHeader(
+              SESSION_COOKIE,
+              result.token,
+              config.wecom.sessionTtlMs / 1000,
+              config.cookieSecure,
+            ),
+          );
+        } catch (error) {
+          if (error instanceof WecomLoginError) {
+            const reason =
+              error.reason === 'OUT_OF_SCOPE'
+                ? 'scope'
+                : error.reason === 'STATE_INVALID'
+                  ? 'state'
+                  : 'unavailable';
+            fail(reason);
+            return;
+          }
+          if (error instanceof ConsoleError && error.code === 'ACCOUNT_DISABLED') {
+            fail('disabled');
+            return;
+          }
+          if (error instanceof ConsoleError && error.code === 'FORBIDDEN') {
+            fail('unbound');
+            return;
+          }
+          log(`扫码登录回调异常：${error instanceof Error ? error.message : 'UNKNOWN'}`);
+          fail('unavailable');
+        }
+      },
+      { auth: false },
+    );
 
     // ---------- 租户 ----------
 
@@ -2705,12 +2812,23 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       },
     });
 
+    // 扫码会话续期复核：被移出可见范围 / 离职的成员，最迟一轮扫描即失效（#181 AC6）
+    const recheckTimer = wecomLogin
+      ? setInterval(() => {
+          void wecomLogin.recheckSessions().catch((error: unknown) => {
+            log(`扫码会话复核失败：${error instanceof Error ? error.message : 'UNKNOWN'}`);
+          });
+        }, RECHECK_INTERVAL_MS)
+      : undefined;
+    recheckTimer?.unref?.();
+
     log(
       `已就绪：前缀=${API_PREFIX} 租户=${config.tenantId} ` +
         `沙盒日限=${config.sandbox.dailyLimit}`,
     );
 
     return async () => {
+      if (recheckTimer) clearInterval(recheckTimer);
       for (const dispose of disposers) {
         try {
           dispose();

@@ -30,7 +30,7 @@ import { parseSidebarConfig, retentionMs } from './config.ts';
 import { DomainSidebarBackend, sidebarDomain } from './domain.ts';
 import { registerSidebarHttp } from './http.ts';
 import type { SidebarClientEvent, SidebarHttpResponse, SidebarWebServer } from './http.ts';
-import { WecomOAuthClient } from './wecom-oauth.ts';
+import { WecomOAuthClient } from '../../src/p1/wecom-oauth.ts';
 
 export const name = 'zhiban-sidebar';
 

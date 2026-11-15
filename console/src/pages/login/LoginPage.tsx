@@ -1,27 +1,71 @@
-import { LockOutlined, UserOutlined } from '@ant-design/icons';
+import { LockOutlined, QrcodeOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Form, Input, Spin, Tag } from 'antd';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 
 import { useAuth } from '../../auth/AuthContext.tsx';
 import loginPhoto from '../../assets/login-dusk.jpg';
 import logoUrl from '../../assets/zhiban-logo.png';
-import { MOCK_PASSWORD, isMockMode } from '../../mock/api.ts';
+import { getWecomQrUrl, MOCK_PASSWORD, isMockMode } from '../../mock/api.ts';
 
 interface LoginForm {
   username: string;
   password: string;
 }
 
+/** 企微扫码回调的失败原因（`/login?wecom=`），文案要能指导下一步动作 */
+const WECOM_FAILURES: Record<string, string> = {
+  scope: '企业微信账号不在「知伴顾问助手」的可见范围内，请联系管理员开通后再试。',
+  unbound: '企业微信身份已确认，但尚未绑定控制台账号，请联系管理员开通。',
+  disabled: '控制台账号已停用，请联系管理员。',
+  state: '登录链接已失效，请重新点击「企业微信扫码登录」。',
+  unavailable: '企业微信登录暂时不可用，请稍后重试，或使用账号密码登录。',
+};
+
 export function LoginPage() {
   const { session, loading, signIn } = useAuth();
   const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wecomAvailable, setWecomAvailable] = useState(false);
+  const [wecomPending, setWecomPending] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from || '/dashboard';
+  const wecomParam = searchParams.get('wecom');
+  const wecomError = wecomParam ? (WECOM_FAILURES[wecomParam] ?? WECOM_FAILURES.unavailable!) : null;
+
+  // 入口显隐看后端是否配置了企微凭据；本地 dev / mock 模式一律不展示
+  useEffect(() => {
+    let cancelled = false;
+    getWecomQrUrl(from).then((url) => {
+      if (!cancelled) setWecomAvailable(url !== null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [from]);
+
+  const dismissWecomError = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('wecom');
+    setSearchParams(next, { replace: true });
+  };
+
+  // state 只有 5 分钟有效：点击时重新取一次 URL，避免用挂载时的旧链接
+  const handleWecom = async () => {
+    setWecomPending(true);
+    setError(null);
+    const url = await getWecomQrUrl(from);
+    if (!url) {
+      setWecomPending(false);
+      setError(WECOM_FAILURES.unavailable!);
+      return;
+    }
+    window.location.assign(url);
+  };
 
   if (loading) {
     return (
@@ -85,7 +129,9 @@ export function LoginPage() {
             <div className="login-card">
               <div className="login-card-head">
                 <h2 className="login-card-title">登录控制台</h2>
-                <p className="login-card-sub">使用机构管理员分配的账号登录</p>
+                <p className="login-card-sub">
+                  {wecomAvailable ? '企业微信扫码，或使用管理员分配的账号' : '使用机构管理员分配的账号登录'}
+                </p>
               </div>
 
               {isMockMode ? (
@@ -103,8 +149,37 @@ export function LoginPage() {
                 />
               ) : null}
 
+              {wecomError ? (
+                <Alert
+                  className="login-notice"
+                  type="warning"
+                  showIcon
+                  closable
+                  onClose={dismissWecomError}
+                  message={wecomError}
+                />
+              ) : null}
+
               {error ? (
                 <Alert className="login-error" type="error" showIcon message={error} />
+              ) : null}
+
+              {wecomAvailable ? (
+                <>
+                  <Button
+                    className="login-wecom"
+                    size="large"
+                    block
+                    icon={<QrcodeOutlined />}
+                    loading={wecomPending}
+                    onClick={() => void handleWecom()}
+                  >
+                    企业微信扫码登录
+                  </Button>
+                  <div className="login-divider" aria-hidden="true">
+                    <span>或使用账号密码</span>
+                  </div>
+                </>
               ) : null}
 
               <Form<LoginForm>

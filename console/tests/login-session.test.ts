@@ -79,3 +79,46 @@ describe('真实模式登录会话', () => {
     expect(sessionCan(null, 'tenant.write')).toBe(false);
   });
 });
+
+describe('企微扫码登录入口（#181）', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubEnv('VITE_API_MODE', 'real');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('后端已配置时返回扫码 URL，并带上登录后跳转', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        enabled: true,
+        url: 'https://open.work.weixin.qq.com/wwopen/sso/qrConnect?appid=corp&state=s1',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getWecomQrUrl } = await import('../src/mock/api.ts');
+    const url = await getWecomQrUrl('/patients');
+
+    expect(url).toContain('qrConnect');
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/auth/wecom/qr?from=%2Fpatients');
+  });
+
+  it('未配置时返回 null，登录页隐藏入口', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse({ enabled: false })),
+    );
+    const { getWecomQrUrl } = await import('../src/mock/api.ts');
+    expect(await getWecomQrUrl()).toBeNull();
+  });
+
+  it('接口异常时按不可用处理，不抛错', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('network down')));
+    const { getWecomQrUrl } = await import('../src/mock/api.ts');
+    expect(await getWecomQrUrl()).toBeNull();
+  });
+});

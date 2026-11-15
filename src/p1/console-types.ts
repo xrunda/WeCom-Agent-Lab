@@ -150,6 +150,8 @@ export interface AccountRecord {
   status: AccountStatus;
   /** scrypt 强哈希，任何响应都不返回 */
   passwordHash: string;
+  /** 企微 userid（租户内唯一）；扫码登录据此匹配账号，密码账号可空（#181） */
+  wecomUserId?: string;
   lastLoginAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -166,6 +168,12 @@ export interface SessionRecord {
   createdAt: number;
   expiresAt: number;
   lastSeenAt: number;
+  /** 签发方式；缺省按 password 处理，历史会话不受影响（#181） */
+  method?: 'password' | 'wecom';
+  /** 扫码会话绑定的企微 userid，用于续期复核 */
+  wecomUserId?: string;
+  /** 上次成员状态复核时间（毫秒） */
+  recheckedAt?: number;
 }
 
 // ---------- 审计 ----------
