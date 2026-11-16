@@ -15,6 +15,7 @@ import {
   SESSION_COOKIE,
 } from '../../src/p1/console-auth.ts';
 import { CaptchaService } from '../../src/p1/captcha.ts';
+import { openRedlineAlertsFor } from '../../src/p1/advisor/alerts.ts';
 import { AlertService, parseAlertSource } from '../../src/p1/console-alerts.ts';
 import { ConsoleError } from '../../src/p1/console-error.ts';
 import { ConsoleStore } from '../../src/p1/console-store.ts';
@@ -1432,6 +1433,16 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
               script.enabled &&
               script.deletedAt === undefined,
           ),
+    });
+
+    // #167：顾问待办的「未处理告警」以控制台为准（处理状态只有控制台知道），
+    // 口径与「质检与告警」页一致：redline + open + 本人名下。
+    ctx.provide('zhibanConsoleAlerts', {
+      openForAdvisor: (advisorId: string) =>
+        openRedlineAlertsFor(
+          alerts.list({ kind: 'redline', status: 'open', advisorId, pageSize: 100 }).items,
+          advisorId,
+        ),
     });
 
     const consoleBindings = (api: PatientApiLike, patients: Patient[]): GroupBinding[] => {

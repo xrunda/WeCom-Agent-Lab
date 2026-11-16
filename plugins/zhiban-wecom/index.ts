@@ -852,12 +852,27 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       let runtime: WecomRuntime | undefined;
       let confirmHandler: ((key: string) => void) | undefined;
 
-      // #167：未处理告警（zhibanGuard 只读）；顾问 Agent 与「我的待办」共用同一份
-      const openAlertsFor = (advisorId: string) =>
-        (ctx.get<StaffQualityGuard>('zhibanGuard')?.alerts?.() ?? [])
+      // #167：未处理告警以控制台为准（处理状态只在控制台更新）；
+      // 控制台未安装时退回 guard 的 open 红线告警。
+      const openAlertsFor = (advisorId: string) => {
+        const consoleAlerts = ctx.get<{
+          openForAdvisor?(id: string): Array<{
+            id: string;
+            title: string;
+            at: number;
+            severity?: string;
+            ruleIds?: string[];
+          }>;
+        }>('zhibanConsoleAlerts');
+        if (consoleAlerts?.openForAdvisor) {
+          return consoleAlerts.openForAdvisor(advisorId);
+        }
+        return (ctx.get<StaffQualityGuard>('zhibanGuard')?.alerts?.() ?? [])
           .filter(
             (alert) =>
-              alert.advisorId === advisorId && (alert.status === undefined || alert.status === 'open'),
+              alert.kind === 'redline' &&
+              alert.advisorId === advisorId &&
+              (alert.status === undefined || alert.status === 'open'),
           )
           .map((alert) => ({
             id: alert.id,
@@ -866,6 +881,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
             ...(alert.ruleIds && alert.ruleIds.length > 0 ? { ruleIds: alert.ruleIds } : {}),
             ...(alert.severity ? { severity: alert.severity } : {}),
           }));
+      };
 
       // #167：待回复会话数来自侧边栏索引；侧边栏未安装时 undefined（不显示这一行）
       const pendingRepliesFor = (advisorId: string): number | undefined => {
