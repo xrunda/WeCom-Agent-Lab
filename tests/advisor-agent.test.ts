@@ -17,6 +17,8 @@ class FakeSessions implements AdvisorSessionPort {
   deferRun = false;
   releaseRun?: () => void;
   runTurnCalls = 0;
+  /** 模拟工具在回合进行中写入数据（如饮食记录原图） */
+  onRunTurn?: () => void;
 
   async ensure(advisorId: string) {
     return {
@@ -43,6 +45,7 @@ class FakeSessions implements AdvisorSessionPort {
     onLateComplete?: (text: string) => void;
   }): Promise<AdvisorTurnOutcome> {
     this.runTurnCalls += 1;
+    this.onRunTurn?.();
     if (this.deferRun) {
       await new Promise<void>((resolve) => {
         this.releaseRun = resolve;
@@ -60,6 +63,8 @@ class FakeSessions implements AdvisorSessionPort {
 
 class FakeData implements AdvisorWecomDataPort {
   sends: Array<{ advisorId: string; text: string }> = [];
+  images: Array<{ advisorId: string; path: string }> = [];
+  failImages = false;
   canReadPatient = true as const;
 
   advisorName(advisorId: string): string | undefined {
@@ -88,6 +93,12 @@ class FakeData implements AdvisorWecomDataPort {
 
   async sendText(advisorId: string, text: string): Promise<boolean> {
     this.sends.push({ advisorId, text });
+    return true;
+  }
+
+  async sendImage(advisorId: string, path: string): Promise<boolean> {
+    if (this.failImages) throw new Error('SEND_IMAGE_TOO_LARGE');
+    this.images.push({ advisorId, path });
     return true;
   }
 }
@@ -197,4 +208,44 @@ test('全局并发满：排队一小段后仍满则提示稍后', async () => {
   assert.match(data.sends[0]!.text, /比较忙/);
   sessions.releaseRun?.();
   await first;
+});
+
+test('饮食记录原图：文字发出后补发，最多 3 张', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.onRunTurn = () =>
+    agent.recordMealMedia('adv_1', ['/tmp/a.jpg', '/tmp/b.png', '/tmp/c.jpg', '/tmp/d.jpg']);
+  sessions.outcomes.push({ status: 'completed', text: '这一天饮食记录如下。' });
+  await agent.handle('adv_1', '查饮食记录');
+  assert.equal(data.images.length, 3);
+  assert.deepEqual(
+    data.images.map((item) => item.path),
+    ['/tmp/a.jpg', '/tmp/b.png', '/tmp/c.jpg'],
+  );
+  assert.equal(data.sends[0]!.text, '这一天饮食记录如下。', '先文字后图片');
+});
+
+test('原图发送失败只跳过，不影响文字回复', async () => {
+  const { sessions, data, agent } = setup();
+  data.failImages = true;
+  sessions.onRunTurn = () => agent.recordMealMedia('adv_1', ['/tmp/a.jpg']);
+  sessions.outcomes.push({ status: 'completed', text: '文字照常发出。' });
+  await agent.handle('adv_1', '查饮食记录');
+  assert.equal(data.sends[0]!.text, '文字照常发出。');
+  assert.equal(data.images.length, 0);
+});
+
+test('新一轮不补发上一轮残留的原图', async () => {
+  const { sessions, data, agent } = setup();
+  let first = true;
+  sessions.onRunTurn = () => {
+    if (first) agent.recordMealMedia('adv_1', ['/tmp/a.jpg']);
+    first = false;
+  };
+  sessions.outcomes.push({ status: 'completed', text: '第一轮。' });
+  await agent.handle('adv_1', '第一问');
+  // 第一轮已经补发过一次
+  assert.equal(data.images.length, 1);
+  sessions.outcomes.push({ status: 'completed', text: '第二轮。' });
+  await agent.handle('adv_1', '第二问');
+  assert.equal(data.images.length, 1, '第二轮没有新记录就不重复发图');
 });

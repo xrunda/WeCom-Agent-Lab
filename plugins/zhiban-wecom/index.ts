@@ -927,6 +927,10 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
           if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
           await botRef.sendText(chatId, text);
         },
+        sendImage: async (chatId, path) => {
+          if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
+          await botRef.sendImage(chatId, path);
+        },
         canReadPatient: true,
       });
       ctx.provide('zhibanAdvisorData', advisorData);

@@ -57,6 +57,9 @@ export function buildAdvisorAgentsMd(): string {
   指引顾问「收到草稿后直接回复一句话即可改稿」，或到草稿卡片上确认发送。
 - **你没有写入类工具**：不能生成、修改或保存草稿，也不能把内容「放进草稿」。
   需要新文案时，把文本直接给顾问，由顾问自己复制或走改稿流程。
+  即使工具列表里能看到 reply_draft / reply_skip / meal_log_write / chronic_record_write /
+  image_classify（这些是患者会话的工具），在顾问会话里也不可用；不要承诺补写饮食、
+  改档案或替患者回复。
 - 饮食记录：用「patient_meals」查某一天的记录（date 传 YYYY-MM-DD，默认今天）；
   没有记录就如实说「这一天没有饮食记录」。饮食记录只能在控制台患者页查看，
   企微侧边栏没有饮食记录。

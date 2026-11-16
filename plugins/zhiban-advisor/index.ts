@@ -181,6 +181,12 @@ class LazyAdvisorData implements AdvisorWecomDataPort {
     return port.sendText(advisorId, text);
   }
 
+  async sendImage(advisorId: string, path: string): Promise<boolean> {
+    const port = this.resolve();
+    if (!port?.sendImage) return false;
+    return port.sendImage(advisorId, path);
+  }
+
   get canReadPatient(): boolean {
     return this.resolve()?.canReadPatient ?? true;
   }
@@ -536,10 +542,18 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
                 ) - 8 * 3_600_000
               : shanghaiDayStart(Date.now());
           const label = new Date(day + 8 * 3_600_000).toISOString().slice(0, 10);
-          const meals = api
+          const records = api
             .listMealLogs(patientId)
             .filter((meal) => meal.createdAt >= day && meal.createdAt < day + 24 * 3_600_000)
-            .sort((a, b) => a.createdAt - b.createdAt)
+            .sort((a, b) => a.createdAt - b.createdAt);
+          // 本轮文字回复后补发原图：路径只在插件内部交给回合编排，不进工具结果
+          agent!.recordMealMedia(
+            advisorId,
+            records
+              .map((meal) => meal.mediaPath ?? '')
+              .filter((path) => path !== ''),
+          );
+          const meals = records
             .map((meal) => ({
               mealType: meal.mealType,
               time: shanghaiClock(meal.createdAt),

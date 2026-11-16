@@ -55,6 +55,11 @@ export interface AdvisorWecomDataPort {
   activeDraftFor(advisorId: string): AdvisorActiveDraftView | undefined;
   /** 给顾问本人 1:1 发消息；返回是否送达 */
   sendText(advisorId: string, text: string): Promise<boolean>;
+  /**
+   * 给顾问本人补发一张图片（饮食记录原图）。
+   * path 是服务端媒体路径，只在插件内部传递，不进工具结果、不进日志。
+   */
+  sendImage?(advisorId: string, path: string): Promise<boolean>;
   /** 客户昵称权限：false 时工具只返回患者 id 尾号 */
   canReadPatient: boolean;
 }

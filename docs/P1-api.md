@@ -1097,7 +1097,7 @@ Agent 工具（v1，注册在 `zhiban-advisor`）：
 | `advisor_search` | 按 scope 在本人名下资源里找：patient / knowledge / script / alert | `scope` + `query` |
 | `advisor_get` | 按 id 取单条详情：patient / knowledge / script / alert / rule（rule 只支持 get） | `scope` + `id` |
 | `patient_chronic` | 一位患者的慢病档案快照（疾病 / 最近 3 条体征 / 用药） | `patientId` |
-| `patient_meals` | 一位患者某一天的饮食记录（餐次 / 食物 / 时间 / 置信度） | `patientId` + 可选 `date`（YYYY-MM-DD，默认今天） |
+| `patient_meals` | 一位患者某一天的饮食记录（餐次 / 食物 / 时间 / 置信度）；文字回复后补发最多 3 张原图（≤2MB、JPG/PNG，失败只跳过） | `patientId` + 可选 `date`（YYYY-MM-DD，默认今天） |
 
 患者检索（`advisor_search(scope=patient)`）支持按昵称、标签、患者 id、外部联系人 id（含尾号）匹配。
 患者归属：已分配顾问的患者只对该顾问可见；未分配顾问的患者在绑定群也没有其他顾问、
