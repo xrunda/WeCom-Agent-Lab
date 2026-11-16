@@ -374,6 +374,13 @@ function renderChronic(value: AdvisorChronicResult): string {
   if (!value.hasRecord) {
     return `患者（${value.displayName}）目前没有慢病档案记录，没有可查的体征、用药或疾病信息。`;
   }
+  // #167：事实卡优先（含身高体重、最近饮食、长期记忆），格式与患者侧注入同一份
+  if (value.facts && value.facts.length > 0) {
+    return [
+      ...value.facts,
+      '以上是系统里已有的信息；没有的字段如实说明没有，不要用通识补成个性化结论。',
+    ].join('\n');
+  }
   const lines: string[] = [`患者 ${value.displayName} 的慢病档案：`];
   if (value.conditions.length > 0) {
     lines.push(`疾病：${value.conditions.join('、')}`);
@@ -519,7 +526,7 @@ export function buildAdvisorToolDefinitions(
     {
       name: 'patient_chronic',
       description:
-        '一位患者的慢病档案快照：疾病、最近 3 条体征、用药与更新时间。patientId 必须来自 advisor_search(scope=patient) 或 advisor_get(scope=patient) 的结果，不能猜。无档案时明确回「无记录」，不得补数值。',
+        '一位患者的事实卡：疾病、身高体重、用药、最近体征、最近饮食与长期记忆（过敏/忌口、口味偏好等）。patientId 必须来自 advisor_search(scope=patient) 或 advisor_get(scope=patient) 的结果，不能猜。给餐食/运动/作息建议前先调它；没有的字段如实说没有，不得补数值或用通识冒充个性化。',
       parameters: {
         type: 'object',
         properties: {
