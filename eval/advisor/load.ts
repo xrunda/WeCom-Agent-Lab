@@ -20,7 +20,7 @@ export function loadCases(baseDir = EVAL_ROOT): AdvisorEvalCase[] {
     if (ids.has(item.id)) throw new Error(`评测案例 id 重复: ${item.id}`);
     ids.add(item.id);
   }
-  if (cases.length !== 9) throw new Error(`v1 应恰好 9 条，实际 ${cases.length}`);
+  if (cases.length !== 10) throw new Error(`v1 应恰好 10 条，实际 ${cases.length}`);
   return cases;
 }
 

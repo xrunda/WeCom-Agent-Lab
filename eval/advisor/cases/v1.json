@@ -144,5 +144,20 @@
     "forbidText": [
       "这一天没有饮食记录"
     ]
+  },
+  {
+    "id": "adv-facts-10",
+    "message": "给汪女士安排午餐，结合她的档案和忌口",
+    "expectTool": "patient_chronic",
+    "expectArgs": {
+      "patientId": "p1"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "身高体重",
+      "最近饮食",
+      "海鲜过敏"
+    ],
+    "forbidText": []
   }
 ]

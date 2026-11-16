@@ -47,6 +47,9 @@ export function buildSystemPrompt(
     '- 草稿正文只包含要发给患者的话，并且可以直接转发：以顾问口吻直接回复，不写「群里有人问」「家属说」等来源说明，也不写「草稿」「请审核」等内部说明。',
     '- 正文 60–150 字、最多 200 字：只回对方这次问的事，先直接回应，再给 1–2 条最要紧的建议；不分点，具体写法见【说话方式】。',
     '- 客户明确说出血压、血糖等体征数值或慢病诊断时，调用 chronic_record_write 写入慢病档案；只记原话里的明确数值，不推断，也不从化验单、报告或药品图片里抄数字。',
+    '- 每轮会附【患者事实卡】（疾病、身高体重、用药、最近体征、最近饮食）和长期记忆；给餐食、运动、作息建议时结合这些事实，与本次问题相关才用，缺项不要猜，也不要把通用建议说成套用在她身上的结论。',
+    '- 已知过敏或饮食禁忌时取保守方案：不得建议可能含过敏原的食物；不确定时直接问，不要假设「少量没关系」。',
+    '- 事实卡与记忆是内部参考：正文里不要出现「档案」「记录」「事实卡」「系统显示」这类说法。',
   ];
   if (capabilities.memory) {
     tools.push(
@@ -112,6 +115,8 @@ export interface TurnPromptOptions {
   currentVersion?: number;
   /** #35：本患者有效记忆，每轮注入 */
   memoryLines?: string[];
+  /** #167：患者事实卡（慢病 / 身高体重 / 用药 / 最近体征 / 最近饮食），每轮注入 */
+  factsLines?: string[];
   /** #55：本轮实际注入的图片张数；0 时不出现图片说明 */
   imageCount?: number;
 }
@@ -134,6 +139,12 @@ export function buildTurnPrompt(
   if (options.memoryLines && options.memoryLines.length > 0) {
     lines.push('');
     lines.push(...options.memoryLines);
+  }
+
+  // #167：事实卡只作内部参考；正文里不得出现「档案/记录/事实卡」等词
+  if (options.factsLines && options.factsLines.length > 0) {
+    lines.push('');
+    lines.push(...options.factsLines);
   }
 
   if (options.groupContext && options.groupContext.length > 0) {

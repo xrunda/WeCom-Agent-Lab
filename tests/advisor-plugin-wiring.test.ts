@@ -46,6 +46,8 @@ const CHRONIC: ChronicProfile = {
   patientId: 'p1',
   tenantId: 'tn_test',
   conditions: ['高血压'],
+  heightCm: 170,
+  weightKg: 65,
   medications: [{ name: '氨氯地平', dose: '5mg', source: 'advisor', updatedAt: 0 }],
   measurements: [
     {
@@ -404,4 +406,28 @@ test('patient_meals：按日期返回当天餐次，逐条列出食物', async (
     { agent: { id: 'zhiban-advisor-adv_1' } },
   ) as { hasRecord: boolean };
   assert.equal(empty.hasRecord, false);
+});
+
+test('patient_chronic 返回事实卡：身高体重、最近饮食与长期记忆都带上', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  h.ctx.provide('zhibanMemory', {
+    render: () => [
+      '【患者长期记忆（引用时把方括号里的 id 填进 citedMemoryIds）】',
+      '- 饮食禁忌/过敏',
+      '  - [mem_1] 海鲜过敏（患者本人）',
+      '- 偏好',
+      '  - [mem_2] 口味清淡（患者本人）',
+    ],
+  });
+  await h.ready;
+  const chronic = h.tools.find((item) => item.name === 'patient_chronic')!;
+  const value = await chronic.execute({ patientId: 'p1' }, { agent: { id: 'zhiban-advisor-adv_1' } });
+  const text = chronic.output.render({}, value)[0]!.text;
+  assert.match(text, /身高体重：170 cm \/ 65 kg/);
+  assert.match(text, /最近饮食/);
+  assert.match(text, /燕麦粥/);
+  assert.match(text, /海鲜过敏/);
+  assert.match(text, /口味清淡/);
 });

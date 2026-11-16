@@ -30,6 +30,7 @@ import type {
   AdvisorWecomDataPort,
 } from '../../src/p1/advisor/types.ts';
 import { formatMeasurementValue, CHRONIC_METRICS, CHRONIC_SOURCE_LABELS } from '../../src/p1/chronic.ts';
+import { buildPatientFacts } from '../../src/p1/patient-facts.ts';
 import { riskLabel, shanghaiClock } from '../../src/c2/message.ts';
 import { shanghaiDayStart } from '../../src/c2/promises.ts';
 import type { ChronicProfile } from '../../src/p1/chronic.ts';
@@ -141,6 +142,11 @@ interface GuardApi {
     riskLevel: 'low' | 'medium' | 'high';
     action: string;
   } | undefined;
+}
+
+/** zhiban-memory 的只读入口；按 patientId 渲染，不依赖患者会话 */
+interface MemoryApi {
+  render(patientId: string): string[];
 }
 
 /** 懒加载 zhiban-wecom 的只读数据端口；未就绪时读操作空值、发送报错 */
@@ -486,10 +492,22 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
           if (!ownsPatient(advisorId, patient)) return { status: 'forbidden' };
           const profile = api.getChronicProfile(patientId);
           const shown = displayNameOf(patient);
+          // #167：与患者侧注入同一份事实卡；再附长期记忆（忌口/偏好在这里）
+          const facts = buildPatientFacts({
+            displayName: shown,
+            tags: patient.tags,
+            chronic: profile,
+            recentMeals: api
+              .listMealLogs(patientId)
+              .slice()
+              .sort((a, b) => b.createdAt - a.createdAt),
+          });
+          const memoryLines = ctx.get<MemoryApi>('zhibanMemory')?.render(patientId) ?? [];
           const hasRecord =
             profile.conditions.length > 0 ||
             profile.measurements.length > 0 ||
-            profile.medications.length > 0;
+            profile.medications.length > 0 ||
+            memoryLines.length > 0;
           if (!hasRecord) {
             return {
               status: 'ok',
@@ -519,6 +537,7 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             ),
             recentMeasurements: recent,
             updatedAt: profile.updatedAt,
+            facts: [...facts, ...memoryLines],
           };
         },
         meals: async (

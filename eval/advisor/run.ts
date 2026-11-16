@@ -42,6 +42,8 @@ const SEED = {
       patientId: 'p1',
       tenantId: 'tn_eval',
       conditions: ['高血压'],
+      heightCm: 170,
+      weightKg: 65,
       medications: [{ name: '氨氯地平', dose: '5mg', source: 'advisor' as const, updatedAt: NOW - 3_600_000 }],
       measurements: [
         {
@@ -131,6 +133,18 @@ function fakeContext() {
     });
     provided.set('zhibanScripts', {
       listEnabled: () => SEED.scripts,
+    });
+    provided.set('zhibanMemory', {
+      render: (patientId: string) =>
+        patientId === 'p1'
+          ? [
+              '【患者长期记忆（引用时把方括号里的 id 填进 citedMemoryIds）】',
+              '- 饮食禁忌/过敏',
+              '  - [mem_e1] 海鲜过敏（患者本人）',
+              '- 偏好',
+              '  - [mem_e2] 口味清淡（患者本人）',
+            ]
+          : [],
     });
     provided.set('zhibanGuard', {
       getRule: (id: string) => SEED.rules.find((rule) => rule.id === id),

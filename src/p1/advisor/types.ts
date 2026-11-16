@@ -119,6 +119,11 @@ export type AdvisorChronicResult =
       /** 最近 3 条体征的展示文本（指标 + 数值 + 时间） */
       recentMeasurements: string[];
       updatedAt?: number;
+      /**
+       * 患者事实卡（#167）：疾病 / 身高体重 / 用药 / 最近体征 / 最近饮食 / 长期记忆。
+       * 有它就优先渲染；为空时回退到上面的结构化字段。
+       */
+      facts?: string[];
     }
   | { status: 'forbidden' };
 

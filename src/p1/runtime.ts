@@ -9,6 +9,7 @@
  * 核验结果通过 injectContext 写回会话，不唤醒新回合。
  */
 import { InboundMerger, mediaPaths, messageIds, summarizeMessages } from './merge.ts';
+import { buildPatientFacts } from './patient-facts.ts';
 import {
   buildSystemPrompt,
   buildTurnPrompt,
@@ -702,6 +703,15 @@ export class PatientAgentRuntime {
       currentVersion: revision?.currentVersion,
       proactive: merged.proactive ? { reason: `计划到期：${merged.proactive.title}` } : undefined,
       memoryLines: this.memory?.available() ? this.memory.render(patient.id) : undefined,
+      // #167：慢病档案 + 身高体重 + 最近饮食，每轮确定性注入（不依赖模型主动查）
+      factsLines: buildPatientFacts({
+        displayName: patient.displayName,
+        tags: patient.tags,
+        chronic: this.service.getChronicProfile(patient.id),
+        recentMeals: this.service.store
+          .listMealLogs(patient.id)
+          .sort((a, b) => b.createdAt - a.createdAt),
+      }),
       imageCount: loadedImages.images.length,
     });
 
