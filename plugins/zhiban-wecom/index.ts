@@ -34,18 +34,19 @@ import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../
 
 import { parsePluginConfig } from './config.ts';
 import { AdvisorStatusService } from './advisor-status.ts';
+import { buildAdvisorWecomData, pendingRepliesFromSidebar } from './advisor-data.ts';
+import { routeSingleText } from './advisor-route.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
 import { GroupDiscovery } from './group-discovery.ts';
 import { GroupInfoClient } from './group-info.ts';
 import { RoomAgreeClient } from './room-agree.ts';
 import { makeTemplateCompose, WecomRuntime } from './runtime.ts';
 import type { PatientSink } from './runtime.ts';
-import { ScriptQueryService, splitForWecom } from './script-query.ts';
-import type { QueryableScript } from './script-query.ts';
-import { KnowledgeQueryService } from './knowledge-query.ts';
+import { splitForWecom } from '../../src/p1/advisor/format.ts';
 import { PatrolService } from './patrol-service.ts';
 import { PromiseService } from '../../src/c2/promise-service.ts';
 import { ServiceGroupRegistry, reconcileServiceGroups } from './service-groups.ts';
+import type { ZhibanAdvisorPort } from '../zhiban-advisor/index.ts';
 
 export const name = 'zhiban-wecom';
 
@@ -126,7 +127,9 @@ interface StaffQualityGuard {
   /** 「为什么红线」用：只读规则名与关键词，不读发言正文 */
   getRule?(id: string): { name: string; keywords: string[] } | undefined;
   alerts?(): Array<{
+    id: string;
     kind: string;
+    severity?: string;
     status?: string;
     source?: string;
     advisorId?: string;
@@ -194,21 +197,9 @@ export async function decideStaffQuality(
   return 'dismissed';
 }
 
-/** 只依赖 zhiban-console 的话术只读入口；未安装控制台时查询会提示未接入 */
-interface ScriptsApi {
-  listEnabled(): QueryableScript[];
-}
-
-/** #162 zhiban-knowledge 暴露的只读检索入口 */
-interface KnowledgeApi {
-  list(query?: { q?: string; enabled?: boolean }): Array<{
-    id: string;
-    category: string;
-    title: string;
-    content: string;
-    enabled: boolean;
-    deletedAt?: number;
-  }>;
+/** 侧边栏待回复索引（#146）的只读入口；未安装时不显示待回复计数 */
+interface SidebarApi {
+  allItems(): Array<{ convKey: string; status: string }>;
 }
 
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
@@ -861,19 +852,47 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       let runtime: WecomRuntime | undefined;
       let confirmHandler: ((key: string) => void) | undefined;
 
-      // 顾问在企微 1:1 查话术；只回复本人，不向客户群发送（F1）
-      const scriptQuery = new ScriptQueryService(
-        () => ctx.get<ScriptsApi>('zhibanScripts'),
-        () => clock.now(),
-      );
+      // #167：未处理告警（zhibanGuard 只读）；顾问 Agent 与「我的待办」共用同一份
+      const openAlertsFor = (advisorId: string) =>
+        (ctx.get<StaffQualityGuard>('zhibanGuard')?.alerts?.() ?? [])
+          .filter(
+            (alert) =>
+              alert.advisorId === advisorId && (alert.status === undefined || alert.status === 'open'),
+          )
+          .map((alert) => ({
+            id: alert.id,
+            title: alert.kind === 'redline' ? '员工发言命中红线' : '已升级人工',
+            at: alert.createdAt,
+            ...(alert.ruleIds && alert.ruleIds.length > 0 ? { ruleIds: alert.ruleIds } : {}),
+            ...(alert.severity ? { severity: alert.severity } : {}),
+          }));
 
-      // 「我的待办 / 我的草稿」：只读本人名下的草稿、承诺与告警，不调模型
+      // #167：待回复会话数来自侧边栏索引；侧边栏未安装时 undefined（不显示这一行）
+      const pendingRepliesFor = (advisorId: string): number | undefined => {
+        const sidebar = ctx.get<SidebarApi>('zhibanSidebar');
+        if (!sidebar || typeof sidebar.allItems !== 'function') return undefined;
+        // dm 会话键用顾问企微 userid（chatId）；P1 单顾问时与 advisorId 相同
+        const wecomUserId = store.getAdvisor(advisorId)?.chatId ?? advisorId;
+        return pendingRepliesFromSidebar({
+          advisorId: wecomUserId,
+          groupRoomIds: new Set(
+            store
+              .listGroups()
+              .filter((group) => group.advisorId === advisorId)
+              .map((group) => group.roomId),
+          ),
+          allItems: () => sidebar.allItems(),
+        });
+      };
+
+      // 「我的待办」：只读本人名下的草稿、承诺与告警，与 advisor_overview 工具共用 format.ts
       const advisorStatus = new AdvisorStatusService({
         drafts: (advisorId) =>
           store
             .listDrafts()
             .filter((draft) => draft.advisorId === advisorId)
             .map((draft) => ({
+              id: draft.id,
               groupName: draft.groupName,
               riskLevel: draft.riskLevel,
               status: draft.status,
@@ -889,65 +908,28 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
               dueAt: promise.dueAt,
               dueLabel: promise.dueLabel,
             })),
-        alerts: (advisorId) =>
-          (ctx.get<StaffQualityGuard>('zhibanGuard')?.alerts?.() ?? [])
-            .filter(
-              (alert) =>
-                alert.advisorId === advisorId && (alert.status === undefined || alert.status === 'open'),
-            )
-            .map((alert) => ({
-              title: alert.kind === 'redline' ? '员工发言命中红线' : '已升级人工',
-              at: alert.createdAt,
-            })),
+        alerts: openAlertsFor,
+        pendingReplies: pendingRepliesFor,
         now: () => clock.now(),
       });
 
-      // #162：知识检索与判定解释；只读知识库与本人草稿
-      const knowledgeQuery = new KnowledgeQueryService({
-        source: () => ctx.get<KnowledgeApi>('zhibanKnowledge'),
-        latestDraft: (userId) => {
-          const advisor = resolveStaffAdvisor(userId);
-          if (!advisor) return undefined;
-          const activeId = serviceRef?.store.getActiveDraft(advisor.id);
-          const draft =
-            (activeId ? serviceRef?.store.getDraft(activeId) : undefined) ??
-            serviceRef?.store
-              .listDrafts()
-              .filter((item) => item.advisorId === advisor.id)
-              .sort((a, b) => b.createdAt - a.createdAt)[0];
-          if (!draft) return undefined;
-          return {
-            id: draft.id,
-            riskLevel: draft.riskLevel,
-            ruleNames: [...(draft.ruleNames ?? [])],
-            hasRuleEvidence: (draft.ruleIds?.length ?? 0) > 0,
-          };
+      // #167：zhiban-advisor 的只读数据端口；懒加载，插件晚于本插件就绪也能拿到
+      const advisorData = buildAdvisorWecomData({
+        listDrafts: () => store.listDrafts(),
+        listPromises: () => store.listPromises(),
+        listGroups: () => store.listGroups(),
+        getAdvisor: (id) => store.getAdvisor(id),
+        getActiveDraft: (advisorId) => store.getActiveDraft(advisorId),
+        getDraft: (id) => store.getDraft(id),
+        openAlerts: openAlertsFor,
+        openPendingCount: pendingRepliesFor,
+        sendText: async (chatId, text) => {
+          if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
+          await botRef.sendText(chatId, text);
         },
-        // 员工发言质检：只取本人最近一次命中，规则名与关键词来自 guard，正文不回显
-        staffRedline: (userId) => {
-          const advisor = resolveStaffAdvisor(userId);
-          if (!advisor) return undefined;
-          const guard = ctx.get<StaffQualityGuard>('zhibanGuard');
-          const latest = (guard?.alerts?.() ?? [])
-            .filter(
-              (alert) =>
-                alert.kind === 'redline' &&
-                alert.source === 'staff' &&
-                alert.advisorId === advisor.id,
-            )
-            .sort((a, b) => b.createdAt - a.createdAt)[0];
-          if (!latest) return undefined;
-          const rules = latest.ruleIds
-            .map((id) => guard?.getRule?.(id))
-            .filter((rule): rule is { name: string; keywords: string[] } => rule !== undefined);
-          if (rules.length === 0) return { ruleNames: [], keywords: [] };
-          return {
-            ruleNames: rules.map((rule) => rule.name),
-            keywords: [...new Set(rules.flatMap((rule) => rule.keywords))],
-          };
-        },
-        now: () => clock.now(),
+        canReadPatient: true,
       });
+      ctx.provide('zhibanAdvisorData', advisorData);
 
       bot = new WeComBotAdapter(
         { botId: config.botId, secret: config.botSecret, logger: log },
@@ -958,33 +940,68 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
                 `user=${tailId(message.userid)}（正文不落日志）`,
             );
             if (message.chattype === 'single' && message.msgtype === 'text' && message.text) {
-              // 「话术 …」「知识 …」「我的待办」是查询指令；看过列表后直接发编号也取全文；
-              // 其余文本按改稿指令处理（#56）
+              // #167：精确命令（帮助 / 重置对话 / 我的待办 / 纯编号）→ 秒回；
+              // 其余全部交给 zhibanAdvisor；Agent 不可用时回旧路径（改稿 / 用法提示）。
+              const singleText = message.text;
               const statusAdvisor = resolveStaffAdvisor(message.userid);
-              const reply =
-                knowledgeQuery.reply(message.userid, message.text) ??
-                scriptQuery.reply(message.userid, message.text) ??
-                scriptQuery.replyToSelection(message.userid, message.text) ??
-                knowledgeQuery.replyToSelection(message.userid, message.text) ??
-                (statusAdvisor ? advisorStatus.reply(statusAdvisor.id, message.text) : undefined);
-              if (reply !== undefined) {
+              const advisorApi = ctx.get<ZhibanAdvisorPort>('zhibanAdvisor');
+              const route = routeSingleText({
+                text: singleText,
+                advisorId: statusAdvisor?.id,
+                advisorAvailable: advisorApi?.enabled?.() ?? false,
+                todoReply: (advisorId) => advisorStatus.reply(advisorId, singleText),
+              });
+              const sendTo = (text: string): void => {
                 const target = botRef;
-                if (target) {
-                  void (async () => {
-                    // 长文本按字节拆成多条，避免超过企微 markdown 单条上限
-                    for (const chunk of splitForWecom(reply)) {
-                      await target.sendText(message.userid, chunk);
-                    }
-                  })().catch((error: unknown) =>
-                    log(
-                      `指令回复失败 user=${tailId(message.userid)}：` +
-                        `${error instanceof Error ? error.message : 'UNKNOWN'}`,
-                    ),
-                  );
-                }
-                return;
+                if (!target) return;
+                void (async () => {
+                  // 长文本按字节拆成多条，避免超过企微 markdown 单条上限
+                  for (const chunk of splitForWecom(text)) {
+                    await target.sendText(message.userid, chunk);
+                  }
+                })().catch((error: unknown) =>
+                  log(
+                    `指令回复失败 user=${tailId(message.userid)}：` +
+                      `${error instanceof Error ? error.message : 'UNKNOWN'}`,
+                  ),
+                );
+              };
+              switch (route.kind) {
+                case 'reply':
+                  sendTo(route.text);
+                  break;
+                case 'reset':
+                  if (advisorApi && statusAdvisor) {
+                    void advisorApi
+                      .reset(statusAdvisor.id)
+                      .catch((error: unknown) =>
+                        log(`重置对话失败 user=${tailId(message.userid)}：${error instanceof Error ? error.message : 'UNKNOWN'}`),
+                      );
+                  }
+                  break;
+                case 'selection':
+                  if (advisorApi && statusAdvisor) {
+                    void advisorApi
+                      .handleSelection(statusAdvisor.id, route.number)
+                      .catch((error: unknown) =>
+                        log(`编号选择失败 user=${tailId(message.userid)}：${error instanceof Error ? error.message : 'UNKNOWN'}`),
+                      );
+                  }
+                  break;
+                case 'agent':
+                  if (advisorApi && statusAdvisor) {
+                    void advisorApi
+                      .handle(statusAdvisor.id, route.text)
+                      .catch((error: unknown) =>
+                        log(`顾问 Agent 回合失败 user=${tailId(message.userid)}：${error instanceof Error ? error.message : 'UNKNOWN'}`),
+                      );
+                  }
+                  break;
+                case 'fallback':
+                  // 有活动草稿当改稿，否则用法提示（patient.handleAdvisorText 内部处理）
+                  void runtime?.handleAdvisorMessage(message.userid, message.text);
+                  break;
               }
-              void runtime?.handleAdvisorMessage(message.userid, message.text);
             }
           },
           onEvent: (event) => {

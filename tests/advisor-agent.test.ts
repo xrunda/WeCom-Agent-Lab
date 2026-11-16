@@ -1,0 +1,200 @@
+/**
+ * 顾问 Agent 回合编排（#167 §6 / §11）：串行、并发、限流、降级与补发。
+ * 全部虚构数据，不依赖 DSH。
+ */
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { AdvisorAgent } from '../plugins/zhiban-advisor/agent.ts';
+import type {
+  AdvisorTurnOutcome,
+  AdvisorSessionPort,
+} from '../plugins/zhiban-advisor/sessions.ts';
+import type { AdvisorWecomDataPort } from '../src/p1/advisor/types.ts';
+
+class FakeSessions implements AdvisorSessionPort {
+  outcomes: AdvisorTurnOutcome[] = [];
+  deferRun = false;
+  releaseRun?: () => void;
+  runTurnCalls = 0;
+
+  async ensure(advisorId: string) {
+    return {
+      advisorId,
+      sessionId: `zhiban-advisor-${advisorId}`,
+      workspacePath: '/tmp/zhiban-ws-advisor',
+      createdAt: 0,
+    };
+  }
+
+  async reset(advisorId: string) {
+    return {
+      advisorId,
+      sessionId: `zhiban-advisor-${advisorId}-r1`,
+      workspacePath: '/tmp/zhiban-ws-advisor-r',
+      createdAt: 0,
+    };
+  }
+
+  async runTurn(input: {
+    sessionId: string;
+    prompt: string;
+    timeoutMs: number;
+    onLateComplete?: (text: string) => void;
+  }): Promise<AdvisorTurnOutcome> {
+    this.runTurnCalls += 1;
+    if (this.deferRun) {
+      await new Promise<void>((resolve) => {
+        this.releaseRun = resolve;
+      });
+      return { status: 'completed', text: '结果' };
+    }
+    const outcome = this.outcomes.shift() ?? { status: 'empty' };
+    if (outcome.status === 'timeout') {
+      setTimeout(() => input.onLateComplete?.(outcome.text ?? '补发内容'), 5);
+      return { status: 'timeout', text: outcome.text };
+    }
+    return outcome;
+  }
+}
+
+class FakeData implements AdvisorWecomDataPort {
+  sends: Array<{ advisorId: string; text: string }> = [];
+  canReadPatient = true as const;
+
+  advisorName(advisorId: string): string | undefined {
+    return `顾问${advisorId}`;
+  }
+
+  draftsFor() {
+    return [];
+  }
+
+  promisesFor() {
+    return [];
+  }
+
+  alertsFor() {
+    return [];
+  }
+
+  pendingRepliesFor?() {
+    return undefined;
+  }
+
+  activeDraftFor() {
+    return undefined;
+  }
+
+  async sendText(advisorId: string, text: string): Promise<boolean> {
+    this.sends.push({ advisorId, text });
+    return true;
+  }
+}
+
+function setup(options: {
+  maxConcurrentTurns?: number;
+  messagesPerMinute?: number;
+  messagesPerDay?: number;
+  concurrencyWaitMs?: number;
+} = {}) {
+  const sessions = new FakeSessions();
+  const data = new FakeData();
+  const events: Array<{ type: string }> = [];
+  const agent = new AdvisorAgent({
+    sessions,
+    data,
+    emit: (type) => {
+      events.push({ type });
+    },
+    now: () => 1_700_000_000_000,
+    turnTimeoutMs: 30_000,
+    maxConcurrentTurns: options.maxConcurrentTurns ?? 2,
+    messagesPerMinute: options.messagesPerMinute ?? 20,
+    messagesPerDay: options.messagesPerDay ?? 500,
+    concurrencyWaitMs: options.concurrencyWaitMs ?? 5_000,
+  });
+  return { sessions, data, events, agent };
+}
+
+test('回合完成：把助手文本拆条发送给顾问本人', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.outcomes.push({ status: 'completed', text: '汪女士最近血糖 5.8。' });
+  const started = await agent.handle('adv_1', '汪女士血糖怎么样');
+  assert.equal(started, true);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(data.sends.length, 1);
+  assert.equal(data.sends[0]!.advisorId, 'adv_1');
+  assert.match(data.sends[0]!.text, /5\.8/);
+});
+
+test('回合超时：先回「还在处理」，完成后补发带前缀', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.outcomes.push({ status: 'timeout' });
+  await agent.handle('adv_1', '这个问题要查很久');
+  assert.match(data.sends[0]!.text, /要久一点/);
+  // 等待补发
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const late = data.sends.find((send) => send.text.includes('补发内容'));
+  assert.ok(late, '超时后完成应补发结果');
+  assert.match(late!.text, /刚才那条查完了/);
+});
+
+test('回合没产出文本 → 如实说不编造', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.outcomes.push({ status: 'empty' });
+  await agent.handle('adv_1', '问一个查不到的问题');
+  assert.match(data.sends[0]!.text, /没查到/);
+});
+
+test('模型报错 → 降级文案，只保留命令表动作', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.outcomes.push({ status: 'error' });
+  await agent.handle('adv_1', '问题');
+  assert.match(data.sends[0]!.text, /我的待办/);
+  assert.equal(data.sends[0]!.text.includes('话术'), false, '降级不列已退役关键词');
+});
+
+test('单顾问串行：进行中再发 → 上一条还在处理', async () => {
+  const { sessions, data, agent } = setup();
+  sessions.deferRun = true;
+  const first = agent.handle('adv_1', '第一个问题');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = await agent.handle('adv_1', '第二个问题');
+  assert.equal(second, false);
+  assert.match(data.sends[0]!.text, /还在处理/);
+  sessions.releaseRun?.();
+  await first;
+});
+
+test('每分钟限流：超过上限提示剩余秒数', async () => {
+  const { sessions, data, agent } = setup({ messagesPerMinute: 2 });
+  sessions.outcomes.push({ status: 'completed', text: 'a' });
+  sessions.outcomes.push({ status: 'completed', text: 'b' });
+  await agent.handle('adv_1', '1');
+  await agent.handle('adv_1', '2');
+  const limited = await agent.handle('adv_1', '3');
+  assert.equal(limited, false);
+  assert.match(data.sends[2]!.text, /请求太频繁/);
+});
+
+test('每日限流：超过后提示明天再试', async () => {
+  const { sessions, data, agent } = setup({ messagesPerDay: 1 });
+  sessions.outcomes.push({ status: 'completed', text: 'a' });
+  await agent.handle('adv_1', '1');
+  const limited = await agent.handle('adv_1', '2');
+  assert.equal(limited, false);
+  assert.match(data.sends[1]!.text, /今天/);
+});
+
+test('全局并发满：排队一小段后仍满则提示稍后', async () => {
+  const { sessions, data, agent } = setup({ maxConcurrentTurns: 1, concurrencyWaitMs: 100 });
+  sessions.deferRun = true;
+  const first = agent.handle('adv_1', '第一个');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = await agent.handle('adv_2', '第二个');
+  assert.equal(second, false);
+  assert.match(data.sends[0]!.text, /比较忙/);
+  sessions.releaseRun?.();
+  await first;
+});

@@ -14,7 +14,8 @@
     "demo": "node src/c2/cli.ts",
     "bot:test": "node experiments/minimal/aibot-push.mjs",
     "bot:live": "node src/c2/bot-live.ts",
-    "bot:e2e": "node src/c2/live-e2e.ts"
+    "bot:e2e": "node src/c2/live-e2e.ts",
+    "eval:advisor": "node eval/advisor/run.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.5",
