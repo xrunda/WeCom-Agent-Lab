@@ -32,6 +32,8 @@ export interface AdvisorWecomDataDeps {
   /** 待回复索引：侧边栏未安装时返回 undefined */
   openPendingCount?(advisorId: string): number | undefined;
   sendText(chatId: string, text: string): Promise<void>;
+  /** 补发饮食记录原图；机器人不支持发图时可不提供 */
+  sendImage?(chatId: string, path: string): Promise<void>;
   canReadPatient: boolean;
 }
 
@@ -87,6 +89,16 @@ export function buildAdvisorWecomData(deps: AdvisorWecomDataDeps): AdvisorWecomD
       if (!chatId) return false;
       try {
         await deps.sendText(chatId, text);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    sendImage: async (advisorId, path) => {
+      const chatId = chatIdFor(advisorId);
+      if (!chatId || !deps.sendImage) return false;
+      try {
+        await deps.sendImage(chatId, path);
         return true;
       } catch {
         return false;

@@ -20,6 +20,7 @@ import {
   validateAdvisorMeals,
   validateAdvisorSearch,
 } from '../src/p1/advisor/tools.ts';
+import { buildAdvisorAgentsMd } from '../src/p1/advisor/persona.ts';
 import type {
   AdvisorGetResult,
   AdvisorOverviewResult,
@@ -198,4 +199,12 @@ test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', 
     { status: 'ok', patientId: 'p1', displayName: '汪女士', date: '2026-11-15', hasRecord: false, meals: [] },
   );
   assert.match(empty[0]!.text, /没有饮食记录/);
+});
+
+test('人设：点名患者侧工具在顾问会话不可用，且饮食记录只在控制台看', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /reply_draft/);
+  assert.match(md, /meal_log_write/);
+  assert.match(md, /控制台患者页/);
+  assert.match(md, /不得.*编造|绝不补数值/);
 });

@@ -81,6 +81,8 @@ export class AdvisorAgent {
   private readonly dayBuckets = new Map<string, { at: number; count: number }>();
   /** 顾问 → 上一条列表（工具写入，纯编号选择读取） */
   private readonly lastLists = new Map<string, LastList>();
+  /** 顾问 → 本轮待补发的饮食记录原图（服务端路径，只在插件内部传递） */
+  private readonly pendingMedia = new Map<string, string[]>();
 
   constructor(options: AdvisorAgentOptions) {
     this.sessions = options.sessions;
@@ -103,6 +105,16 @@ export class AdvisorAgent {
       const oldest = this.lastLists.keys().next().value;
       if (oldest !== undefined) this.lastLists.delete(oldest);
     }
+  }
+
+  /**
+   * 记录本轮要补发的饮食记录原图。只保留前 3 张，避免一次刷屏；
+   * 路径只在插件内部传递，不进入工具结果与日志。
+   */
+  recordMealMedia(advisorId: string, paths: string[]): void {
+    const kept = paths.filter((path) => path.trim() !== '').slice(0, 3);
+    if (kept.length === 0) return;
+    this.pendingMedia.set(advisorId, kept);
   }
 
   lastList(advisorId: string): LastList | undefined {
@@ -161,6 +173,8 @@ export class AdvisorAgent {
 
     this.inflight.set(advisorId, true);
     this.activeTurns += 1;
+    // 新回合开始：上一轮没发完的图片不再补，避免串到这一轮
+    this.pendingMedia.delete(advisorId);
     try {
       return await this.runTurn(advisorId, text, started);
     } finally {
@@ -231,11 +245,13 @@ export class AdvisorAgent {
         chars: outcome.text.length,
       });
       await this.send(advisorId, outcome.text);
+      await this.flushMedia(advisorId);
       return;
     }
     if (outcome.status === 'interrupted' && outcome.text !== undefined) {
       this.emit('advisor.turn.interrupted', { advisorId: tailId(advisorId), durationMs });
       await this.send(advisorId, `${INTERRUPTED_PREFIX}${outcome.text}`);
+      await this.flushMedia(advisorId);
       return;
     }
     if (outcome.status === 'timeout') {
@@ -249,6 +265,34 @@ export class AdvisorAgent {
       durationMs,
     });
     await this.send(advisorId, outcome.status === 'empty' ? EMPTY_TEXT : DEGRADE_TEXT);
+  }
+
+  /**
+   * 补发本轮饮食记录原图。单张失败（超 2MB / 非 JPG·PNG / 读取失败）只跳过，
+   * 不影响已经发出的文字回复；路径不进日志，只记张数与失败数。
+   */
+  private async flushMedia(advisorId: string): Promise<void> {
+    const paths = this.pendingMedia.get(advisorId);
+    if (!paths || paths.length === 0) return;
+    this.pendingMedia.delete(advisorId);
+    if (!this.data.sendImage) {
+      this.logger?.(`顾问回复图片未发送：数据端口不支持发图 advisor=${tailId(advisorId)}`);
+      return;
+    }
+    let sent = 0;
+    let failed = 0;
+    for (const path of paths) {
+      try {
+        if (await this.data.sendImage(advisorId, path)) sent += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.emit('advisor.media.sent', { advisorId: tailId(advisorId), sent, failed });
+    if (failed > 0) {
+      this.logger?.(`顾问回复图片部分失败 advisor=${tailId(advisorId)} sent=${sent} failed=${failed}`);
+    }
   }
 
   /** 拆条发送（≤2000 字节/条）；失败只记日志，不向上抛 */

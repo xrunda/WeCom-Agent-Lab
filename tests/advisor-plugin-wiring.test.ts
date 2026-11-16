@@ -154,6 +154,7 @@ function fakePatient(options: {
               patientId: 'p1',
               mealType: 'breakfast' as const,
               foods: [{ name: '燕麦粥' }, { name: '鸡蛋', portion: '1 个' }],
+              mediaPath: '/var/lib/zhiban/media/meal-secret.jpg',
               confidence: 0.8,
               sandbox: false,
               createdAt: MEAL_AT,
@@ -394,6 +395,8 @@ test('patient_meals：按日期返回当天餐次，逐条列出食物', async (
   assert.match(text, /早餐/);
   assert.match(text, /燕麦粥/);
   assert.match(text, /鸡蛋（1 个）/);
+  // 原图路径只在插件内部传递，不得进工具结果（隐私）
+  assert.equal(JSON.stringify(value).includes('/var/lib/zhiban/media'), false);
 
   // 没有记录的一天如实说没有
   const empty = await meals.execute(
