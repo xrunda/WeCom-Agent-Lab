@@ -22,6 +22,8 @@ import { loadCases, EVAL_ROOT } from './load.ts';
 import type { AdvisorEvalCase, AdvisorEvalCheck, AdvisorEvalResult } from './types.ts';
 
 const NOW = 1_700_000_000_000;
+/** 固定的饮食记录时间：2026-11-15 09:10（上海） */
+const EVAL_MEAL_AT = Date.UTC(2026, 10, 15, 1, 10);
 
 // ---------- 虚构种子数据 ----------
 
@@ -32,7 +34,8 @@ const SEED = {
   patients: [
     { id: 'p1', displayName: '汪女士', externalUserId: 'wm_001', advisorId: 'adv_1', tags: ['高血压'], consent: 'agreed' as const, status: 'serving' as const },
     { id: 'p2', displayName: '别的顾问的患者', externalUserId: 'wm_002', advisorId: 'adv_2', tags: [], consent: 'agreed' as const, status: 'serving' as const },
-    { id: 'p3', displayName: '李阿姨', externalUserId: 'wm_003', advisorId: 'adv_1', tags: [], consent: 'agreed' as const, status: 'serving' as const },
+    // 存量数据常见：患者没有分配顾问；单顾问部署下应可见
+    { id: 'p3', displayName: '李阿姨', externalUserId: 'wm_003', tags: [], consent: 'agreed' as const, status: 'serving' as const },
   ],
   chronic: {
     p1: {
@@ -137,14 +140,27 @@ function fakeContext() {
       getPatientAdmin: (id: string) => SEED.patients.find((patient) => patient.id === id),
       getPatientBindings: () => [],
       listGroups: () => [],
-      listAdvisors: () => [
-        { id: 'adv_1', wecomUserId: 'wang.guwen' },
-        { id: 'adv_2', wecomUserId: 'li.si' },
-      ],
+      // 与线上一致：单顾问部署（未分配顾问的存量患者也归其名下）
+      listAdvisors: () => [{ id: 'adv_1', wecomUserId: 'wang.guwen', status: 'active' }],
       getChronicProfile: (patientId: string) =>
         SEED.chronic[patientId as keyof typeof SEED.chronic]
           ? (SEED.chronic[patientId as keyof typeof SEED.chronic] as ChronicProfile)
           : emptyChronicProfile(patientId, 'tn_eval'),
+      listMealLogs: (patientId: string) =>
+        patientId === 'p1'
+          ? [
+              {
+                id: 'meal_eval_1',
+                tenantId: 'tn_eval',
+                patientId: 'p1',
+                mealType: 'breakfast' as const,
+                foods: [{ name: '燕麦粥' }, { name: '鸡蛋', portion: '1 个' }],
+                confidence: 0.8,
+                sandbox: false,
+                createdAt: EVAL_MEAL_AT,
+              },
+            ]
+          : [],
     });
   };
 

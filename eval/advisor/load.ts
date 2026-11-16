@@ -20,7 +20,7 @@ export function loadCases(baseDir = EVAL_ROOT): AdvisorEvalCase[] {
     if (ids.has(item.id)) throw new Error(`评测案例 id 重复: ${item.id}`);
     ids.add(item.id);
   }
-  if (cases.length !== 8) throw new Error(`v1 应恰好 8 条，实际 ${cases.length}`);
+  if (cases.length !== 9) throw new Error(`v1 应恰好 9 条，实际 ${cases.length}`);
   return cases;
 }
 
@@ -31,7 +31,13 @@ function assertCase(value: unknown): AdvisorEvalCase {
   for (const key of required) {
     if (!(key in item)) throw new Error(`评测案例缺少字段 ${key}`);
   }
-  if (item.expectTool !== 'advisor_overview' && item.expectTool !== 'advisor_search' && item.expectTool !== 'advisor_get' && item.expectTool !== 'patient_chronic') {
+  if (
+    item.expectTool !== 'advisor_overview' &&
+    item.expectTool !== 'advisor_search' &&
+    item.expectTool !== 'advisor_get' &&
+    item.expectTool !== 'patient_chronic' &&
+    item.expectTool !== 'patient_meals'
+  ) {
     throw new Error(`expectTool 非法: ${String(item.id)}`);
   }
   if (!Array.isArray(item.requireText) || !Array.isArray(item.forbidText)) {
