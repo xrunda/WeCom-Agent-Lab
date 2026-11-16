@@ -2101,7 +2101,8 @@ test('服务流：员工群发言红线作为独立行，处理状态跟着告�
     title: '员工发言命中红线',
     message: '群「客户-汪女士」李广的发言命中规则：不调药。发言内容：「建议口服一粒格华止」',
     advisorId: 'adv_1',
-    groupId: 'grp_1',
+    // guard 从群消息拿到的 groupId 是存档 roomid，服务流要能换回内部群 id
+    groupId: 'room_1',
     source: 'staff',
   });
 

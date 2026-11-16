@@ -465,11 +465,15 @@ export function staffAlertExcerpt(message: string): string {
  * 这里把一条员工发言告警翻成服务流行：状态只有待处理 / 已处理，点开去告警。
  */
 export function staffFlowRow(alert: AlertRecord, lookups: DraftLookups): ServiceFlowRowView {
+  // 员工发言告警里存的是存档 roomid（guard 从群消息拿到的就是它），
+  // 草稿行用的却是 group.id；两种都要能对上，否则名字全成「未知群」。
   const group = lookups.groups.find(
-    (item) => item.id === alert.groupId && item.deletedAt === undefined,
+    (item) =>
+      item.deletedAt === undefined &&
+      (item.id === alert.groupId || item.roomId === alert.groupId),
   );
   const binding = lookups.bindings.find(
-    (item) => item.groupId === alert.groupId && item.deletedAt === undefined,
+    (item) => item.groupId === group?.id && item.deletedAt === undefined,
   );
   const bound = livePatient(
     lookups.patients.find((item) => item.id === binding?.patientId),
