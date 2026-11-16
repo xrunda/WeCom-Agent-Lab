@@ -16,7 +16,7 @@ export interface AdvisorEvalCase {
   /** 顾问发送的问题（评测里只作为上下文提示） */
   message: string;
   /** 期望模型调用的工具 */
-  expectTool: 'advisor_overview' | 'advisor_search' | 'advisor_get' | 'patient_chronic';
+  expectTool: 'advisor_overview' | 'advisor_search' | 'advisor_get' | 'patient_chronic' | 'patient_meals';
   expectArgs: {
     scope?: AdvisorEvalScope;
     query?: string;

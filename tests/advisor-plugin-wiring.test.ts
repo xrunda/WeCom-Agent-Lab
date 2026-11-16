@@ -81,7 +81,21 @@ const PATIENTS = [
     consent: 'agreed',
     status: 'serving',
   },
+  {
+    id: 'p3',
+    tenantId: 'tn_test',
+    displayName: 'ATHM_wb001',
+    externalUserId: 'wm_003',
+    // 存量数据常见：患者没有分配顾问
+    tags: [],
+    consent: 'agreed',
+    status: 'serving',
+  },
 ] as const;
+
+/** 饮食记录时间：固定 2026-11-15 09:10（上海） */
+const MEAL_AT = Date.UTC(2026, 10, 15, 1, 10);
+const MEAL_DATE = '2026-11-15';
 
 const KNOWLEDGE = [
   { id: 'kn_1', category: '饮食', title: '高血压饮食', content: '低盐低脂，控制主食总量。', enabled: true },
@@ -116,14 +130,36 @@ function fakeData(): AdvisorWecomDataPort {
   };
 }
 
-function fakePatient() {
+function fakePatient(options: {
+  /** 在职顾问列表；默认 2 人（模拟多顾问） */
+  advisors?: Array<{ id: string; wecomUserId?: string; status?: string }>;
+} = {}) {
   return {
     listPatients: () => [...PATIENTS],
     getPatientAdmin: (id: string) => PATIENTS.find((p) => p.id === id),
     getPatientBindings: (id: string) => [],
     listGroups: () => [],
-    listAdvisors: () => [{ id: 'adv_1', wecomUserId: 'wang.guwen' }, { id: 'adv_2', wecomUserId: 'li.si' }],
+    listAdvisors: () =>
+      options.advisors ?? [
+        { id: 'adv_1', wecomUserId: 'wang.guwen', status: 'active' },
+        { id: 'adv_2', wecomUserId: 'li.si', status: 'active' },
+      ],
     getChronicProfile: (patientId: string) => (patientId === 'p1' ? CHRONIC : emptyChronicProfile(patientId, 'tn_test')),
+    listMealLogs: (patientId: string) =>
+      patientId === 'p1'
+        ? [
+            {
+              id: 'meal_1',
+              tenantId: 'tn_test',
+              patientId: 'p1',
+              mealType: 'breakfast' as const,
+              foods: [{ name: '燕麦粥' }, { name: '鸡蛋', portion: '1 个' }],
+              confidence: 0.8,
+              sandbox: false,
+              createdAt: MEAL_AT,
+            },
+          ]
+        : [],
   };
 }
 
@@ -204,7 +240,13 @@ test('装配：注册 4 个工具并提供 zhibanAdvisor 服务', async () => {
   const h = harness();
   await h.ready;
   const names = h.tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, ['advisor_get', 'advisor_overview', 'advisor_search', 'patient_chronic']);
+  assert.deepEqual(names, [
+    'advisor_get',
+    'advisor_overview',
+    'advisor_search',
+    'patient_chronic',
+    'patient_meals',
+  ]);
   assert.ok(h.provided.has('zhibanAdvisor'));
 });
 
@@ -291,4 +333,72 @@ test('卸载：清理会话存储并关闭领域', async () => {
   const h = harness();
   await h.ready;
   for (const cleanup of h.cleanups) await cleanup();
+});
+
+test('未分配顾问的患者：单顾问部署可见，多顾问部署不泄露', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const chronic = h.tools.find((item) => item.name === 'patient_chronic')!;
+  // 两个在职顾问：未分配的 p3 不归任何人，不可见
+  const multi = await chronic.execute({ patientId: 'p3' }, { agent: { id: 'zhiban-advisor-adv_1' } }) as { status: string };
+  assert.equal(multi.status, 'forbidden');
+
+  const single = harness();
+  single.ctx.provide('zhibanAdvisorData', fakeData());
+  single.ctx.provide(
+    'zhibanPatient',
+    fakePatient({ advisors: [{ id: 'adv_1', wecomUserId: 'wang.guwen', status: 'active' }] }),
+  );
+  await single.ready;
+  const chronic2 = single.tools.find((item) => item.name === 'patient_chronic')!;
+  const ok = await chronic2.execute({ patientId: 'p3' }, { agent: { id: 'zhiban-advisor-adv_1' } }) as {
+    status: string;
+    hasRecord: boolean;
+  };
+  assert.equal(ok.status, 'ok');
+  assert.equal(ok.hasRecord, false, '无档案如实说没有');
+});
+
+test('患者检索：支持按外部联系人 id 查（单顾问部署）', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide(
+    'zhibanPatient',
+    fakePatient({ advisors: [{ id: 'adv_1', wecomUserId: 'wang.guwen', status: 'active' }] }),
+  );
+  await h.ready;
+  const search = h.tools.find((item) => item.name === 'advisor_search')!;
+  const result = await search.execute({ scope: 'patient', query: 'ATHM_wb001' }, {
+    agent: { id: 'zhiban-advisor-adv_1' },
+  }) as { status: string; found: number; items: Array<{ id: string }> };
+  assert.equal(result.status, 'ok');
+  assert.equal(result.found, 1);
+  assert.equal(result.items[0]!.id, 'p3');
+});
+
+test('patient_meals：按日期返回当天餐次，逐条列出食物', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const meals = h.tools.find((item) => item.name === 'patient_meals')!;
+  const value = await meals.execute(
+    { patientId: 'p1', date: MEAL_DATE },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  ) as { status: string; hasRecord: boolean; meals: Array<{ foods: string[] }> };
+  assert.equal(value.status, 'ok');
+  assert.equal(value.hasRecord, true);
+  const text = meals.output.render({}, value)[0]!.text;
+  assert.match(text, /早餐/);
+  assert.match(text, /燕麦粥/);
+  assert.match(text, /鸡蛋（1 个）/);
+
+  // 没有记录的一天如实说没有
+  const empty = await meals.execute(
+    { patientId: 'p1', date: '2026-11-14' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  ) as { hasRecord: boolean };
+  assert.equal(empty.hasRecord, false);
 });

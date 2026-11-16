@@ -13,6 +13,7 @@ import { buildTodoSnapshot, formatTodoText } from './format.ts';
 import type {
   AdvisorChronicResult,
   AdvisorGetResult,
+  AdvisorMealsResult,
   AdvisorOverviewResult,
   AdvisorSearchResult,
 } from './types.ts';
@@ -112,6 +113,28 @@ export function validateAdvisorChronic(args: unknown): ValidationResult<AdvisorC
   return { ok: true, value: { patientId: patientId as string } };
 }
 
+export interface AdvisorMealsArgs {
+  patientId: string;
+  /** YYYY-MM-DD（上海时区）；缺省为今天 */
+  date?: string;
+}
+
+export function validateAdvisorMeals(args: unknown): ValidationResult<AdvisorMealsArgs> {
+  if (!isRecord(args)) return { ok: false, violations: ['参数必须是对象'] };
+  const violations: string[] = [];
+  const patientId = boundedString(args.patientId, 'patientId', 80);
+  if (patientId === undefined) violations.push('patientId 不能为空，最多 80 字');
+  const date = boundedString(args.date, 'date', 10);
+  if (args.date !== undefined && date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    violations.push('date 必须是 YYYY-MM-DD');
+  }
+  if (violations.length > 0) return { ok: false, violations };
+  return {
+    ok: true,
+    value: { patientId: patientId as string, ...(date ? { date } : {}) },
+  };
+}
+
 // ---------- 检索（从旧知识 / 话术查询服务迁入） ----------
 
 export interface QueryableKnowledgeLike {
@@ -209,6 +232,7 @@ export interface AdvisorToolHandlers {
   ): Promise<AdvisorSearchResult>;
   get(advisorId: string, scope: AdvisorGetScope, id: string): Promise<AdvisorGetResult>;
   chronic(advisorId: string, patientId: string): Promise<AdvisorChronicResult>;
+  meals(advisorId: string, patientId: string, date?: string): Promise<AdvisorMealsResult>;
 }
 
 export interface RegisteredTool {
@@ -284,6 +308,20 @@ const CHRONIC_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const MEALS_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    patientId: { type: 'string' },
+    displayName: { type: 'string' },
+    date: { type: 'string' },
+    hasRecord: { type: 'boolean' },
+    meals: { type: 'array' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
 /** 检索结果 render：知识 / 话术逐字输出原文并带条目 id，模型只做排版 */
 export function renderSearch(value: AdvisorSearchResult): string {
   if (value.status === 'unconnected') return '这一类数据还没接入，请稍后再试或联系管理员。';
@@ -351,6 +389,33 @@ function renderChronic(value: AdvisorChronicResult): string {
     lines.push(`更新时间：${new Date(value.updatedAt).toISOString()}`);
   }
   lines.push('以上均为档案里已有的记录，未记录的指标如实说明没有。');
+  return lines.join('\n');
+}
+
+const MEAL_TYPE_LABELS: Record<string, string> = {
+  breakfast: '早餐',
+  lunch: '午餐',
+  dinner: '晚餐',
+  snack: '加餐',
+};
+
+function renderMeals(value: AdvisorMealsResult): string {
+  if (value.status === 'unconnected') return '饮食记录还没接入，请稍后再试或联系管理员。';
+  if (value.status === 'forbidden') return '没有权限查看这位患者的饮食记录。';
+  if (value.status === 'not-found') return '没有找到这位患者，无法查询饮食记录。';
+  const head = `患者 ${value.displayName} · ${value.date} 的饮食记录：`;
+  if (!value.hasRecord) {
+    return `${head}\n这一天没有饮食记录。`;
+  }
+  const lines: string[] = [head];
+  for (const meal of value.meals) {
+    const label = MEAL_TYPE_LABELS[meal.mealType] ?? meal.mealType;
+    lines.push(`· ${label} ${meal.time}：${meal.foods.join('、')}`);
+    if (meal.notes) lines.push(`  备注：${meal.notes}`);
+    if (meal.agentComment) lines.push(`  记录说明：${meal.agentComment}`);
+    lines.push(`  置信度：${Math.round(meal.confidence * 100)}%`);
+  }
+  lines.push('以上是系统里已有的记录；没有记录的餐次如实说明没有，不要照模板补。');
   return lines.join('\n');
 }
 
@@ -476,6 +541,37 @@ export function buildAdvisorToolDefinitions(
         const parsed = validateAdvisorChronic(args);
         if (!parsed.ok) toolError(parsed.violations);
         return handlers.chronic(advisorId, parsed.value.patientId);
+      },
+    },
+    {
+      name: 'patient_meals',
+      description:
+        '查一位患者某一天的饮食记录（三餐与加餐、食物、时间、置信度）。patientId 必须来自 advisor_search(scope=patient) 的结果，不能猜。date 传 YYYY-MM-DD（上海时区），不传默认今天。没有记录时明确说「这一天没有饮食记录」，不要照模板补。',
+      parameters: {
+        type: 'object',
+        properties: {
+          patientId: { type: 'string', description: '患者 id，最多 80 字' },
+          date: {
+            type: 'string',
+            description: '日期 YYYY-MM-DD（上海时区）；不传为今天',
+          },
+        },
+        required: ['patientId'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: MEALS_RESULT_SCHEMA,
+        render: (_args, value) => [
+          { type: 'text', text: renderMeals(value as AdvisorMealsResult) },
+        ],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        const parsed = validateAdvisorMeals(args);
+        if (!parsed.ok) toolError(parsed.violations);
+        return handlers.meals(advisorId, parsed.value.patientId, parsed.value.date);
       },
     },
   ];

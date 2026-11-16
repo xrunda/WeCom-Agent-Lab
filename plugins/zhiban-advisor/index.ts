@@ -25,12 +25,15 @@ import type {
   AdvisorChronicResult,
   AdvisorGetResult,
   AdvisorHitItem,
+  AdvisorMealsResult,
   AdvisorSearchResult,
   AdvisorWecomDataPort,
 } from '../../src/p1/advisor/types.ts';
 import { formatMeasurementValue, CHRONIC_METRICS, CHRONIC_SOURCE_LABELS } from '../../src/p1/chronic.ts';
 import { riskLabel, shanghaiClock } from '../../src/c2/message.ts';
+import { shanghaiDayStart } from '../../src/c2/promises.ts';
 import type { ChronicProfile } from '../../src/p1/chronic.ts';
+import type { MealLogRecord } from '../../src/p1/vision.ts';
 import { tailId } from '../../src/c2/redact.ts';
 
 import { parseAdvisorConfig } from './config.ts';
@@ -124,8 +127,9 @@ interface PatientApi {
   getPatientAdmin(id: string): PatientLike | undefined;
   getPatientBindings(id: string): Array<{ groupId: string; isPrimary: boolean }>;
   listGroups(): GroupViewLike[];
-  listAdvisors(): Array<{ id: string; wecomUserId?: string }>;
+  listAdvisors(): Array<{ id: string; wecomUserId?: string; status?: string }>;
   getChronicProfile(patientId: string): ChronicProfile;
+  listMealLogs(patientId: string): MealLogRecord[];
 }
 
 interface GuardApi {
@@ -237,16 +241,32 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
         return advisor?.id ?? advisorId;
       };
 
-      /** 患者归属：顾问是患者的负责人，或患者绑定群里有该顾问负责的群 */
+      /**
+       * 患者归属（#167 修复）：
+       * - 患者已分配顾问 → 必须等于当前顾问；
+       * - 未分配 → 看绑定群：群里是当前顾问 → 可见；群里是别的顾问 → 不可见；
+       * - 群也没分配 → 只有在职顾问 ≤ 1 时可见（P1 单顾问部署的存量数据大多如此）。
+       * 目的是「不得泄露别的顾问的患者」，而不是把无主数据也藏起来。
+       */
       const ownsPatient = (advisorId: string, patient: PatientLike): boolean => {
         const resolved = patientAdvisorId(advisorId);
-        if (patient.advisorId === resolved) return true;
         const api = patientApi();
         if (!api) return false;
+
+        if (patient.advisorId !== undefined && patient.advisorId !== '') {
+          return patient.advisorId === resolved;
+        }
+
         const groups = api.listGroups();
-        return api
+        const bound = api
           .getPatientBindings(patient.id)
-          .some((binding) => groups.find((group) => group.id === binding.groupId)?.advisorId === resolved);
+          .map((binding) => groups.find((group) => group.id === binding.groupId))
+          .filter((group): group is GroupViewLike => group !== undefined);
+        if (bound.some((group) => group.advisorId === resolved)) return true;
+        if (bound.some((group) => group.advisorId && group.advisorId !== resolved)) return false;
+
+        const active = api.listAdvisors().filter((advisor) => advisor.status === 'active');
+        return active.length <= 1;
       };
 
       const displayNameOf = (patient: PatientLike): string => {
@@ -273,11 +293,18 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
               const matched = api
                 .listPatients()
                 .filter((patient) => patient.deletedAt === undefined && ownsPatient(advisorId, patient))
-                .filter((patient) =>
-                  (patient.displayName + ' ' + patient.tags.join(' '))
-                    .toLowerCase()
-                    .includes(query.toLowerCase()),
-                );
+                .filter((patient) => {
+                  // 支持按昵称、标签、患者 id、外部联系人 id（含尾号）检索
+                  const haystack = [
+                    patient.displayName,
+                    ...patient.tags,
+                    patient.id,
+                    patient.externalUserId ?? '',
+                  ]
+                    .join(' ')
+                    .toLowerCase();
+                  return haystack.includes(query.toLowerCase());
+                });
               found = matched.length;
               items = matched.slice(0, 5).map((patient) => ({
                 id: patient.id,
@@ -486,6 +513,50 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             ),
             recentMeasurements: recent,
             updatedAt: profile.updatedAt,
+          };
+        },
+        meals: async (
+          advisorId: string,
+          patientId: string,
+          date?: string,
+        ): Promise<AdvisorMealsResult> => {
+          const api = patientApi();
+          if (!api) return { status: 'unconnected' };
+          const patient = api.getPatientAdmin(patientId);
+          if (!patient || patient.deletedAt !== undefined) return { status: 'not-found' };
+          if (!ownsPatient(advisorId, patient)) return { status: 'forbidden' };
+
+          // 日期按上海时区切一天；缺省今天
+          const day =
+            date !== undefined
+              ? Date.UTC(
+                  Number(date.slice(0, 4)),
+                  Number(date.slice(5, 7)) - 1,
+                  Number(date.slice(8, 10)),
+                ) - 8 * 3_600_000
+              : shanghaiDayStart(Date.now());
+          const label = new Date(day + 8 * 3_600_000).toISOString().slice(0, 10);
+          const meals = api
+            .listMealLogs(patientId)
+            .filter((meal) => meal.createdAt >= day && meal.createdAt < day + 24 * 3_600_000)
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map((meal) => ({
+              mealType: meal.mealType,
+              time: shanghaiClock(meal.createdAt),
+              foods: meal.foods.map((food) =>
+                food.portion ? `${food.name}（${food.portion}）` : food.name,
+              ),
+              ...(meal.notes ? { notes: meal.notes } : {}),
+              ...(meal.agentComment ? { agentComment: meal.agentComment } : {}),
+              confidence: meal.confidence,
+            }));
+          return {
+            status: 'ok',
+            patientId,
+            displayName: displayNameOf(patient),
+            date: label,
+            hasRecord: meals.length > 0,
+            meals,
           };
         },
       };

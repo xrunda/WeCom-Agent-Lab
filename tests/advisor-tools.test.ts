@@ -17,6 +17,7 @@ import {
   searchScripts,
   validateAdvisorChronic,
   validateAdvisorGet,
+  validateAdvisorMeals,
   validateAdvisorSearch,
 } from '../src/p1/advisor/tools.ts';
 import type {
@@ -125,6 +126,7 @@ test('工具 execute：从 exec.agent.id 解析顾问身份并转发 handler', a
     },
     get: async () => ({ status: 'not-found', scope: 'knowledge', id: 'x' }),
     chronic: async () => ({ status: 'forbidden' }),
+    meals: async () => ({ status: 'unconnected' }),
   });
   const searchTool = tools.find((tool) => tool.name === 'advisor_search')!;
   await searchTool.execute({ scope: 'knowledge', query: '饮食' }, { agent: { id: 'zhiban-advisor-adv_1' } });
@@ -141,8 +143,59 @@ test('overview render：待办输出与「我的待办」命令共用同一个�
     search: async () => ({ status: 'ok', scope: 'knowledge', query: '', found: 0, items: [] }),
     get: async () => ({ status: 'not-found', scope: 'knowledge', id: 'x' }),
     chronic: async () => ({ status: 'forbidden' }),
+    meals: async () => ({ status: 'unconnected' }),
   });
   const overviewTool = tools.find((tool) => tool.name === 'advisor_overview')!;
   const rendered = overviewTool.output.render({}, { snapshot: { drafts: [], promises: [], alerts: [], now: 0 } });
   assert.equal(rendered[0]!.text, '现在没有待办：没有未完成草稿、今天没有到期承诺、也没有未处理告警。');
+});
+
+test('patient_meals 参数校验：patientId 必填，date 必须是 YYYY-MM-DD', () => {
+  assert.ok(validateAdvisorMeals({ patientId: 'p1' }).ok);
+  assert.ok(validateAdvisorMeals({ patientId: 'p1', date: '2026-11-15' }).ok);
+  assert.ok(!validateAdvisorMeals({ patientId: '' }).ok);
+  assert.ok(!validateAdvisorMeals({ patientId: 'p1', date: '11-15' }).ok);
+});
+
+test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', () => {
+  const tools = buildAdvisorToolDefinitions({
+    overview: async () => ({ snapshot: {} as never }),
+    search: async () => ({ status: 'ok', scope: 'knowledge', query: '', found: 0, items: [] }),
+    get: async () => ({ status: 'not-found', scope: 'knowledge', id: 'x' }),
+    chronic: async () => ({ status: 'forbidden' }),
+    meals: async () => ({
+      status: 'ok',
+      patientId: 'p1',
+      displayName: '汪女士',
+      date: '2026-11-15',
+      hasRecord: true,
+      meals: [
+        { mealType: 'breakfast', time: '08:10', foods: ['燕麦粥', '鸡蛋（1 个）'], confidence: 0.8 },
+      ],
+    }),
+  });
+  const tool = tools.find((item) => item.name === 'patient_meals')!;
+  const rendered = tool.output.render(
+    {},
+    {
+      status: 'ok',
+      patientId: 'p1',
+      displayName: '汪女士',
+      date: '2026-11-15',
+      hasRecord: true,
+      meals: [
+        { mealType: 'breakfast', time: '08:10', foods: ['燕麦粥', '鸡蛋（1 个）'], confidence: 0.8 },
+      ],
+    },
+  );
+  assert.match(rendered[0]!.text, /2026-11-15/);
+  assert.match(rendered[0]!.text, /早餐 08:10/);
+  assert.match(rendered[0]!.text, /燕麦粥/);
+  assert.match(rendered[0]!.text, /80%/);
+
+  const empty = tool.output.render(
+    {},
+    { status: 'ok', patientId: 'p1', displayName: '汪女士', date: '2026-11-15', hasRecord: false, meals: [] },
+  );
+  assert.match(empty[0]!.text, /没有饮食记录/);
 });

@@ -117,6 +117,31 @@ export type AdvisorChronicResult =
     }
   | { status: 'forbidden' };
 
+/** 一条饮食记录的精简视图；不带图片路径与存档 id */
+export interface AdvisorMealItem {
+  mealType: string;
+  /** 展示用时间（上海） */
+  time: string;
+  foods: string[];
+  notes?: string;
+  agentComment?: string;
+  confidence: number;
+}
+
+export type AdvisorMealsResult =
+  | { status: 'unconnected' }
+  | {
+      status: 'ok';
+      patientId: string;
+      displayName: string;
+      /** 查询的日期（YYYY-MM-DD，上海时区） */
+      date: string;
+      hasRecord: boolean;
+      meals: AdvisorMealItem[];
+    }
+  | { status: 'forbidden' }
+  | { status: 'not-found' };
+
 // ---------- 会话 ----------
 
 export interface AdvisorSessionRecord {
