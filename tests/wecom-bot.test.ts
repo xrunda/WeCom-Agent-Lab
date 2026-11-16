@@ -65,6 +65,10 @@ class FakeWebSocket implements WebSocketLike {
   respond(reqId: string, errcode = 0, errmsg = 'ok'): void {
     this.emit('message', JSON.stringify({ headers: { req_id: reqId }, errcode, errmsg }));
   }
+
+  respondWith(reqId: string, body: Record<string, unknown>, errcode = 0, errmsg = 'ok'): void {
+    this.emit('message', JSON.stringify({ headers: { req_id: reqId }, errcode, errmsg, body }));
+  }
 }
 
 function expectFrame(ws: FakeWebSocket): Record<string, any> {
@@ -231,7 +235,7 @@ test('aibot_event_callback 取出 event_key 与 task_id', async () => {
   assert.equal(received[0].userid, 'LiGuang');
 });
 
-test('#55 sendImage 用 aibot_send_msg + base64 + 原始字节 md5', async (t) => {
+test('#55/#208 sendImage 先分片上传拿 media_id，再用 media_id 发送', async (t) => {
   const { ws, adapter } = await connected();
   const dir = await mkdtemp(join(tmpdir(), 'zhiban-bot-image-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -239,22 +243,53 @@ test('#55 sendImage 用 aibot_send_msg + base64 + 原始字节 md5', async (t) =
   const path = join(dir, 'meal.jpg');
   await writeFile(path, data);
 
-  const pending = adapter.sendImage('LiGuang', path);
-  // readFile 走线程池，等发送帧真正写进 socket
-  for (let i = 0; i < 100 && ws.sent.length < 2; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  const frame = expectFrame(ws);
-  assert.equal(frame.cmd, 'aibot_send_msg');
-  assert.equal(frame.body.chatid, 'LiGuang');
-  assert.equal(frame.body.chat_type, 1);
-  assert.equal(frame.body.msgtype, 'image');
-  assert.equal(frame.body.image.base64, data.toString('base64'));
-  assert.equal(frame.body.image.md5, createHash('md5').update(data).digest('hex'));
+  let seen = ws.sent.length;
+  const nextFrame = async (cmd: string): Promise<Record<string, any>> => {
+    for (let i = 0; i < 400; i += 1) {
+      while (seen < ws.sent.length) {
+        const frame = JSON.parse(ws.sent[seen++]!) as Record<string, any>;
+        if (frame.cmd === cmd) return frame;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`frame not found: ${cmd}`);
+  };
 
-  ws.respond(frame.headers.req_id);
+  const pending = adapter.sendImage('LiGuang', path);
+
+  const init = await nextFrame('aibot_upload_media_init');
+  assert.equal(init.body.type, 'image');
+  assert.equal(init.body.total_size, data.length);
+  assert.equal(init.body.total_chunks, 1);
+  assert.equal(init.body.md5, createHash('md5').update(data).digest('hex'));
+  ws.respondWith(init.headers.req_id, { upload_id: 'up_1' });
+
+  const chunk = await nextFrame('aibot_upload_media_chunk');
+  assert.equal(chunk.body.upload_id, 'up_1');
+  assert.equal(chunk.body.chunk_index, 0);
+  assert.equal(chunk.body.base64_data, data.toString('base64'));
+  ws.respond(chunk.headers.req_id);
+
+  const finish = await nextFrame('aibot_upload_media_finish');
+  assert.equal(finish.body.upload_id, 'up_1');
+  ws.respondWith(finish.headers.req_id, { media_id: 'mid_1' });
+
+  const send = await nextFrame('aibot_send_msg');
+  assert.equal(send.body.chatid, 'LiGuang');
+  assert.equal(send.body.chat_type, 1);
+  assert.equal(send.body.msgtype, 'image');
+  assert.deepEqual(send.body.image, { media_id: 'mid_1' });
+  ws.respond(send.headers.req_id);
+
   const res = await pending;
   assert.match(res.messageId, /^local_image_/);
+
+  // 同一内容再次发送：media_id 走缓存，不再上传
+  const again = adapter.sendImage('LiGuang', path);
+  const send2 = await nextFrame('aibot_send_msg');
+  assert.deepEqual(send2.body.image, { media_id: 'mid_1' });
+  ws.respond(send2.headers.req_id);
+  await again;
 });
 
 test('#55 sendImage 拒绝超限、非 JPG/PNG 与读不到的文件，错误不含路径', async (t) => {

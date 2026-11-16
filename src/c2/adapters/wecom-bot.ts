@@ -9,6 +9,10 @@ import type { CardPayload } from '../types.ts';
 
 /** #55：企微机器人 image 消息上限 2 MB，只支持 JPG / PNG */
 const SEND_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+/** 上传临时素材的 media_id 有效期 3 天；缓存 2 天后重新上传 */
+const MEDIA_CACHE_TTL_MS = 2 * 24 * 60 * 60_000;
+/** 分片大小：512KB（Base64 编码前），官方 SDK 口径 */
+const UPLOAD_CHUNK_BYTES = 512 * 1024;
 
 type Logger = (line: string) => void;
 
@@ -88,6 +92,8 @@ export class WeComBotAdapter implements BotPort {
   private pingTimer?: ReturnType<typeof setInterval>;
   private seq = 0;
   private msgSeq = 0;
+  /** 内容 md5 → media_id；临时素材有效期 3 天，这里保守缓存 2 天 */
+  private readonly mediaCache = new Map<string, { mediaId: string; at: number }>();
   private readonly pending = new Map<
     string,
     {
@@ -175,7 +181,12 @@ export class WeComBotAdapter implements BotPort {
     return { messageId: `local_text_${++this.msgSeq}` };
   }
 
-  /** #55：把患者原图转推给顾问；md5 按原始字节计算，路径不进日志 */
+  /**
+   * #55 / #208：把患者原图转推给顾问。
+   * 智能机器人发图必须先「上传临时素材」拿 media_id（三步分片），
+   * 再发 `msgtype=image` + `image.media_id`；不再用群机器人的 base64+md5。
+   * 路径不进日志，media_id 按内容 md5 缓存（有效期 3 天，这里保守缓存 2 天）。
+   */
   async sendImage(chatId: string, path: string): Promise<{ messageId: string }> {
     let data: Buffer;
     try {
@@ -188,17 +199,70 @@ export class WeComBotAdapter implements BotPort {
     if (mediaType !== 'image/jpeg' && mediaType !== 'image/png') {
       throw new Error('SEND_IMAGE_UNSUPPORTED');
     }
-    const md5 = createHash('md5').update(data).digest('hex');
+
+    const mediaId = await this.uploadImage(data, path);
     const res = await this.request('aibot_send_msg', {
       chatid: chatId,
       chat_type: 1,
       msgtype: 'image',
-      image: { base64: data.toString('base64'), md5 },
+      image: { media_id: mediaId },
     });
     if (res.errcode !== 0) {
       throw new Error(`SEND_IMAGE_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim());
     }
     return { messageId: `local_image_${++this.msgSeq}` };
+  }
+
+  /** 三步分片上传：init → chunk × N → finish，返回 media_id */
+  private async uploadImage(data: Buffer, path: string): Promise<string> {
+    const md5 = createHash('md5').update(data).digest('hex');
+    const cached = this.mediaCache.get(md5);
+    if (cached && Date.now() - cached.at < MEDIA_CACHE_TTL_MS) return cached.mediaId;
+
+    const chunkSize = UPLOAD_CHUNK_BYTES;
+    const totalChunks = Math.ceil(data.length / chunkSize);
+    if (totalChunks > 100) throw new Error('SEND_IMAGE_TOO_LARGE');
+
+    const init = await this.request('aibot_upload_media_init', {
+      type: 'image',
+      filename: path.split('/').pop() || 'image.jpg',
+      total_size: data.length,
+      total_chunks: totalChunks,
+      md5,
+    });
+    if (init.errcode !== 0) {
+      throw new Error(`UPLOAD_INIT_FAILED ${init.errcode} ${init.errmsg ?? ''}`.trim());
+    }
+    const uploadId = init.body?.upload_id;
+    if (typeof uploadId !== 'string' || uploadId === '') {
+      throw new Error('UPLOAD_INIT_FAILED no upload_id');
+    }
+
+    for (let index = 0; index < totalChunks; index += 1) {
+      const start = index * chunkSize;
+      const chunk = data.subarray(start, Math.min(start + chunkSize, data.length));
+      const res = await this.request('aibot_upload_media_chunk', {
+        upload_id: uploadId,
+        chunk_index: index,
+        base64_data: chunk.toString('base64'),
+      });
+      if (res.errcode !== 0) {
+        throw new Error(`UPLOAD_CHUNK_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim());
+      }
+    }
+
+    const finish = await this.request('aibot_upload_media_finish', { upload_id: uploadId });
+    if (finish.errcode !== 0) {
+      throw new Error(`UPLOAD_FINISH_FAILED ${finish.errcode} ${finish.errmsg ?? ''}`.trim());
+    }
+    const mediaId = finish.body?.media_id;
+    if (typeof mediaId !== 'string' || mediaId === '') {
+      throw new Error('UPLOAD_FINISH_FAILED no media_id');
+    }
+
+    if (this.mediaCache.size > 200) this.mediaCache.clear();
+    this.mediaCache.set(md5, { mediaId, at: Date.now() });
+    return mediaId;
   }
 
   close(): void {
