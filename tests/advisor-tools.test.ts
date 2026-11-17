@@ -12,11 +12,13 @@ import {
   maskedDisplayName,
   rankKnowledge,
   renderGet,
+  renderMealPhoto,
   renderSearch,
   searchKnowledge,
   searchScripts,
   validateAdvisorChronic,
   validateAdvisorGet,
+  validateAdvisorMealPhoto,
   validateAdvisorMeals,
   validateAdvisorSearch,
 } from '../src/p1/advisor/tools.ts';
@@ -158,6 +160,53 @@ test('patient_meals 参数校验：patientId 必填，date 必须是 YYYY-MM-DD'
   assert.ok(!validateAdvisorMeals({ patientId: 'p1', date: '11-15' }).ok);
 });
 
+test('patient_meal_photo 参数校验：patientId 与 mealType 必填，餐次闭集', () => {
+  assert.ok(validateAdvisorMealPhoto({ patientId: 'p1', mealType: 'breakfast' }).ok);
+  assert.ok(validateAdvisorMealPhoto({ patientId: 'p1', mealType: 'dinner', date: '2026-11-15' }).ok);
+  assert.ok(!validateAdvisorMealPhoto({ patientId: '' , mealType: 'breakfast'}).ok);
+  assert.ok(!validateAdvisorMealPhoto({ patientId: 'p1' }).ok, 'mealType 必填');
+  assert.ok(!validateAdvisorMealPhoto({ patientId: 'p1', mealType: '宵夜' }).ok, '餐次闭集');
+  assert.ok(!validateAdvisorMealPhoto({ patientId: 'p1', mealType: 'breakfast', date: '11-15' }).ok);
+});
+
+test('renderMealPhoto：有原图报「已发出」，无原图如实说没有', () => {
+  const withPhoto = renderMealPhoto({
+    status: 'ok',
+    patientId: 'p1',
+    displayName: '汪女士',
+    date: '2026-11-15',
+    mealType: 'breakfast',
+    mealLabel: '11月15日 早餐',
+    time: '09:10',
+    hasPhoto: true,
+  });
+  assert.match(withPhoto, /已发出 11月15日 早餐 09:10 的原图/);
+
+  const noPhoto = renderMealPhoto({
+    status: 'ok',
+    patientId: 'p1',
+    displayName: '汪女士',
+    date: '2026-11-15',
+    mealType: 'dinner',
+    mealLabel: '11月15日 晚餐',
+    time: '18:30',
+    hasPhoto: false,
+  });
+  assert.match(noPhoto, /11月15日 晚餐 18:30 只有文字记录，没有原图/);
+
+  const noMeal = renderMealPhoto({
+    status: 'ok',
+    patientId: 'p1',
+    displayName: '汪女士',
+    date: '2026-11-15',
+    mealType: 'dinner',
+    mealLabel: '11月15日 晚餐',
+    hasPhoto: false,
+  });
+  assert.match(noMeal, /11月15日 晚餐当天没有这条餐次记录，没有原图可发/);
+  assert.match(renderMealPhoto({ status: 'forbidden' }), /没有权限/);
+});
+
 test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', () => {
   const tools = buildAdvisorToolDefinitions({
     overview: async () => ({ snapshot: {} as never }),
@@ -207,4 +256,19 @@ test('人设：点名患者侧工具在顾问会话不可用，且饮食记录�
   assert.match(md, /meal_log_write/);
   assert.match(md, /控制台患者页/);
   assert.match(md, /不得.*编造|绝不补数值/);
+});
+
+test('人设：回答先结论后明细，问有没有先直接答有/没有，禁止分节把结论埋中间', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /第一行先给直接答案/);
+  assert.match(md, /有没有上报.*第一句直接写「有」或「没有」|问「有没有上报/);
+  assert.match(md, /禁止.*「一、事实」「二、说明」「三、建议」|禁止.*一、事实/);
+});
+
+test('人设：默认不发餐食照片，只有显式要看某餐原图才调 patient_meal_photo', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /默认不发餐食照片/);
+  assert.match(md, /patient_meal_photo/);
+  assert.match(md, /patient_meals.*只返回文字，不附图/);
+  assert.match(md, /图片一定出现在文字回复之后/);
 });

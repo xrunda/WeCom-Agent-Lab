@@ -159,5 +159,44 @@
       "海鲜过敏"
     ],
     "forbidText": []
+  },
+  {
+    "id": "adv-meal-photo-11",
+    "message": "汪女士 11 月 15 日早餐的照片发我看看",
+    "expectTool": "patient_meal_photo",
+    "expectArgs": {
+      "patientId": "p1",
+      "date": "2026-11-15",
+      "mealType": "breakfast"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "已发出",
+      "11月15日 早餐",
+      "09:10",
+      "原图"
+    ],
+    "forbidText": [
+      "晚餐"
+    ]
+  },
+  {
+    "id": "adv-meal-photo-no-dinner-12",
+    "message": "汪女士 11 月 15 日的晚餐照片发我看看",
+    "expectTool": "patient_meal_photo",
+    "expectArgs": {
+      "patientId": "p1",
+      "date": "2026-11-15",
+      "mealType": "dinner"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "11月15日 晚餐当天没有这条餐次记录",
+      "没有原图可发"
+    ],
+    "forbidText": [
+      "已发出",
+      "早餐"
+    ]
   }
 ]

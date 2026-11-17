@@ -239,7 +239,7 @@ function harness() {
   };
 }
 
-test('装配：注册 4 个工具并提供 zhibanAdvisor 服务', async () => {
+test('装配：注册 5 个工具并提供 zhibanAdvisor 服务', async () => {
   const h = harness();
   await h.ready;
   const names = h.tools.map((tool) => tool.name).sort();
@@ -248,6 +248,7 @@ test('装配：注册 4 个工具并提供 zhibanAdvisor 服务', async () => {
     'advisor_overview',
     'advisor_search',
     'patient_chronic',
+    'patient_meal_photo',
     'patient_meals',
   ]);
   assert.ok(h.provided.has('zhibanAdvisor'));
@@ -406,6 +407,46 @@ test('patient_meals：按日期返回当天餐次，逐条列出食物', async (
     { agent: { id: 'zhiban-advisor-adv_1' } },
   ) as { hasRecord: boolean };
   assert.equal(empty.hasRecord, false);
+});
+
+test('patient_meal_photo：有原图的餐次返回标注，无原图如实说没有', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const photo = h.tools.find((item) => item.name === 'patient_meal_photo')!;
+
+  // 早餐有原图：返回餐次标注与时间
+  const breakfast = await photo.execute(
+    { patientId: 'p1', date: MEAL_DATE, mealType: 'breakfast' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  ) as { status: string; mealLabel: string; time: string; hasPhoto: boolean };
+  assert.equal(breakfast.status, 'ok');
+  assert.equal(breakfast.mealLabel, '11月15日 早餐', '标注由系统生成：日期 + 餐次');
+  assert.equal(breakfast.time, '09:10');
+  assert.equal(breakfast.hasPhoto, true);
+  const text = photo.output.render({}, breakfast)[0]!.text;
+  assert.match(text, /已发出 11月15日 早餐 09:10 的原图/);
+  // 原图路径不得进入工具结果（隐私）
+  assert.equal(JSON.stringify(breakfast).includes('/var/lib/zhiban/media'), false);
+
+  // 晚餐没有记录：没有时间、没有原图
+  const dinner = await photo.execute(
+    { patientId: 'p1', date: MEAL_DATE, mealType: 'dinner' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  ) as { status: string; mealLabel: string; time?: string; hasPhoto: boolean };
+  assert.equal(dinner.status, 'ok');
+  assert.equal(dinner.time, undefined);
+  assert.equal(dinner.hasPhoto, false);
+  const dinnerText = photo.output.render({}, dinner)[0]!.text;
+  assert.match(dinnerText, /11月15日 晚餐当天没有这条餐次记录，没有原图可发/);
+
+  // 越权：别人的患者拒绝
+  const others = await photo.execute(
+    { patientId: 'p2', date: MEAL_DATE, mealType: 'breakfast' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  ) as { status: string };
+  assert.equal(others.status, 'forbidden');
 });
 
 test('patient_chronic 返回事实卡：身高体重、最近饮食与长期记忆都带上', async () => {

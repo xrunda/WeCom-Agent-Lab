@@ -170,6 +170,7 @@ function fakeContext() {
                 mealType: 'breakfast' as const,
                 foods: [{ name: '燕麦粥' }, { name: '鸡蛋', portion: '1 个' }],
                 confidence: 0.8,
+                mediaPath: '/var/lib/zhiban/media/eval-meal.jpg',
                 sandbox: false,
                 createdAt: EVAL_MEAL_AT,
               },

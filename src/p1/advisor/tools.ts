@@ -13,6 +13,7 @@ import { buildTodoSnapshot, formatTodoText } from './format.ts';
 import type {
   AdvisorChronicResult,
   AdvisorGetResult,
+  AdvisorMealPhotoResult,
   AdvisorMealsResult,
   AdvisorOverviewResult,
   AdvisorSearchResult,
@@ -135,6 +136,40 @@ export function validateAdvisorMeals(args: unknown): ValidationResult<AdvisorMea
   };
 }
 
+export const ADVISOR_MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+export type AdvisorMealType = (typeof ADVISOR_MEAL_TYPES)[number];
+
+export interface AdvisorMealPhotoArgs {
+  patientId: string;
+  /** YYYY-MM-DD（上海时区）；缺省为今天 */
+  date?: string;
+  mealType: AdvisorMealType;
+}
+
+export function validateAdvisorMealPhoto(args: unknown): ValidationResult<AdvisorMealPhotoArgs> {
+  if (!isRecord(args)) return { ok: false, violations: ['参数必须是对象'] };
+  const violations: string[] = [];
+  const patientId = boundedString(args.patientId, 'patientId', 80);
+  if (patientId === undefined) violations.push('patientId 不能为空，最多 80 字');
+  const date = boundedString(args.date, 'date', 10);
+  if (args.date !== undefined && date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    violations.push('date 必须是 YYYY-MM-DD');
+  }
+  const mealType = boundedString(args.mealType, 'mealType', 20);
+  if (mealType === undefined || !ADVISOR_MEAL_TYPES.includes(mealType as AdvisorMealType)) {
+    violations.push(`mealType 必须是 ${ADVISOR_MEAL_TYPES.join('/')}`);
+  }
+  if (violations.length > 0) return { ok: false, violations };
+  return {
+    ok: true,
+    value: {
+      patientId: patientId as string,
+      mealType: mealType as AdvisorMealType,
+      ...(date ? { date } : {}),
+    },
+  };
+}
+
 // ---------- 检索（从旧知识 / 话术查询服务迁入） ----------
 
 export interface QueryableKnowledgeLike {
@@ -233,6 +268,12 @@ export interface AdvisorToolHandlers {
   get(advisorId: string, scope: AdvisorGetScope, id: string): Promise<AdvisorGetResult>;
   chronic(advisorId: string, patientId: string): Promise<AdvisorChronicResult>;
   meals(advisorId: string, patientId: string, date?: string): Promise<AdvisorMealsResult>;
+  mealPhoto(
+    advisorId: string,
+    patientId: string,
+    date: string | undefined,
+    mealType: string,
+  ): Promise<AdvisorMealPhotoResult>;
 }
 
 export interface RegisteredTool {
@@ -322,6 +363,22 @@ const MEALS_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const MEAL_PHOTO_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    patientId: { type: 'string' },
+    displayName: { type: 'string' },
+    date: { type: 'string' },
+    mealType: { type: 'string' },
+    mealLabel: { type: 'string' },
+    time: { type: 'string' },
+    hasPhoto: { type: 'boolean' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
 /** 检索结果 render：知识 / 话术逐字输出原文并带条目 id，模型只做排版 */
 export function renderSearch(value: AdvisorSearchResult): string {
   if (value.status === 'unconnected') return '这一类数据还没接入，请稍后再试或联系管理员。';
@@ -406,6 +463,11 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
   snack: '加餐',
 };
 
+/** 餐次中文标签；未知餐次原样返回 */
+export function mealTypeLabel(mealType: string): string {
+  return MEAL_TYPE_LABELS[mealType] ?? mealType;
+}
+
 function renderMeals(value: AdvisorMealsResult): string {
   if (value.status === 'unconnected') return '饮食记录还没接入，请稍后再试或联系管理员。';
   if (value.status === 'forbidden') return '没有权限查看这位患者的饮食记录。';
@@ -416,7 +478,7 @@ function renderMeals(value: AdvisorMealsResult): string {
   }
   const lines: string[] = [head];
   for (const meal of value.meals) {
-    const label = MEAL_TYPE_LABELS[meal.mealType] ?? meal.mealType;
+    const label = mealTypeLabel(meal.mealType);
     lines.push(`· ${label} ${meal.time}：${meal.foods.join('、')}`);
     if (meal.notes) lines.push(`  备注：${meal.notes}`);
     if (meal.agentComment) lines.push(`  记录说明：${meal.agentComment}`);
@@ -424,6 +486,17 @@ function renderMeals(value: AdvisorMealsResult): string {
   }
   lines.push('以上是系统里已有的记录；没有记录的餐次如实说明没有，不要照模板补。');
   return lines.join('\n');
+}
+
+/** 指定一餐的原图查询 render；有原图时系统会按餐次标注后发送，这里只说明结果 */
+export function renderMealPhoto(value: AdvisorMealPhotoResult): string {
+  if (value.status === 'unconnected') return '饮食记录还没接入，请稍后再试或联系管理员。';
+  if (value.status === 'forbidden') return '没有权限查看这位患者的饮食记录。';
+  if (value.status === 'not-found') return '没有找到这位患者，无法查询饮食记录。';
+  if (value.time === undefined) return `${value.mealLabel}当天没有这条餐次记录，没有原图可发。`;
+  const label = `${value.mealLabel} ${value.time}`;
+  if (!value.hasPhoto) return `${label} 只有文字记录，没有原图。`;
+  return `已发出 ${label} 的原图。`;
 }
 
 /**
@@ -553,7 +626,7 @@ export function buildAdvisorToolDefinitions(
     {
       name: 'patient_meals',
       description:
-        '查一位患者某一天的饮食记录（三餐与加餐、食物、时间、置信度）。patientId 必须来自 advisor_search(scope=patient) 的结果，不能猜。date 传 YYYY-MM-DD（上海时区），不传默认今天。没有记录时明确说「这一天没有饮食记录」，不要照模板补。',
+        '查一位患者某一天的饮食记录（三餐与加餐、食物、时间、置信度），只返回文字、不发图。patientId 必须来自 advisor_search(scope=patient) 的结果，不能猜。date 传 YYYY-MM-DD（上海时区），不传默认今天。没有记录时明确说「这一天没有饮食记录」，不要照模板补。要看某餐原图时用 patient_meal_photo。',
       parameters: {
         type: 'object',
         properties: {
@@ -579,6 +652,47 @@ export function buildAdvisorToolDefinitions(
         const parsed = validateAdvisorMeals(args);
         if (!parsed.ok) toolError(parsed.violations);
         return handlers.meals(advisorId, parsed.value.patientId, parsed.value.date);
+      },
+    },
+    {
+      name: 'patient_meal_photo',
+      description:
+        '查某一天某一餐（早餐 / 午餐 / 晚餐 / 加餐）是否有原图；有则系统会把原图按餐次标注后发给顾问。patientId 必须来自 advisor_search(scope=patient) 的结果，不能猜。只有顾问明确要看某餐照片时才调用；平时查饮食记录用 patient_meals（只返回文字，不发图）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          patientId: { type: 'string', description: '患者 id，最多 80 字' },
+          date: {
+            type: 'string',
+            description: '日期 YYYY-MM-DD（上海时区）；不传为今天',
+          },
+          mealType: {
+            type: 'string',
+            enum: ADVISOR_MEAL_TYPES,
+            description: '早餐 / 午餐 / 晚餐 / 加餐',
+          },
+        },
+        required: ['patientId', 'mealType'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: MEAL_PHOTO_RESULT_SCHEMA,
+        render: (_args, value) => [
+          { type: 'text', text: renderMealPhoto(value as AdvisorMealPhotoResult) },
+        ],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        const parsed = validateAdvisorMealPhoto(args);
+        if (!parsed.ok) toolError(parsed.violations);
+        return handlers.mealPhoto(
+          advisorId,
+          parsed.value.patientId,
+          parsed.value.date,
+          parsed.value.mealType,
+        );
       },
     },
   ];

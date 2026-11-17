@@ -17,6 +17,7 @@ import {
   buildAdvisorToolDefinitions,
   isUsableKnowledge,
   maskedDisplayName,
+  mealTypeLabel,
   renderGet,
   searchKnowledge,
   searchScripts,
@@ -25,6 +26,7 @@ import type {
   AdvisorChronicResult,
   AdvisorGetResult,
   AdvisorHitItem,
+  AdvisorMealPhotoResult,
   AdvisorMealsResult,
   AdvisorSearchResult,
   AdvisorWecomDataPort,
@@ -565,13 +567,6 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             .listMealLogs(patientId)
             .filter((meal) => meal.createdAt >= day && meal.createdAt < day + 24 * 3_600_000)
             .sort((a, b) => a.createdAt - b.createdAt);
-          // 本轮文字回复后补发原图：路径只在插件内部交给回合编排，不进工具结果
-          agent!.recordMealMedia(
-            advisorId,
-            records
-              .map((meal) => meal.mediaPath ?? '')
-              .filter((path) => path !== ''),
-          );
           const meals = records
             .map((meal) => ({
               mealType: meal.mealType,
@@ -590,6 +585,52 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             date: label,
             hasRecord: meals.length > 0,
             meals,
+          };
+        },
+        mealPhoto: async (
+          advisorId: string,
+          patientId: string,
+          date: string | undefined,
+          mealType: string,
+        ): Promise<AdvisorMealPhotoResult> => {
+          const api = patientApi();
+          if (!api) return { status: 'unconnected' };
+          const patient = api.getPatientAdmin(patientId);
+          if (!patient || patient.deletedAt !== undefined) return { status: 'not-found' };
+          if (!ownsPatient(advisorId, patient)) return { status: 'forbidden' };
+
+          // 日期按上海时区切一天；缺省今天
+          const day =
+            date !== undefined
+              ? Date.UTC(
+                  Number(date.slice(0, 4)),
+                  Number(date.slice(5, 7)) - 1,
+                  Number(date.slice(8, 10)),
+                ) - 8 * 3_600_000
+              : shanghaiDayStart(Date.now());
+          const label = new Date(day + 8 * 3_600_000).toISOString().slice(0, 10);
+          const records = api
+            .listMealLogs(patientId)
+            .filter((meal) => meal.createdAt >= day && meal.createdAt < day + 24 * 3_600_000)
+            .sort((a, b) => a.createdAt - b.createdAt);
+          const meal = records.find((record) => record.mealType === mealType);
+          const time = meal ? shanghaiClock(meal.createdAt) : undefined;
+          const path = meal?.mediaPath;
+          const hasPhoto = path !== undefined && path.trim() !== '';
+          // 标注由系统生成：日期 + 餐次 + 时间，模型不改写；图片只在显式请求时发
+          const mealLabel = `${label.slice(5).replace('-', '月')}日 ${mealTypeLabel(mealType)}`;
+          if (hasPhoto) {
+            agent!.recordMealMedia(advisorId, [{ path, label: `${mealLabel} ${time} 原图` }]);
+          }
+          return {
+            status: 'ok',
+            patientId,
+            displayName: displayNameOf(patient),
+            date: label,
+            mealType,
+            mealLabel,
+            time,
+            hasPhoto,
           };
         },
       };
@@ -627,7 +668,7 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
       };
       ctx.provide('zhibanAdvisor', api);
 
-      log('已就绪：advisor_overview / advisor_search / advisor_get / patient_chronic 已注册');
+      log('已就绪：advisor_overview / advisor_search / advisor_get / patient_chronic / patient_meals / patient_meal_photo 已注册');
 
       return async () => {
         await store.flush();
