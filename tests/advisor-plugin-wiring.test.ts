@@ -163,6 +163,18 @@ function fakeData() {
         remindCount: 0,
       };
     },
+    pendingReplies: (advisorId) =>
+      advisorId === 'adv_1'
+        ? [
+            {
+              convKey: 'room:room1',
+              customerId: 'wm_001',
+              excerpt: '我今天有点头晕',
+              reason: 'ambiguous',
+              lastAt: 1_700_000_000_000 - 60_000,
+            },
+          ]
+        : [],
     discardDraft: async (advisorId, draftId) => {
       if (advisorId !== 'adv_1' || draftId !== 'd1') return false;
       if (discarded.has(draftId)) return false;
@@ -286,17 +298,20 @@ function harness() {
   };
 }
 
-test('装配：注册 7 个工具并提供 zhibanAdvisor 服务', async () => {
+test('装配：注册 11 个工具并提供 zhibanAdvisor 服务', async () => {
   const h = harness();
   await h.ready;
   const names = h.tools.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
     'advisor_get',
     'advisor_overview',
+    'advisor_patients',
+    'advisor_pending_replies',
     'advisor_search',
     'draft_discard',
     'patient_chronic',
     'patient_meal_photo',
+    'patient_meal_summary',
     'patient_meals',
     'promise_resolve',
   ]);
@@ -563,6 +578,56 @@ test('promise_resolve：兑现本人承诺，越权 / 已处理如实说明', as
     { agent: { id: 'zhiban-advisor-adv_1' } },
   );
   assert.match(resolve.output.render({}, missing)[0]!.text, /没有找到/);
+});
+
+test('advisor_patients：只返回本人名下患者，不带客户正文', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const patients = h.tools.find((item) => item.name === 'advisor_patients')!;
+  const value = await patients.execute({}, { agent: { id: 'zhiban-advisor-adv_1' } });
+  const text = patients.output.render({}, value)[0]!.text;
+  // 单顾问部署下 p1（本人）与 p3（未分配）可见；p2（别人顾问）不可见
+  assert.match(text, /汪女士/);
+  assert.match(text, /p1/);
+  assert.equal(text.includes('别的顾问的患者'), false, '越权患者不泄露');
+});
+
+test('patient_meal_summary：按天汇总本人名下患者，无记录如实说没有', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const summary = h.tools.find((item) => item.name === 'patient_meal_summary')!;
+  // p1 在 MEAL_DATE 有早餐原图
+  const value = await summary.execute(
+    { date: MEAL_DATE },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  );
+  const text = summary.output.render({}, value)[0]!.text;
+  assert.match(text, /2026-11-15 有 1 位患者上传了饮食记录/);
+  assert.match(text, /早餐 09:10/);
+  assert.match(text, /有原图/);
+
+  // 没有记录的一天如实说没有
+  const empty = await summary.execute(
+    { date: '2026-11-14' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  );
+  assert.match(summary.output.render({}, empty)[0]!.text, /没有患者上传饮食记录/);
+});
+
+test('advisor_pending_replies：列出本人名下的待回复会话', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  h.ctx.provide('zhibanPatient', fakePatient());
+  await h.ready;
+  const pending = h.tools.find((item) => item.name === 'advisor_pending_replies')!;
+  const value = await pending.execute({}, { agent: { id: 'zhiban-advisor-adv_1' } });
+  const text = pending.output.render({}, value)[0]!.text;
+  assert.match(text, /1 个会话等你回复/);
+  assert.match(text, /我今天有点头晕/);
 });
 
 test('patient_chronic 返回事实卡：身高体重、最近饮食与长期记忆都带上', async () => {

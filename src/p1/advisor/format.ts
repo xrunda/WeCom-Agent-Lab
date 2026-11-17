@@ -33,7 +33,15 @@ export const DRAFT_STATUS_LABELS: Record<string, string> = {
   MISROUTE_ALERT: '疑似发错群',
 };
 
-export const OPEN_DRAFT_STATUSES = new Set(Object.keys(DRAFT_STATUS_LABELS));
+/** 待办里的开放草稿状态：需要顾问注意或处理的才算「待办」。
+ *  UNVERIFIED 是终态（已发送但回读未确认，草稿本身不再变化，清的是它产生的告警），
+ *  不算待办，避免「作废不掉还一直挂着」。 */
+export const OPEN_DRAFT_STATUSES = new Set([
+  'QUEUED',
+  'PUSHED',
+  'FAILED',
+  'MISROUTE_ALERT',
+]);
 
 export function openDrafts(drafts: AdvisorDraftView[]): AdvisorDraftView[] {
   return drafts.filter((draft) => OPEN_DRAFT_STATUSES.has(draft.status));

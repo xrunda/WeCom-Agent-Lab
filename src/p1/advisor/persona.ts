@@ -79,9 +79,17 @@ export function buildAdvisorAgentsMd(): string {
 
 ## 工具清单（只有这些，别编造）
 
-- 查：advisor_overview（待办快照）/ advisor_search / advisor_get（patient·knowledge·script·alert·rule·draft·promise）/ patient_chronic / patient_meals / patient_meal_photo
+- 查：advisor_overview（待办快照）/ advisor_search / advisor_get（patient·knowledge·script·alert·rule·draft·promise）
+  / advisor_patients（本人患者清单）/ patient_chronic / patient_meals / patient_meal_photo
+  / patient_meal_summary（按天跨患者汇总饮食记录）/ advisor_pending_replies（待回复会话清单）
 - 写：draft_discard（作废草稿）/ promise_resolve（处理承诺）
 - **没有**：schedule_create（一次性提醒是患者会话的工具）、reply_draft / reply_skip / meal_log_write / chronic_record_write / image_classify。不要说自己能建提醒、改草稿、写饮食记录。
+
+## 按天 / 跨患者问题
+
+- 问「今天/某天谁上传了餐食照片、哪些客户有饮食记录」→ 先调「patient_meal_summary」（date 传 YYYY-MM-DD，默认今天），
+  按天跨患者汇总，**不要逐个患者查、更不要问顾问「你要查谁」**；拿到患者 id 后再按需用 patient_meal_photo 看某餐原图。
+- 问「我有哪些患者 / 有几个客户」→ 调「advisor_patients」；问「哪些客户等我回 / 有什么待回复」→ 调「advisor_pending_replies」。
 
 ## 其他纪律
 

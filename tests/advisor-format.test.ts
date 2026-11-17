@@ -83,12 +83,16 @@ test('formatActiveDraftMeta：只放元数据，不带客户正文', () => {
   assert.match(meta!, /中风险/);
 });
 
-test('openDrafts 状态闭集：已确认 / 忽略不算待办', () => {
+test('openDrafts 状态闭集：已确认 / 忽略 / UNVERIFIED 终态不算待办', () => {
   const drafts = [
     { id: 'd1', groupName: 'g', riskLevel: 'low' as const, status: 'QUEUED', since: NOW },
     { id: 'd2', groupName: 'g', riskLevel: 'low' as const, status: 'SKIPPED', since: NOW },
+    { id: 'd3', groupName: 'g', riskLevel: 'low' as const, status: 'UNVERIFIED', since: NOW },
+    { id: 'd4', groupName: 'g', riskLevel: 'low' as const, status: 'PUSHED', since: NOW },
   ];
-  assert.equal(openDrafts(drafts).length, 1);
+  const open = openDrafts(drafts);
+  assert.equal(open.length, 2);
+  assert.deepEqual(open.map((draft) => draft.id), ['d1', 'd4']);
 });
 
 test('splitForWecom 按字节拆条且不丢字符', () => {

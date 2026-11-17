@@ -22,6 +22,9 @@
   `advisor_get` 新增 `draft` / `promise` scope（读草稿正文 / 承诺原话）；
   新增 `draft_discard`（作废草稿，复用侧边栏「跳过」状态机）与 `promise_resolve`（兑现 / 作废承诺）；
   写操作需顾问明确确认，禁止批量静默作废；人设加【工具清单】防编造（schedule_create 等患者侧工具显式排除）
+- ✅ v1.7（2026-11-17）：**按天 / 跨患者工具 + 待办口径修复**——新增 `patient_meal_summary`（按天跨患者汇总
+  饮食记录与原图）、`advisor_patients`（本人患者清单）、`advisor_pending_replies`（待回复会话清单）；
+  修复 UNVERIFIED（终态）草稿被计入待办且作废不掉的 bug（待办只统计 QUEUED/PUSHED/FAILED/MISROUTE_ALERT）
 - ⏳ v1-4 真机联调：1:1 主链路已真机验证（2026-11-16）；剩余验收项见 PR
 - ✅ v1.3（2026-11-16）：患者**事实卡** `src/p1/patient-facts.ts`——疾病 / 身高体重 / 用药 / 最近体征 / 最近饮食；
   患者 Agent 每轮注入（不依赖模型调用），顾问侧 `patient_chronic` 返回同一张卡并附长期记忆；

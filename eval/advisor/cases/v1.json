@@ -260,5 +260,46 @@
     "forbidText": [
       "状态不能执行"
     ]
+  },
+  {
+    "id": "adv-patients-17",
+    "message": "我有哪些患者",
+    "expectTool": "advisor_patients",
+    "expectArgs": {},
+    "expectStatus": "ok",
+    "requireText": [
+      "汪女士",
+      "p1"
+    ],
+    "forbidText": [
+      "别的顾问的患者"
+    ]
+  },
+  {
+    "id": "adv-meal-summary-18",
+    "message": "今天有患者上传了餐食照片么",
+    "expectTool": "patient_meal_summary",
+    "expectArgs": {
+      "date": "2026-11-15"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "1 位患者上传了饮食记录",
+      "早餐 09:10",
+      "有原图"
+    ],
+    "forbidText": []
+  },
+  {
+    "id": "adv-pending-replies-19",
+    "message": "现在有什么待回复",
+    "expectTool": "advisor_pending_replies",
+    "expectArgs": {},
+    "expectStatus": "ok",
+    "requireText": [
+      "1 个会话等你回复",
+      "我今天有点头晕"
+    ],
+    "forbidText": []
   }
 ]

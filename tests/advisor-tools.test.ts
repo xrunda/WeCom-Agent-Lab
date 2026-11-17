@@ -14,6 +14,9 @@ import {
   renderAction,
   renderGet,
   renderMealPhoto,
+  renderMealSummary,
+  renderPatients,
+  renderPendingReplies,
   renderSearch,
   searchKnowledge,
   searchScripts,
@@ -21,6 +24,7 @@ import {
   validateAdvisorDiscard,
   validateAdvisorGet,
   validateAdvisorMealPhoto,
+  validateAdvisorMealSummary,
   validateAdvisorMeals,
   validateAdvisorPromiseResolve,
   validateAdvisorSearch,
@@ -136,6 +140,9 @@ test('工具 execute：从 exec.agent.id 解析顾问身份并转发 handler', a
     mealPhoto: async () => ({ status: 'forbidden' }),
     discardDraft: async () => ({ status: 'not-found' }),
     resolvePromise: async () => ({ status: 'not-found' }),
+    patients: async () => ({ status: 'unconnected' }),
+    mealSummary: async () => ({ status: 'unconnected' }),
+    pendingReplies: async () => ({ status: 'unconnected' }),
   });
   const searchTool = tools.find((tool) => tool.name === 'advisor_search')!;
   await searchTool.execute({ scope: 'knowledge', query: '饮食' }, { agent: { id: 'zhiban-advisor-adv_1' } });
@@ -156,6 +163,9 @@ test('overview render：待办输出与「我的待办」命令共用同一个�
     mealPhoto: async () => ({ status: 'forbidden' }),
     discardDraft: async () => ({ status: 'not-found' }),
     resolvePromise: async () => ({ status: 'not-found' }),
+    patients: async () => ({ status: 'unconnected' }),
+    mealSummary: async () => ({ status: 'unconnected' }),
+    pendingReplies: async () => ({ status: 'unconnected' }),
   });
   const overviewTool = tools.find((tool) => tool.name === 'advisor_overview')!;
   const rendered = overviewTool.output.render({}, { snapshot: { drafts: [], promises: [], alerts: [], now: 0 } });
@@ -234,6 +244,62 @@ test('renderAction：如实说做了什么，不编造', () => {
   assert.match(renderAction({ status: 'unconnected' }), /还没接入/);
 });
 
+test('patient_meal_summary 参数校验：date 必须是 YYYY-MM-DD', () => {
+  assert.ok(validateAdvisorMealSummary({}).ok);
+  assert.ok(validateAdvisorMealSummary({ date: '2026-11-15' }).ok);
+  assert.ok(!validateAdvisorMealSummary({ date: '11-15' }).ok);
+});
+
+test('renderPatients：列出本人患者，无患者如实说没有', () => {
+  const text = renderPatients({
+    status: 'ok',
+    items: [
+      { patientId: 'p1', displayName: '汪女士', tags: ['高血压'] },
+      { patientId: 'p3', displayName: 'ATHM_wb001', tags: [] },
+    ],
+  });
+  assert.match(text, /2 位患者/);
+  assert.match(text, /汪女士（p1） · 标签：高血压/);
+  assert.match(text, /ATHM_wb001（p3）/);
+  assert.match(renderPatients({ status: 'ok', items: [] }), /还没有患者/);
+});
+
+test('renderMealSummary：按天汇总患者，无记录如实说没有', () => {
+  const text = renderMealSummary({
+    status: 'ok',
+    date: '2026-11-15',
+    items: [
+      {
+        patientId: 'p1',
+        displayName: '汪女士',
+        meals: ['早餐 09:10', '午餐 12:20'],
+        hasPhoto: true,
+      },
+    ],
+  });
+  assert.match(text, /2026-11-15 有 1 位患者上传了饮食记录/);
+  assert.match(text, /早餐 09:10、午餐 12:20/);
+  assert.match(text, /有原图/);
+  assert.match(
+    renderMealSummary({ status: 'ok', date: '2026-11-14', items: [] }),
+    /2026-11-14 没有患者上传饮食记录/,
+  );
+});
+
+test('renderPendingReplies：列出待回复会话与摘要', () => {
+  const text = renderPendingReplies({
+    status: 'ok',
+    items: [
+      { convKey: 'room:r1', customerId: 'wm_1', excerpt: '我今天有点头晕', reason: 'ambiguous', lastAt: 0 },
+      { convKey: 'dm:a:b', customerId: 'wm_2', excerpt: '[图片]', reason: 'media', lastAt: 0 },
+    ],
+  });
+  assert.match(text, /2 个会话等你回复/);
+  assert.match(text, /我今天有点头晕（待回应）/);
+  assert.match(text, /\[图片\]（发了图片\/语音）/);
+  assert.match(renderPendingReplies({ status: 'ok', items: [] }), /现在没有待回复的会话/);
+});
+
 test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', () => {
   const tools = buildAdvisorToolDefinitions({
     overview: async () => ({ snapshot: {} as never }),
@@ -253,6 +319,9 @@ test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', 
     mealPhoto: async () => ({ status: 'forbidden' }),
     discardDraft: async () => ({ status: 'not-found' }),
     resolvePromise: async () => ({ status: 'not-found' }),
+    patients: async () => ({ status: 'unconnected' }),
+    mealSummary: async () => ({ status: 'unconnected' }),
+    pendingReplies: async () => ({ status: 'unconnected' }),
   });
   const tool = tools.find((item) => item.name === 'patient_meals')!;
   const rendered = tool.output.render(
@@ -319,4 +388,12 @@ test('人设：工具清单只列已有工具，不编造 schedule_create 等', 
   assert.match(md, /工具清单/);
   assert.match(md, /schedule_create.*是患者会话的工具/);
   assert.match(md, /没有.*schedule_create/);
+});
+
+test('人设：按天跨患者问题先调汇总工具，不逐个患者查、不问「你要查谁」', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /patient_meal_summary/);
+  assert.match(md, /不要逐个患者查、更不要问顾问「你要查谁」/);
+  assert.match(md, /advisor_patients/);
+  assert.match(md, /advisor_pending_replies/);
 });

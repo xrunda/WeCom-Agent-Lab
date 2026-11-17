@@ -29,7 +29,11 @@ import type {
   AdvisorGetResult,
   AdvisorHitItem,
   AdvisorMealPhotoResult,
+  AdvisorMealSummaryResult,
   AdvisorMealsResult,
+  AdvisorPatientsResult,
+  AdvisorPendingReplyItem,
+  AdvisorPendingRepliesResult,
   AdvisorPromiseDetail,
   AdvisorSearchResult,
   AdvisorWecomDataPort,
@@ -204,6 +208,10 @@ class LazyAdvisorData implements AdvisorWecomDataPort {
 
   promiseDetail(advisorId: string, promiseId: string): AdvisorPromiseDetail | undefined {
     return this.resolve()?.promiseDetail?.(advisorId, promiseId);
+  }
+
+  pendingReplies(advisorId: string): AdvisorPendingReplyItem[] | undefined {
+    return this.resolve()?.pendingReplies?.(advisorId);
   }
 
   async discardDraft(advisorId: string, draftId: string): Promise<boolean> {
@@ -687,6 +695,61 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             time,
             hasPhoto,
           };
+        },
+        patients: async (advisorId: string): Promise<AdvisorPatientsResult> => {
+          const api = patientApi();
+          if (!api) return { status: 'unconnected' };
+          const items = api
+            .listPatients()
+            .filter((patient) => patient.deletedAt === undefined && ownsPatient(advisorId, patient))
+            .map((patient) => ({
+              patientId: patient.id,
+              displayName: displayNameOf(patient),
+              tags: [...patient.tags],
+            }));
+          return { status: 'ok', items };
+        },
+        mealSummary: async (
+          advisorId: string,
+          date: string | undefined,
+        ): Promise<AdvisorMealSummaryResult> => {
+          const api = patientApi();
+          if (!api) return { status: 'unconnected' };
+          // 日期按上海时区切一天；缺省今天
+          const day =
+            date !== undefined
+              ? Date.UTC(
+                  Number(date.slice(0, 4)),
+                  Number(date.slice(5, 7)) - 1,
+                  Number(date.slice(8, 10)),
+                ) - 8 * 3_600_000
+              : shanghaiDayStart(Date.now());
+          const label = new Date(day + 8 * 3_600_000).toISOString().slice(0, 10);
+          const items = api
+            .listPatients()
+            .filter((patient) => patient.deletedAt === undefined && ownsPatient(advisorId, patient))
+            .map((patient) => {
+              const records = api
+                .listMealLogs(patient.id)
+                .filter((meal) => meal.createdAt >= day && meal.createdAt < day + 24 * 3_600_000)
+                .sort((a, b) => a.createdAt - b.createdAt);
+              if (records.length === 0) return undefined;
+              return {
+                patientId: patient.id,
+                displayName: displayNameOf(patient),
+                meals: records.map(
+                  (meal) => `${mealTypeLabel(meal.mealType)} ${shanghaiClock(meal.createdAt)}`,
+                ),
+                hasPhoto: records.some((meal) => (meal.mediaPath ?? '').trim() !== ''),
+              };
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== undefined);
+          return { status: 'ok', date: label, items };
+        },
+        pendingReplies: async (advisorId: string): Promise<AdvisorPendingRepliesResult> => {
+          const items = data.pendingReplies?.(advisorId);
+          if (items === undefined) return { status: 'unconnected' };
+          return { status: 'ok', items };
         },
         discardDraft: async (
           advisorId: string,

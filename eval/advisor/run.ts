@@ -162,6 +162,18 @@ function fakeContext() {
         advisorId === 'adv_1' && draftId === 'd1',
       resolvePromise: async (advisorId: string, promiseId: string) =>
         advisorId === 'adv_1' && promiseId === 'prom_1',
+      pendingReplies: (advisorId: string) =>
+        advisorId === 'adv_1'
+          ? [
+              {
+                convKey: 'room:r1',
+                customerId: 'wm_001',
+                excerpt: '我今天有点头晕',
+                reason: 'ambiguous',
+                lastAt: realNow - 60_000,
+              },
+            ]
+          : [],
     });
     provided.set('zhibanKnowledge', {
       list: () => SEED.knowledge,

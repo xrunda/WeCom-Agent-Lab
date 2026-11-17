@@ -10,6 +10,7 @@ import type {
   AdvisorAlertView,
   AdvisorDraftDetail,
   AdvisorDraftView,
+  AdvisorPendingReplyItem,
   AdvisorPromiseDetail,
   AdvisorPromiseView,
   AdvisorWecomDataPort,
@@ -30,6 +31,8 @@ export interface AdvisorWecomDataDeps {
   openAlerts(advisorId: string): AdvisorAlertView[];
   /** 待回复索引：侧边栏未安装时返回 undefined */
   openPendingCount?(advisorId: string): number | undefined;
+  /** 待回复会话清单：侧边栏未安装时返回 undefined */
+  openPendingItems?(advisorId: string): AdvisorPendingReplyItem[] | undefined;
   sendText(chatId: string, text: string): Promise<void>;
   /** 补发饮食记录原图；机器人不支持发图时可不提供 */
   sendImage?(chatId: string, path: string): Promise<void>;
@@ -110,6 +113,7 @@ export function buildAdvisorWecomData(deps: AdvisorWecomDataDeps): AdvisorWecomD
       }
     },
     canReadPatient: deps.canReadPatient,
+    pendingReplies: (advisorId) => deps.openPendingItems?.(advisorId) ?? undefined,
     draftDetail: (advisorId, draftId) => {
       const draft = deps.getDraft(draftId);
       if (!draft || draft.advisorId !== advisorId) return undefined;
@@ -180,4 +184,33 @@ export function pendingRepliesFromSidebar(input: {
       item.convKey.startsWith(`dm:${input.advisorId}:`) ||
       (item.convKey.startsWith('room:') && input.groupRoomIds.has(item.convKey.slice(5))),
   ).length;
+}
+
+/** 待回复会话清单（逐条带客户原文摘要）；匹配逻辑与计数一致 */
+export function pendingItemsFromSidebar(input: {
+  advisorId: string;
+  groupRoomIds: Set<string>;
+  allItems: () => Array<{
+    convKey: string;
+    status: string;
+    customerId: string;
+    excerpt: string;
+    reason: string;
+    lastAt: number;
+  }>;
+}): AdvisorPendingReplyItem[] {
+  const open = input.allItems().filter((item) => item.status === 'open');
+  return open
+    .filter(
+      (item) =>
+        item.convKey.startsWith(`dm:${input.advisorId}:`) ||
+        (item.convKey.startsWith('room:') && input.groupRoomIds.has(item.convKey.slice(5))),
+    )
+    .map((item) => ({
+      convKey: item.convKey,
+      customerId: item.customerId,
+      excerpt: item.excerpt,
+      reason: item.reason,
+      lastAt: item.lastAt,
+    }));
 }

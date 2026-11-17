@@ -34,7 +34,7 @@ import type { InboundMessage as PatientInboundMessage, RouteDecision } from '../
 
 import { parsePluginConfig } from './config.ts';
 import { AdvisorStatusService } from './advisor-status.ts';
-import { buildAdvisorWecomData, pendingRepliesFromSidebar } from './advisor-data.ts';
+import { buildAdvisorWecomData, pendingItemsFromSidebar, pendingRepliesFromSidebar } from './advisor-data.ts';
 import { routeSingleText } from './advisor-route.ts';
 import { DomainStore, DomainStoreBackend, wecomDomain } from './domain.ts';
 import { GroupDiscovery } from './group-discovery.ts';
@@ -199,7 +199,14 @@ export async function decideStaffQuality(
 
 /** 侧边栏待回复索引（#146）的只读入口；未安装时不显示待回复计数 */
 interface SidebarApi {
-  allItems(): Array<{ convKey: string; status: string }>;
+  allItems(): Array<{
+    convKey: string;
+    status: string;
+    customerId: string;
+    excerpt: string;
+    reason: string;
+    lastAt: number;
+  }>;
 }
 
 export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
@@ -942,6 +949,21 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         getPromise: (id) => store.getPromise(id),
         openAlerts: openAlertsFor,
         openPendingCount: pendingRepliesFor,
+        openPendingItems: (advisorId) => {
+          const sidebar = ctx.get<SidebarApi>('zhibanSidebar');
+          if (!sidebar || typeof sidebar.allItems !== 'function') return undefined;
+          const wecomUserId = store.getAdvisor(advisorId)?.chatId ?? advisorId;
+          return pendingItemsFromSidebar({
+            advisorId: wecomUserId,
+            groupRoomIds: new Set(
+              store
+                .listGroups()
+                .filter((group) => group.advisorId === advisorId)
+                .map((group) => group.roomId),
+            ),
+            allItems: () => sidebar.allItems(),
+          });
+        },
         sendText: async (chatId, text) => {
           if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
           await botRef.sendText(chatId, text);
