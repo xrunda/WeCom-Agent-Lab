@@ -15,8 +15,11 @@ import type {
   AdvisorChronicResult,
   AdvisorGetResult,
   AdvisorMealPhotoResult,
+  AdvisorMealSummaryResult,
   AdvisorMealsResult,
   AdvisorOverviewResult,
+  AdvisorPatientsResult,
+  AdvisorPendingRepliesResult,
   AdvisorSearchResult,
 } from './types.ts';
 
@@ -186,6 +189,27 @@ export function validateAdvisorDiscard(args: unknown): ValidationResult<AdvisorD
   return { ok: true, value: { draftId: draftId as string } };
 }
 
+export interface AdvisorMealSummaryArgs {
+  /** YYYY-MM-DD（上海时区）；缺省为今天 */
+  date?: string;
+}
+
+export function validateAdvisorMealSummary(
+  args: unknown,
+): ValidationResult<AdvisorMealSummaryArgs> {
+  if (!isRecord(args)) return { ok: false, violations: ['参数必须是对象'] };
+  const violations: string[] = [];
+  const date = boundedString(args.date, 'date', 10);
+  if (args.date !== undefined && date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    violations.push('date 必须是 YYYY-MM-DD');
+  }
+  if (args.date !== undefined && date === undefined) {
+    violations.push('date 不能为空');
+  }
+  if (violations.length > 0) return { ok: false, violations };
+  return { ok: true, value: { ...(date ? { date } : {}) } };
+}
+
 export const ADVISOR_PROMISE_OUTCOMES = ['done', 'dismissed'] as const;
 export type AdvisorPromiseOutcome = (typeof ADVISOR_PROMISE_OUTCOMES)[number];
 
@@ -219,6 +243,53 @@ export function renderAction(value: AdvisorActionResult): string {
   if (value.status === 'not-found') return '没有找到这条记录，无法操作。';
   if (value.status === 'not-actionable') return `当前状态不能执行这个操作：${value.reason}`;
   return value.message;
+}
+
+const PATIENT_LIST_MAX = 30;
+
+/** 本人患者清单 render；不带客户正文 */
+export function renderPatients(value: AdvisorPatientsResult): string {
+  if (value.status === 'unconnected') return '患者数据还没接入，请稍后再试或联系管理员。';
+  if (value.items.length === 0) return '你名下还没有患者。';
+  const shown = value.items.slice(0, PATIENT_LIST_MAX);
+  const lines = shown.map((item) => {
+    const tag = item.tags.length > 0 ? ` · 标签：${item.tags.join('、')}` : '';
+    return `· ${item.displayName}（${item.patientId}）${tag}`;
+  });
+  const more = value.items.length > shown.length ? `\n只显示前 ${shown.length} 位，共 ${value.items.length} 位。` : '';
+  return `你名下有 ${value.items.length} 位患者：\n${lines.join('\n')}${more}`;
+}
+
+/** 跨患者饮食记录汇总 render */
+export function renderMealSummary(value: AdvisorMealSummaryResult): string {
+  if (value.status === 'unconnected') return '饮食记录还没接入，请稍后再试或联系管理员。';
+  if (value.items.length === 0) {
+    return `${value.date} 没有患者上传饮食记录。`;
+  }
+  const lines = value.items.map((item) => {
+    const photo = item.hasPhoto ? '（有原图）' : '';
+    return `· ${item.displayName}（${item.patientId}）：${item.meals.join('、')}${photo}`;
+  });
+  return `${value.date} 有 ${value.items.length} 位患者上传了饮食记录：\n${lines.join('\n')}\n要看某餐原图用「patient_meal_photo」。`;
+}
+
+const PENDING_REASON_LABELS: Record<string, string> = {
+  question: '提问',
+  request: '请求',
+  mention: '被@',
+  ambiguous: '待回应',
+  media: '发了图片/语音',
+};
+
+/** 待回复会话清单 render；只给客户原文摘要，不给群名内部信息 */
+export function renderPendingReplies(value: AdvisorPendingRepliesResult): string {
+  if (value.status === 'unconnected') return '待回复索引还没接入，请稍后再试或联系管理员。';
+  if (value.items.length === 0) return '现在没有待回复的会话。';
+  const lines = value.items.map((item) => {
+    const reason = PENDING_REASON_LABELS[item.reason] ?? item.reason;
+    return `· ${item.excerpt}（${reason}）`;
+  });
+  return `现在有 ${value.items.length} 个会话等你回复：\n${lines.join('\n')}`;
 }
 
 // ---------- 检索（从旧知识 / 话术查询服务迁入） ----------
@@ -325,6 +396,9 @@ export interface AdvisorToolHandlers {
     date: string | undefined,
     mealType: string,
   ): Promise<AdvisorMealPhotoResult>;
+  patients(advisorId: string): Promise<AdvisorPatientsResult>;
+  mealSummary(advisorId: string, date: string | undefined): Promise<AdvisorMealSummaryResult>;
+  pendingReplies(advisorId: string): Promise<AdvisorPendingRepliesResult>;
   discardDraft(advisorId: string, draftId: string): Promise<AdvisorActionResult>;
   resolvePromise(
     advisorId: string,
@@ -442,6 +516,37 @@ const ACTION_RESULT_SCHEMA = {
     status: { type: 'string' },
     message: { type: 'string' },
     reason: { type: 'string' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
+const PATIENTS_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    items: { type: 'array' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
+const MEAL_SUMMARY_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    date: { type: 'string' },
+    items: { type: 'array' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
+const PENDING_REPLIES_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    items: { type: 'array' },
   },
   required: ['status'],
   additionalProperties: false,
@@ -765,6 +870,77 @@ export function buildAdvisorToolDefinitions(
           parsed.value.date,
           parsed.value.mealType,
         );
+      },
+    },
+    {
+      name: 'advisor_patients',
+      description:
+        '列出顾问本人名下的患者（昵称、患者 id、标签），不带客户正文。回答「我有哪些患者 / 我有几个客户」时先调它；拿到患者 id 后再用 patient_chronic / patient_meals 查详情。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      output: {
+        schema: PATIENTS_RESULT_SCHEMA,
+        render: (_args, value) => [{ type: 'text', text: renderPatients(value as AdvisorPatientsResult) }],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        return handlers.patients(advisorId);
+      },
+    },
+    {
+      name: 'patient_meal_summary',
+      description:
+        '按天列出顾问本人名下当天有饮食记录的患者（含餐次与是否有原图）。date 传 YYYY-MM-DD（上海时区），不传默认今天。回答「今天谁上传了餐食照片 / 哪些客户有饮食记录」时先调它；没有记录的一天如实说没有。要看某餐原图再调 patient_meal_photo。',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: '日期 YYYY-MM-DD（上海时区）；不传为今天',
+          },
+        },
+        additionalProperties: false,
+      },
+      output: {
+        schema: MEAL_SUMMARY_RESULT_SCHEMA,
+        render: (_args, value) => [
+          { type: 'text', text: renderMealSummary(value as AdvisorMealSummaryResult) },
+        ],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        const parsed = validateAdvisorMealSummary(args);
+        if (!parsed.ok) toolError(parsed.violations);
+        return handlers.mealSummary(advisorId, parsed.value.date);
+      },
+    },
+    {
+      name: 'advisor_pending_replies',
+      description:
+        '列出顾问本人名下等待回复的会话（客户最新一条消息摘要与原因）。回答「哪些客户等我回 / 现在有什么待回复」时先调它；侧边栏未接入时如实说没接入，不能把「没接入」当「没有」。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      output: {
+        schema: PENDING_REPLIES_RESULT_SCHEMA,
+        render: (_args, value) => [
+          { type: 'text', text: renderPendingReplies(value as AdvisorPendingRepliesResult) },
+        ],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        return handlers.pendingReplies(advisorId);
       },
     },
     {

@@ -69,6 +69,8 @@ export interface AdvisorWecomDataPort {
   draftDetail?(advisorId: string, draftId: string): AdvisorDraftDetail | undefined;
   /** 本人名下的承诺详情（含原话）；无权限 / 不存在返回 undefined */
   promiseDetail?(advisorId: string, promiseId: string): AdvisorPromiseDetail | undefined;
+  /** 本人名下的待回复会话清单；侧边栏未接入时返回 undefined */
+  pendingReplies?(advisorId: string): AdvisorPendingReplyItem[] | undefined;
   /** 作废一条草稿（侧边栏「跳过」同一状态机）；成功返回 true，状态不允许返回 false */
   discardDraft?(advisorId: string, draftId: string): Promise<boolean>;
   /** 处理承诺：done=兑现 / dismissed=作废；成功返回 true，非 pending 返回 false */
@@ -224,6 +226,45 @@ export type AdvisorActionResult =
   | { status: 'forbidden' }
   | { status: 'not-found' }
   | { status: 'not-actionable'; reason: string };
+
+/** 顾问本人名下的一位患者 */
+export interface AdvisorPatientItem {
+  patientId: string;
+  displayName: string;
+  tags: string[];
+}
+
+export type AdvisorPatientsResult =
+  | { status: 'unconnected' }
+  | { status: 'ok'; items: AdvisorPatientItem[] };
+
+/** 某一天有饮食记录的一位患者 */
+export interface AdvisorMealSummaryItem {
+  patientId: string;
+  displayName: string;
+  /** 展示文本，如「早餐 09:10、午餐 12:20」 */
+  meals: string[];
+  /** 当天是否至少有原图 */
+  hasPhoto: boolean;
+}
+
+export type AdvisorMealSummaryResult =
+  | { status: 'unconnected' }
+  | { status: 'ok'; date: string; items: AdvisorMealSummaryItem[] };
+
+/** 待回复会话（侧边栏索引的开放条目） */
+export interface AdvisorPendingReplyItem {
+  convKey: string;
+  customerId: string;
+  /** 最新一条原文，已截断 */
+  excerpt: string;
+  reason: string;
+  lastAt: number;
+}
+
+export type AdvisorPendingRepliesResult =
+  | { status: 'unconnected' }
+  | { status: 'ok'; items: AdvisorPendingReplyItem[] };
 
 // ---------- 会话 ----------
 

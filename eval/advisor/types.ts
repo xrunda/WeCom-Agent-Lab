@@ -26,7 +26,10 @@ export interface AdvisorEvalCase {
     | 'patient_meals'
     | 'patient_meal_photo'
     | 'draft_discard'
-    | 'promise_resolve';
+    | 'promise_resolve'
+    | 'advisor_patients'
+    | 'patient_meal_summary'
+    | 'advisor_pending_replies';
   expectArgs: {
     scope?: AdvisorEvalScope;
     query?: string;
