@@ -116,18 +116,22 @@ export function formatTodoText(snapshot: TodoSnapshot): string {
   return lines.join('\n');
 }
 
-/** 待办快照的紧凑一行版，用于每轮前置上下文（#167 §6），只放计数与活动草稿 */
+/** 待办快照的紧凑一行版，用于每轮前置上下文（#167 §6）：计数 + 待办 id，让模型不用调工具就能拿到 id */
 export function formatSnapshotLine(snapshot: TodoSnapshot): string {
   const parts: string[] = [];
   if (snapshot.drafts.length > 0) {
     const oldest = Math.min(...snapshot.drafts.map((draft) => draft.since));
+    const ids = snapshot.drafts.map((draft) => draft.id).join('、');
     parts.push(
-      `未完成草稿 ${snapshot.drafts.length}（最久 ${humanWait(Math.max(0, snapshot.now - oldest))}）`,
+      `未完成草稿 ${snapshot.drafts.length}（最久 ${humanWait(Math.max(0, snapshot.now - oldest))}；${ids}）`,
     );
   }
   const dayEnd = shanghaiDayStart(snapshot.now) + DAY_MS;
   const duePromises = snapshot.promises.filter((promise) => promise.dueAt < dayEnd);
-  if (duePromises.length > 0) parts.push(`今日到期承诺 ${duePromises.length}`);
+  if (duePromises.length > 0) {
+    const ids = duePromises.map((promise) => promise.id).join('、');
+    parts.push(`今日到期承诺 ${duePromises.length}（${ids}）`);
+  }
   if (snapshot.alerts.length > 0) parts.push(`未处理告警 ${snapshot.alerts.length}`);
   if (snapshot.pendingReplies !== undefined && snapshot.pendingReplies > 0) {
     parts.push(`待回复会话 ${snapshot.pendingReplies}`);

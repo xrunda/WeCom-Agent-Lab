@@ -305,7 +305,8 @@ test('人设：默认不发餐食照片，只有显式要看某餐原图才调 p
 
 test('人设：待办提示必须可行动，草稿/承诺详情可读、处置需顾问确认', () => {
   const md = buildAdvisorAgentsMd();
-  assert.match(md, /待办快照只给计数和 id/);
+  assert.match(md, /每轮前缀里的「今日：」会带待办的计数和 id/);
+  assert.match(md, /绝不能说「我缺 id，请你把 id 贴给我」/);
   assert.match(md, /advisor_get\(scope=draft \/ scope=promise\)/);
   assert.match(md, /draft_discard/);
   assert.match(md, /promise_resolve/);
