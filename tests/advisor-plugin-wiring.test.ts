@@ -111,13 +111,24 @@ const DRAFTS: AdvisorDraftView[] = [
   { id: 'd1', groupName: '群 1', riskLevel: 'medium', status: 'PUSHED', since: 1000 },
 ];
 
-function fakeData(): AdvisorWecomDataPort {
-  return {
+function fakeData() {
+  const discarded = new Set<string>();
+  const resolved = new Set<string>();
+  const port: AdvisorWecomDataPort = {
     advisorName: () => '王顾问',
     draftsFor: (advisorId) => (advisorId === 'adv_1' ? DRAFTS : []),
-    promisesFor: (): AdvisorPromiseView[] => [
-      { groupName: '群 1', dueAt: 1_700_000_000_000 + 3_600_000, dueLabel: '今天 18:00' },
-    ],
+    promisesFor: (advisorId): AdvisorPromiseView[] =>
+      advisorId === 'adv_1'
+        ? [
+            {
+              id: 'prom_1',
+              groupName: '群 1',
+              excerpt: '明天提醒我量血压',
+              dueAt: 1_700_000_000_000 + 3_600_000,
+              dueLabel: '今天 18:00',
+            },
+          ]
+        : [],
     alertsFor: (advisorId): AdvisorAlertView[] =>
       advisorId === 'adv_1'
         ? [{ id: 'a1', title: '员工发言命中红线', at: 900 }]
@@ -129,7 +140,43 @@ function fakeData(): AdvisorWecomDataPort {
         : undefined,
     sendText: async () => true,
     canReadPatient: true,
+    draftDetail: (advisorId, draftId) => {
+      if (advisorId !== 'adv_1' || draftId !== 'd1') return undefined;
+      return {
+        id: 'd1',
+        groupName: '群 1',
+        riskLevel: 'medium',
+        status: 'PUSHED',
+        body: '您好，您血压有点高，记得明天复诊。',
+        since: 1000,
+      };
+    },
+    promiseDetail: (advisorId, promiseId) => {
+      if (advisorId !== 'adv_1' || promiseId !== 'prom_1') return undefined;
+      return {
+        id: 'prom_1',
+        groupName: '群 1',
+        excerpt: '明天提醒我量血压',
+        dueAt: 1_700_000_000_000 + 3_600_000,
+        dueLabel: '今天 18:00',
+        status: 'pending',
+        remindCount: 0,
+      };
+    },
+    discardDraft: async (advisorId, draftId) => {
+      if (advisorId !== 'adv_1' || draftId !== 'd1') return false;
+      if (discarded.has(draftId)) return false;
+      discarded.add(draftId);
+      return true;
+    },
+    resolvePromise: async (advisorId, promiseId, action) => {
+      if (advisorId !== 'adv_1' || promiseId !== 'prom_1') return false;
+      if (resolved.has(promiseId)) return false;
+      resolved.add(promiseId);
+      return true;
+    },
   };
+  return port;
 }
 
 function fakePatient(options: {
@@ -239,7 +286,7 @@ function harness() {
   };
 }
 
-test('装配：注册 5 个工具并提供 zhibanAdvisor 服务', async () => {
+test('装配：注册 7 个工具并提供 zhibanAdvisor 服务', async () => {
   const h = harness();
   await h.ready;
   const names = h.tools.map((tool) => tool.name).sort();
@@ -247,9 +294,11 @@ test('装配：注册 5 个工具并提供 zhibanAdvisor 服务', async () => {
     'advisor_get',
     'advisor_overview',
     'advisor_search',
+    'draft_discard',
     'patient_chronic',
     'patient_meal_photo',
     'patient_meals',
+    'promise_resolve',
   ]);
   assert.ok(h.provided.has('zhibanAdvisor'));
 });
@@ -447,6 +496,73 @@ test('patient_meal_photo：有原图的餐次返回标注，无原图如实说�
     { agent: { id: 'zhiban-advisor-adv_1' } },
   ) as { status: string };
   assert.equal(others.status, 'forbidden');
+});
+
+test('advisor_get(scope=draft / promise)：本人名下返回正文与承诺原话，别人的不泄露', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  await h.ready;
+  const get = h.tools.find((item) => item.name === 'advisor_get')!;
+
+  const draft = await get.execute({ scope: 'draft', id: 'd1' }, { agent: { id: 'zhiban-advisor-adv_1' } }) as {
+    status: string;
+    item: { content: string; title: string };
+  };
+  assert.equal(draft.status, 'ok');
+  assert.match(draft.item.title, /草稿 · 群 1/);
+  assert.match(draft.item.content, /复诊/);
+
+  const promise = await get.execute({ scope: 'promise', id: 'prom_1' }, { agent: { id: 'zhiban-advisor-adv_1' } }) as {
+    status: string;
+    item: { content: string };
+  };
+  assert.equal(promise.status, 'ok');
+  assert.match(promise.item.content, /量血压/);
+
+  // 不存在的草稿 / 承诺如实说没有
+  const miss = await get.execute({ scope: 'draft', id: 'd9' }, { agent: { id: 'zhiban-advisor-adv_1' } }) as { status: string };
+  assert.equal(miss.status, 'not-found');
+});
+
+test('draft_discard：顾问确认后作废本人草稿，重复作废 / 不存在如实说明', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  await h.ready;
+  const discard = h.tools.find((item) => item.name === 'draft_discard')!;
+
+  const ok = await discard.execute({ draftId: 'd1' }, { agent: { id: 'zhiban-advisor-adv_1' } });
+  assert.match(discard.output.render({}, ok)[0]!.text, /已作废草稿 d1/);
+
+  const again = await discard.execute({ draftId: 'd1' }, { agent: { id: 'zhiban-advisor-adv_1' } });
+  assert.match(discard.output.render({}, again)[0]!.text, /状态不能执行/);
+
+  const missing = await discard.execute({ draftId: 'd9' }, { agent: { id: 'zhiban-advisor-adv_1' } });
+  assert.match(discard.output.render({}, missing)[0]!.text, /没有找到/);
+});
+
+test('promise_resolve：兑现本人承诺，越权 / 已处理如实说明', async () => {
+  const h = harness();
+  h.ctx.provide('zhibanAdvisorData', fakeData());
+  await h.ready;
+  const resolve = h.tools.find((item) => item.name === 'promise_resolve')!;
+
+  const ok = await resolve.execute(
+    { promiseId: 'prom_1', outcome: 'done' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  );
+  assert.match(resolve.output.render({}, ok)[0]!.text, /承诺 prom_1（群 1：「明天提醒我量血压」）已兑现/);
+
+  const again = await resolve.execute(
+    { promiseId: 'prom_1', outcome: 'dismissed' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  );
+  assert.match(resolve.output.render({}, again)[0]!.text, /状态不能执行/);
+
+  const missing = await resolve.execute(
+    { promiseId: 'prom_9', outcome: 'done' },
+    { agent: { id: 'zhiban-advisor-adv_1' } },
+  );
+  assert.match(resolve.output.render({}, missing)[0]!.text, /没有找到/);
 });
 
 test('patient_chronic 返回事实卡：身高体重、最近饮食与长期记忆都带上', async () => {

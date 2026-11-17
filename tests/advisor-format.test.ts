@@ -36,7 +36,9 @@ test('formatTodoText：计数、最久等待、今日承诺、告警', () => {
       drafts: [
         { id: 'd1', groupName: '群 1', riskLevel: 'medium', status: 'PUSHED', since: NOW - 2 * 3600_000 },
       ],
-      promises: [{ groupName: '群 1', dueAt: NOW + 3 * 3600_000, dueLabel: '今天 18:00' }],
+      promises: [
+        { id: 'prom_1', groupName: '群 1', excerpt: '明天提醒我量血压', dueAt: NOW + 3 * 3600_000, dueLabel: '今天 18:00' },
+      ],
       alerts: [{ id: 'a1', title: '员工发言命中红线', at: NOW - 60_000 }],
       pendingReplies: 2,
       now: NOW,
@@ -46,6 +48,9 @@ test('formatTodoText：计数、最久等待、今日承诺、告警', () => {
   assert.match(text, /今日到期承诺 1 条（最近 今天 18:00）/);
   assert.match(text, /未处理告警 1 条/);
   assert.match(text, /待回复会话 2 个/);
+  // 逐条带 id 与摘要，让 Agent 能按 id 处理
+  assert.match(text, /草稿 d1 · 群 1 · 待确认 · 中风险/);
+  assert.match(text, /承诺 prom_1 · 群 1 · 明天提醒我量血压 · 今天 18:00/);
 });
 
 test('formatSnapshotLine：前置上下文的一行计数，无数据时如实说没有', () => {

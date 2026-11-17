@@ -11,15 +11,18 @@ import {
   buildAdvisorToolDefinitions,
   maskedDisplayName,
   rankKnowledge,
+  renderAction,
   renderGet,
   renderMealPhoto,
   renderSearch,
   searchKnowledge,
   searchScripts,
   validateAdvisorChronic,
+  validateAdvisorDiscard,
   validateAdvisorGet,
   validateAdvisorMealPhoto,
   validateAdvisorMeals,
+  validateAdvisorPromiseResolve,
   validateAdvisorSearch,
 } from '../src/p1/advisor/tools.ts';
 import { buildAdvisorAgentsMd } from '../src/p1/advisor/persona.ts';
@@ -130,6 +133,9 @@ test('工具 execute：从 exec.agent.id 解析顾问身份并转发 handler', a
     get: async () => ({ status: 'not-found', scope: 'knowledge', id: 'x' }),
     chronic: async () => ({ status: 'forbidden' }),
     meals: async () => ({ status: 'unconnected' }),
+    mealPhoto: async () => ({ status: 'forbidden' }),
+    discardDraft: async () => ({ status: 'not-found' }),
+    resolvePromise: async () => ({ status: 'not-found' }),
   });
   const searchTool = tools.find((tool) => tool.name === 'advisor_search')!;
   await searchTool.execute({ scope: 'knowledge', query: '饮食' }, { agent: { id: 'zhiban-advisor-adv_1' } });
@@ -147,6 +153,9 @@ test('overview render：待办输出与「我的待办」命令共用同一个�
     get: async () => ({ status: 'not-found', scope: 'knowledge', id: 'x' }),
     chronic: async () => ({ status: 'forbidden' }),
     meals: async () => ({ status: 'unconnected' }),
+    mealPhoto: async () => ({ status: 'forbidden' }),
+    discardDraft: async () => ({ status: 'not-found' }),
+    resolvePromise: async () => ({ status: 'not-found' }),
   });
   const overviewTool = tools.find((tool) => tool.name === 'advisor_overview')!;
   const rendered = overviewTool.output.render({}, { snapshot: { drafts: [], promises: [], alerts: [], now: 0 } });
@@ -207,6 +216,24 @@ test('renderMealPhoto：有原图报「已发出」，无原图如实说没有',
   assert.match(renderMealPhoto({ status: 'forbidden' }), /没有权限/);
 });
 
+test('draft_discard / promise_resolve 参数校验：id 必填、outcome 闭集', () => {
+  assert.ok(validateAdvisorDiscard({ draftId: 'd1' }).ok);
+  assert.ok(!validateAdvisorDiscard({}).ok);
+  assert.ok(validateAdvisorPromiseResolve({ promiseId: 'prom_1', outcome: 'done' }).ok);
+  assert.ok(validateAdvisorPromiseResolve({ promiseId: 'prom_1', outcome: 'dismissed' }).ok);
+  assert.ok(!validateAdvisorPromiseResolve({ promiseId: 'prom_1' }).ok, 'outcome 必填');
+  assert.ok(!validateAdvisorPromiseResolve({ promiseId: 'prom_1', outcome: 'later' }).ok);
+  assert.ok(!validateAdvisorPromiseResolve({ promiseId: '', outcome: 'done' }).ok);
+});
+
+test('renderAction：如实说做了什么，不编造', () => {
+  assert.match(renderAction({ status: 'ok', message: '已作废草稿 d1。' }), /已作废草稿 d1/);
+  assert.match(renderAction({ status: 'not-found' }), /没有找到/);
+  assert.match(renderAction({ status: 'forbidden' }), /没有权限/);
+  assert.match(renderAction({ status: 'not-actionable', reason: '已确认发送' }), /当前状态不能执行这个操作：已确认发送/);
+  assert.match(renderAction({ status: 'unconnected' }), /还没接入/);
+});
+
 test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', () => {
   const tools = buildAdvisorToolDefinitions({
     overview: async () => ({ snapshot: {} as never }),
@@ -223,6 +250,9 @@ test('patient_meals 渲染：按餐次列出食物，没记录如实说没有', 
         { mealType: 'breakfast', time: '08:10', foods: ['燕麦粥', '鸡蛋（1 个）'], confidence: 0.8 },
       ],
     }),
+    mealPhoto: async () => ({ status: 'forbidden' }),
+    discardDraft: async () => ({ status: 'not-found' }),
+    resolvePromise: async () => ({ status: 'not-found' }),
   });
   const tool = tools.find((item) => item.name === 'patient_meals')!;
   const rendered = tool.output.render(
@@ -271,4 +301,21 @@ test('人设：默认不发餐食照片，只有显式要看某餐原图才调 p
   assert.match(md, /patient_meal_photo/);
   assert.match(md, /patient_meals.*只返回文字，不附图/);
   assert.match(md, /图片一定出现在文字回复之后/);
+});
+
+test('人设：待办提示必须可行动，草稿/承诺详情可读、处置需顾问确认', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /待办快照只给计数和 id/);
+  assert.match(md, /advisor_get\(scope=draft \/ scope=promise\)/);
+  assert.match(md, /draft_discard/);
+  assert.match(md, /promise_resolve/);
+  assert.match(md, /未经顾问逐条确认.*不得.*批量/);
+  assert.match(md, /不要替顾问判断承诺有没有兑现/);
+});
+
+test('人设：工具清单只列已有工具，不编造 schedule_create 等', () => {
+  const md = buildAdvisorAgentsMd();
+  assert.match(md, /工具清单/);
+  assert.match(md, /schedule_create.*是患者会话的工具/);
+  assert.match(md, /没有.*schedule_create/);
 });

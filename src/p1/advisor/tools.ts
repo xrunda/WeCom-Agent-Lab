@@ -11,6 +11,7 @@
  */
 import { buildTodoSnapshot, formatTodoText } from './format.ts';
 import type {
+  AdvisorActionResult,
   AdvisorChronicResult,
   AdvisorGetResult,
   AdvisorMealPhotoResult,
@@ -55,6 +56,8 @@ export const ADVISOR_GET_SCOPES = [
   'script',
   'alert',
   'rule',
+  'draft',
+  'promise',
 ] as const;
 export type AdvisorSearchScope = (typeof ADVISOR_SEARCH_SCOPES)[number];
 export type AdvisorGetScope = (typeof ADVISOR_GET_SCOPES)[number];
@@ -170,6 +173,54 @@ export function validateAdvisorMealPhoto(args: unknown): ValidationResult<Adviso
   };
 }
 
+export interface AdvisorDiscardArgs {
+  draftId: string;
+}
+
+export function validateAdvisorDiscard(args: unknown): ValidationResult<AdvisorDiscardArgs> {
+  if (!isRecord(args)) return { ok: false, violations: ['参数必须是对象'] };
+  const violations: string[] = [];
+  const draftId = boundedString(args.draftId, 'draftId', 80);
+  if (draftId === undefined) violations.push('draftId 不能为空，最多 80 字');
+  if (violations.length > 0) return { ok: false, violations };
+  return { ok: true, value: { draftId: draftId as string } };
+}
+
+export const ADVISOR_PROMISE_OUTCOMES = ['done', 'dismissed'] as const;
+export type AdvisorPromiseOutcome = (typeof ADVISOR_PROMISE_OUTCOMES)[number];
+
+export interface AdvisorPromiseResolveArgs {
+  promiseId: string;
+  outcome: AdvisorPromiseOutcome;
+}
+
+export function validateAdvisorPromiseResolve(
+  args: unknown,
+): ValidationResult<AdvisorPromiseResolveArgs> {
+  if (!isRecord(args)) return { ok: false, violations: ['参数必须是对象'] };
+  const violations: string[] = [];
+  const promiseId = boundedString(args.promiseId, 'promiseId', 80);
+  if (promiseId === undefined) violations.push('promiseId 不能为空，最多 80 字');
+  const outcome = boundedString(args.outcome, 'outcome', 20);
+  if (outcome === undefined || !ADVISOR_PROMISE_OUTCOMES.includes(outcome as AdvisorPromiseOutcome)) {
+    violations.push(`outcome 必须是 ${ADVISOR_PROMISE_OUTCOMES.join('/')}`);
+  }
+  if (violations.length > 0) return { ok: false, violations };
+  return {
+    ok: true,
+    value: { promiseId: promiseId as string, outcome: outcome as AdvisorPromiseOutcome },
+  };
+}
+
+/** 写工具结果 render：如实说做了什么，不编造 */
+export function renderAction(value: AdvisorActionResult): string {
+  if (value.status === 'unconnected') return '这个操作还没接入，请稍后再试或联系管理员。';
+  if (value.status === 'forbidden') return '没有权限操作这条记录。';
+  if (value.status === 'not-found') return '没有找到这条记录，无法操作。';
+  if (value.status === 'not-actionable') return `当前状态不能执行这个操作：${value.reason}`;
+  return value.message;
+}
+
 // ---------- 检索（从旧知识 / 话术查询服务迁入） ----------
 
 export interface QueryableKnowledgeLike {
@@ -274,6 +325,12 @@ export interface AdvisorToolHandlers {
     date: string | undefined,
     mealType: string,
   ): Promise<AdvisorMealPhotoResult>;
+  discardDraft(advisorId: string, draftId: string): Promise<AdvisorActionResult>;
+  resolvePromise(
+    advisorId: string,
+    promiseId: string,
+    outcome: 'done' | 'dismissed',
+  ): Promise<AdvisorActionResult>;
 }
 
 export interface RegisteredTool {
@@ -379,6 +436,17 @@ const MEAL_PHOTO_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const ACTION_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string' },
+    message: { type: 'string' },
+    reason: { type: 'string' },
+  },
+  required: ['status'],
+  additionalProperties: false,
+} as const;
+
 /** 检索结果 render：知识 / 话术逐字输出原文并带条目 id，模型只做排版 */
 export function renderSearch(value: AdvisorSearchResult): string {
   if (value.status === 'unconnected') return '这一类数据还没接入，请稍后再试或联系管理员。';
@@ -418,10 +486,14 @@ export function renderGet(value: AdvisorGetResult): string {
   const item = value.item;
   const tagLine =
     item.tags && item.tags.length > 0 ? ` · 标签：${item.tags.join('、')}` : '';
+  const verbatimNote =
+    value.scope === 'knowledge' || value.scope === 'script' || value.scope === 'rule'
+      ? `\n\n来源：${value.scope} ${value.id}。涉及知识 / 话术 / 规则的内容必须原样引用，不得改写。`
+      : `\n\n来源：${value.scope} ${value.id}。`;
   return (
     `【${item.title}】${item.category ?? ''}${tagLine}\n\n` +
     `${item.content ?? ''}` +
-    `\n\n来源：${value.scope} ${value.id}。涉及知识 / 话术 / 规则的内容必须原样引用，不得改写。`
+    verbatimNote
   );
 }
 
@@ -569,14 +641,14 @@ export function buildAdvisorToolDefinitions(
     {
       name: 'advisor_get',
       description:
-        '按 id 取单条详情。scope 可以是 patient / knowledge / script / alert / rule；rule 只能在这里取，不含搜索。id 来自 advisor_search / advisor_overview 的结果或用户消息里给出的编号。',
+        '按 id 取单条详情。scope 可以是 patient / knowledge / script / alert / rule / draft / promise；rule 只能在这里取，不含搜索。draft 返回草稿正文与元数据（只读本人名下，用于判断还能不能发），promise 返回承诺原话与到期。id 来自 advisor_search / advisor_overview 的结果或用户消息里给出的编号。',
       parameters: {
         type: 'object',
         properties: {
           scope: {
             type: 'string',
             enum: ADVISOR_GET_SCOPES,
-            description: 'patient=患者 / knowledge=知识 / script=话术 / alert=告警 / rule=红线规则',
+            description: 'patient=患者 / knowledge=知识 / script=话术 / alert=告警 / rule=红线规则 / draft=草稿 / promise=承诺',
           },
           id: { type: 'string', description: '条目 id，最多 80 字' },
         },
@@ -693,6 +765,61 @@ export function buildAdvisorToolDefinitions(
           parsed.value.date,
           parsed.value.mealType,
         );
+      },
+    },
+    {
+      name: 'draft_discard',
+      description:
+        '作废一条本人名下的草稿（这条草稿不再发给客户，并释放顾问队列）。只允许顾问明确要求时调用；draftId 来自 advisor_overview / advisor_get(scope=draft)。作废前先把草稿正文展示给顾问确认，不能因为一句「全部清理掉」就批量作废客户向草稿。已确认发送 / 已忽略 / 还在排队未推送的草稿无法作废，如实说明。',
+      parameters: {
+        type: 'object',
+        properties: {
+          draftId: { type: 'string', description: '草稿 id，最多 80 字' },
+        },
+        required: ['draftId'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: ACTION_RESULT_SCHEMA,
+        render: (_args, value) => [{ type: 'text', text: renderAction(value as AdvisorActionResult) }],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        const parsed = validateAdvisorDiscard(args);
+        if (!parsed.ok) toolError(parsed.violations);
+        return handlers.discardDraft(advisorId, parsed.value.draftId);
+      },
+    },
+    {
+      name: 'promise_resolve',
+      description:
+        '处理一条本人名下的到期承诺：outcome=done 表示已兑现（记入兑现记录），dismissed 表示作废 / 不再处理。只允许顾问明确指定某条承诺时调用；promiseId 来自 advisor_overview / advisor_get(scope=promise)。先展示承诺内容让顾问确认是兑现还是作废，不要替顾问判断承诺有没有兑现。',
+      parameters: {
+        type: 'object',
+        properties: {
+          promiseId: { type: 'string', description: '承诺 id，最多 80 字' },
+          outcome: {
+            type: 'string',
+            enum: ADVISOR_PROMISE_OUTCOMES,
+            description: 'done=已兑现 / dismissed=作废不再处理',
+          },
+        },
+        required: ['promiseId', 'outcome'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: ACTION_RESULT_SCHEMA,
+        render: (_args, value) => [{ type: 'text', text: renderAction(value as AdvisorActionResult) }],
+      },
+      timeoutMs: 5000,
+      execute: async (args, exec) => {
+        const advisorId = resolveAdvisorId(exec.agent?.id);
+        if (!advisorId) toolError(['没有关联的顾问会话']);
+        const parsed = validateAdvisorPromiseResolve(args);
+        if (!parsed.ok) toolError(parsed.violations);
+        return handlers.resolvePromise(advisorId, parsed.value.promiseId, parsed.value.outcome);
       },
     },
   ];

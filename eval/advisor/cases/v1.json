@@ -198,5 +198,67 @@
       "已发出",
       "早餐"
     ]
+  },
+  {
+    "id": "adv-draft-read-13",
+    "message": "把那 2 条草稿的正文发我看看，判断还能不能发",
+    "expectTool": "advisor_get",
+    "expectArgs": {
+      "scope": "draft",
+      "id": "d1"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "草稿 · 群 1",
+      "复诊"
+    ],
+    "forbidText": []
+  },
+  {
+    "id": "adv-promise-read-14",
+    "message": "今天到期的承诺都是什么",
+    "expectTool": "advisor_get",
+    "expectArgs": {
+      "scope": "promise",
+      "id": "prom_1"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "量血压",
+      "今天 18:00"
+    ],
+    "forbidText": []
+  },
+  {
+    "id": "adv-draft-discard-15",
+    "message": "草稿 d1 作废掉",
+    "expectTool": "draft_discard",
+    "expectArgs": {
+      "draftId": "d1"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "已作废草稿 d1",
+      "不再发给客户"
+    ],
+    "forbidText": [
+      "状态不能执行"
+    ]
+  },
+  {
+    "id": "adv-promise-resolve-16",
+    "message": "承诺 prom_1 已经兑现了",
+    "expectTool": "promise_resolve",
+    "expectArgs": {
+      "promiseId": "prom_1",
+      "outcome": "done"
+    },
+    "expectStatus": "ok",
+    "requireText": [
+      "已兑现"
+    ],
+    "forbidText": [
+      "状态不能执行"
+    ]
   }
 ]

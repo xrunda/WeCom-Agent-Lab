@@ -59,6 +59,7 @@ export function buildTodoSnapshot(input: {
 /**
  * 「我的待办」的唯一输出。命令路径与 `advisor_overview` 工具 render 共用，
  * 避免两边数字或措辞不一致（#167 §9 硬规则 3）。
+ * 顶部是计数摘要，下面逐条列出待办（带 id），让顾问能按 id 让 Agent 处理。
  */
 export function formatTodoText(snapshot: TodoSnapshot): string {
   const now = snapshot.now;
@@ -92,10 +93,27 @@ export function formatTodoText(snapshot: TodoSnapshot): string {
     facts.push(`待回复会话 ${pendingReplies} 个`);
   }
 
-  return (
-    `今天待办：\n· ${facts.join('\n· ')}\n\n` +
-    '草稿正文在企微侧边栏查看；告警详情在控制台「质检与告警」。'
-  );
+  const lines: string[] = [
+    `今天待办：\n· ${facts.join('\n· ')}`,
+  ];
+  if (snapshot.drafts.length > 0) {
+    lines.push(
+      ...snapshot.drafts.map((draft) => {
+        const label = DRAFT_STATUS_LABELS[draft.status] ?? draft.status;
+        const risk = RISK_LABELS[draft.riskLevel] ?? draft.riskLevel;
+        return `  · 草稿 ${draft.id} · ${draft.groupName} · ${label} · ${risk}`;
+      }),
+    );
+  }
+  if (duePromises.length > 0) {
+    lines.push(
+      ...duePromises.map(
+        (promise) => `  · 承诺 ${promise.id} · ${promise.groupName} · ${promise.excerpt} · ${promise.dueLabel}`,
+      ),
+    );
+  }
+  lines.push('草稿正文在企微侧边栏查看；告警详情在控制台「质检与告警」。');
+  return lines.join('\n');
 }
 
 /** 待办快照的紧凑一行版，用于每轮前置上下文（#167 §6），只放计数与活动草稿 */

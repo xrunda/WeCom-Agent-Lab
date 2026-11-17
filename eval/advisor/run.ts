@@ -117,7 +117,15 @@ function fakeContext() {
       promisesFor: (advisorId: string) =>
         advisorId === 'adv_1'
           // 承诺到期取「今日零点后 1 小时」，保证任何时刻都落在今天，评测不随时间抖动
-          ? [{ groupName: '群 1', dueAt: shanghaiDayStart(Date.now()) + 3_600_000, dueLabel: '今天 18:00' }]
+          ? [
+              {
+                id: 'prom_1',
+                groupName: '群 1',
+                excerpt: '明天提醒我量血压',
+                dueAt: shanghaiDayStart(Date.now()) + 3_600_000,
+                dueLabel: '今天 18:00',
+              },
+            ]
           : [],
       alertsFor: (advisorId: string) =>
         advisorId === 'adv_1'
@@ -127,6 +135,33 @@ function fakeContext() {
       activeDraftFor: () => undefined,
       sendText: async () => true,
       canReadPatient: true,
+      draftDetail: (advisorId: string, draftId: string) =>
+        advisorId === 'adv_1' && draftId === 'd1'
+          ? {
+              id: 'd1',
+              groupName: '群 1',
+              riskLevel: 'medium' as const,
+              status: 'PUSHED',
+              body: '您好，您血压有点高，记得明天复诊。',
+              since: realNow - 2 * 3_600_000,
+            }
+          : undefined,
+      promiseDetail: (advisorId: string, promiseId: string) =>
+        advisorId === 'adv_1' && promiseId === 'prom_1'
+          ? {
+              id: 'prom_1',
+              groupName: '群 1',
+              excerpt: '明天提醒我量血压',
+              dueAt: shanghaiDayStart(Date.now()) + 3_600_000,
+              dueLabel: '今天 18:00',
+              status: 'pending',
+              remindCount: 0,
+            }
+          : undefined,
+      discardDraft: async (advisorId: string, draftId: string) =>
+        advisorId === 'adv_1' && draftId === 'd1',
+      resolvePromise: async (advisorId: string, promiseId: string) =>
+        advisorId === 'adv_1' && promiseId === 'prom_1',
     });
     provided.set('zhibanKnowledge', {
       list: () => SEED.knowledge,

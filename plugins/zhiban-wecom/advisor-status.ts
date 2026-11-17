@@ -20,7 +20,10 @@ export interface StatusDraft {
 }
 
 export interface StatusPromise {
+  id: string;
   groupName: string;
+  /** 承诺原话 */
+  excerpt: string;
   dueAt: number;
   dueLabel: string;
 }

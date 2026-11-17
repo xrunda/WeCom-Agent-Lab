@@ -8,25 +8,24 @@
 import type {
   AdvisorActiveDraftView,
   AdvisorAlertView,
+  AdvisorDraftDetail,
   AdvisorDraftView,
+  AdvisorPromiseDetail,
   AdvisorPromiseView,
   AdvisorWecomDataPort,
 } from '../../src/p1/advisor/types.ts';
 import type { Draft } from '../../src/c2/types.ts';
+import type { PromiseRecord } from '../../src/c2/promises.ts';
 
 export interface AdvisorWecomDataDeps {
   listDrafts(): Draft[];
-  listPromises(): Array<{
-    advisorId: string;
-    groupName: string;
-    dueAt: number;
-    dueLabel: string;
-    status: string;
-  }>;
+  listPromises(): PromiseRecord[];
   listGroups(): Array<{ roomId: string; advisorId?: string }>;
   getAdvisor(id: string): { name: string; chatId?: string } | undefined;
   getActiveDraft(advisorId: string): string | undefined;
   getDraft(id: string): Draft | undefined;
+  /** 承诺详情；不存在返回 undefined */
+  getPromise?(id: string): PromiseRecord | undefined;
   /** 未处理告警：guard 未安装时返回空 */
   openAlerts(advisorId: string): AdvisorAlertView[];
   /** 待回复索引：侧边栏未安装时返回 undefined */
@@ -34,6 +33,10 @@ export interface AdvisorWecomDataDeps {
   sendText(chatId: string, text: string): Promise<void>;
   /** 补发饮食记录原图；机器人不支持发图时可不提供 */
   sendImage?(chatId: string, path: string): Promise<void>;
+  /** 作废一条草稿（侧边栏「跳过」同一状态机）；状态不允许时抛错 */
+  discardDraft?(draftId: string, actor: string): Promise<void>;
+  /** 处理承诺：done / dismissed；非 pending 时抛错 */
+  resolvePromise?(promiseId: string, action: 'done' | 'dismissed', actor: string): Promise<void>;
   canReadPatient: boolean;
 }
 
@@ -64,7 +67,9 @@ export function buildAdvisorWecomData(deps: AdvisorWecomDataDeps): AdvisorWecomD
         .listPromises()
         .filter((promise) => promise.advisorId === advisorId && promise.status === 'pending')
         .map((promise) => ({
+          id: promise.id,
           groupName: promise.groupName,
+          excerpt: promise.excerpt,
           dueAt: promise.dueAt,
           dueLabel: promise.dueLabel,
         })),
@@ -105,6 +110,57 @@ export function buildAdvisorWecomData(deps: AdvisorWecomDataDeps): AdvisorWecomD
       }
     },
     canReadPatient: deps.canReadPatient,
+    draftDetail: (advisorId, draftId) => {
+      const draft = deps.getDraft(draftId);
+      if (!draft || draft.advisorId !== advisorId) return undefined;
+      const detail: AdvisorDraftDetail = {
+        id: draft.id,
+        groupName: draft.groupName,
+        riskLevel: draft.riskLevel,
+        status: draft.status,
+        body: draft.body,
+        since: draft.pushedAt ?? draft.queuedAt ?? draft.createdAt,
+      };
+      if (draft.version !== undefined) detail.version = draft.version;
+      return detail;
+    },
+    promiseDetail: (advisorId, promiseId) => {
+      const record = deps.getPromise?.(promiseId);
+      if (!record || record.advisorId !== advisorId) return undefined;
+      const detail: AdvisorPromiseDetail = {
+        id: record.id,
+        groupName: record.groupName,
+        excerpt: record.excerpt,
+        dueAt: record.dueAt,
+        dueLabel: record.dueLabel,
+        status: record.status,
+        remindCount: record.remindCount,
+      };
+      if (record.customerName && deps.canReadPatient) detail.customerName = record.customerName;
+      return detail;
+    },
+    discardDraft: async (advisorId, draftId) => {
+      if (!deps.discardDraft) return false;
+      const draft = deps.getDraft(draftId);
+      if (!draft || draft.advisorId !== advisorId) return false;
+      try {
+        await deps.discardDraft(draftId, advisorId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    resolvePromise: async (advisorId, promiseId, action) => {
+      if (!deps.resolvePromise) return false;
+      const record = deps.getPromise?.(promiseId);
+      if (!record || record.advisorId !== advisorId) return false;
+      try {
+        await deps.resolvePromise(promiseId, action, advisorId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
