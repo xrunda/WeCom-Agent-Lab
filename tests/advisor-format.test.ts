@@ -57,12 +57,15 @@ test('formatSnapshotLine：前置上下文的一行计数，无数据时如实�
   const line = formatSnapshotLine(
     buildTodoSnapshot({
       drafts: [{ id: 'd1', groupName: '群 1', riskLevel: 'high', status: 'PUSHED', since: NOW - 3600_000 }],
-      promises: [],
+      promises: [
+        { id: 'prom_1', groupName: '群 1', excerpt: '明天提醒我量血压', dueAt: NOW + 3 * 3600_000, dueLabel: '今天 18:00' },
+      ],
       alerts: [],
       now: NOW,
     }),
   );
-  assert.match(line, /未完成草稿 1（最久 1 小时）/);
+  assert.match(line, /未完成草稿 1（最久 1 小时；d1）/);
+  assert.match(line, /今日到期承诺 1（prom_1）/);
   assert.equal(
     formatSnapshotLine(buildTodoSnapshot({ drafts: [], promises: [], alerts: [], now: NOW })),
     '现在没有待办',
