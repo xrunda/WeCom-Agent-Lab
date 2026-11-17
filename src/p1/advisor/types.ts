@@ -152,6 +152,29 @@ export type AdvisorMealsResult =
   | { status: 'forbidden' }
   | { status: 'not-found' };
 
+/**
+ * 指定一餐的原图查询结果（`patient_meal_photo`）。
+ * 有原图时系统会把图按餐次标注后发给顾问；没有原图时只返回文字说明。
+ */
+export type AdvisorMealPhotoResult =
+  | { status: 'unconnected' }
+  | {
+      status: 'ok';
+      patientId: string;
+      displayName: string;
+      /** 查询的日期（YYYY-MM-DD，上海时区） */
+      date: string;
+      mealType: string;
+      /** 展示标签，如「11月16日 早餐」；由系统生成，模型不改写 */
+      mealLabel: string;
+      /** 餐次时间（上海），如「09:10」；当天没有该餐时为 undefined */
+      time?: string;
+      /** 该餐是否有原图可发 */
+      hasPhoto: boolean;
+    }
+  | { status: 'forbidden' }
+  | { status: 'not-found' };
+
 // ---------- 会话 ----------
 
 export interface AdvisorSessionRecord {

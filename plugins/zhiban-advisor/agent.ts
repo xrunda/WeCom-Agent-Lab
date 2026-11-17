@@ -81,8 +81,8 @@ export class AdvisorAgent {
   private readonly dayBuckets = new Map<string, { at: number; count: number }>();
   /** 顾问 → 上一条列表（工具写入，纯编号选择读取） */
   private readonly lastLists = new Map<string, LastList>();
-  /** 顾问 → 本轮待补发的饮食记录原图（服务端路径，只在插件内部传递） */
-  private readonly pendingMedia = new Map<string, string[]>();
+  /** 顾问 → 本轮待补发的餐食原图（服务端路径 + 发送前的标注，只在插件内部传递） */
+  private readonly pendingMedia = new Map<string, Array<{ path: string; label: string }>>();
 
   constructor(options: AdvisorAgentOptions) {
     this.sessions = options.sessions;
@@ -108,11 +108,15 @@ export class AdvisorAgent {
   }
 
   /**
-   * 记录本轮要补发的饮食记录原图。只保留前 3 张，避免一次刷屏；
-   * 路径只在插件内部传递，不进入工具结果与日志。
+   * 记录本轮要补发的餐食原图，每张带发送前的标注文字（日期 + 餐次 + 时间）。
+   * 只保留前 3 张，避免一次刷屏；路径与标注只在插件内部传递，不进入工具结果与日志。
+   * 只有顾问明确要看某餐照片（调 patient_meal_photo）时才记录，绝不主动附图。
    */
-  recordMealMedia(advisorId: string, paths: string[]): void {
-    const kept = paths.filter((path) => path.trim() !== '').slice(0, 3);
+  recordMealMedia(
+    advisorId: string,
+    items: Array<{ path: string; label: string }>,
+  ): void {
+    const kept = items.filter((item) => item.path.trim() !== '').slice(0, 3);
     if (kept.length === 0) return;
     this.pendingMedia.set(advisorId, kept);
   }
@@ -268,12 +272,14 @@ export class AdvisorAgent {
   }
 
   /**
-   * 补发本轮饮食记录原图。单张失败（超 2MB / 非 JPG·PNG / 读取失败）只跳过，
-   * 不影响已经发出的文字回复；路径不进日志，只记张数与失败数。
+   * 补发本轮餐食原图：每张先发一条标注文字（【日期 · 餐次 · 时间】），再发原图。
+   * 标注发送失败就不发这张图，避免出现「没有标注的原图」误导顾问。
+   * 单张失败（超 2MB / 非 JPG·PNG / 读取失败）只跳过，不影响文字回复；
+   * 路径不进日志，只记张数与失败数。
    */
   private async flushMedia(advisorId: string): Promise<void> {
-    const paths = this.pendingMedia.get(advisorId);
-    if (!paths || paths.length === 0) return;
+    const items = this.pendingMedia.get(advisorId);
+    if (!items || items.length === 0) return;
     this.pendingMedia.delete(advisorId);
     if (!this.data.sendImage) {
       this.logger?.(`顾问回复图片未发送：数据端口不支持发图 advisor=${tailId(advisorId)}`);
@@ -281,9 +287,15 @@ export class AdvisorAgent {
     }
     let sent = 0;
     let failed = 0;
-    for (const path of paths) {
+    for (const item of items) {
+      if (item.label === '') continue;
+      const labeled = await this.send(advisorId, `【${item.label}】`);
+      if (!labeled) {
+        failed += 1;
+        continue;
+      }
       try {
-        if (await this.data.sendImage(advisorId, path)) sent += 1;
+        if (await this.data.sendImage(advisorId, item.path)) sent += 1;
         else failed += 1;
       } catch {
         failed += 1;
