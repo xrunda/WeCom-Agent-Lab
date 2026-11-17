@@ -23,11 +23,14 @@ import {
   searchScripts,
 } from '../../src/p1/advisor/tools.ts';
 import type {
+  AdvisorActionResult,
   AdvisorChronicResult,
+  AdvisorDraftDetail,
   AdvisorGetResult,
   AdvisorHitItem,
   AdvisorMealPhotoResult,
   AdvisorMealsResult,
+  AdvisorPromiseDetail,
   AdvisorSearchResult,
   AdvisorWecomDataPort,
 } from '../../src/p1/advisor/types.ts';
@@ -193,6 +196,26 @@ class LazyAdvisorData implements AdvisorWecomDataPort {
     const port = this.resolve();
     if (!port?.sendImage) return false;
     return port.sendImage(advisorId, path);
+  }
+
+  draftDetail(advisorId: string, draftId: string): AdvisorDraftDetail | undefined {
+    return this.resolve()?.draftDetail?.(advisorId, draftId);
+  }
+
+  promiseDetail(advisorId: string, promiseId: string): AdvisorPromiseDetail | undefined {
+    return this.resolve()?.promiseDetail?.(advisorId, promiseId);
+  }
+
+  async discardDraft(advisorId: string, draftId: string): Promise<boolean> {
+    return (await this.resolve()?.discardDraft?.(advisorId, draftId)) === true;
+  }
+
+  async resolvePromise(
+    advisorId: string,
+    promiseId: string,
+    action: 'done' | 'dismissed',
+  ): Promise<boolean> {
+    return (await this.resolve()?.resolvePromise?.(advisorId, promiseId, action)) === true;
   }
 
   get canReadPatient(): boolean {
@@ -484,6 +507,38 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
                 },
               };
             }
+            case 'draft': {
+              const detail = data.draftDetail?.(advisorId, id);
+              if (!detail) return { status: 'not-found', scope, id };
+              return {
+                status: 'ok',
+                scope,
+                id,
+                item: {
+                  id: detail.id,
+                  title: `草稿 · ${detail.groupName}`,
+                  category: `${riskLabel(detail.riskLevel)} · ${detail.status}`,
+                  content: detail.body,
+                  at: detail.since,
+                },
+              };
+            }
+            case 'promise': {
+              const detail = data.promiseDetail?.(advisorId, id);
+              if (!detail) return { status: 'not-found', scope, id };
+              return {
+                status: 'ok',
+                scope,
+                id,
+                item: {
+                  id: detail.id,
+                  title: detail.customerName ? `承诺 · ${detail.customerName}` : `承诺 · ${detail.groupName}`,
+                  category: `到期 ${detail.dueLabel}`,
+                  content: detail.excerpt,
+                  at: detail.dueAt,
+                },
+              };
+            }
           }
         },
         chronic: async (advisorId: string, patientId: string): Promise<AdvisorChronicResult> => {
@@ -631,6 +686,44 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
             mealLabel,
             time,
             hasPhoto,
+          };
+        },
+        discardDraft: async (
+          advisorId: string,
+          draftId: string,
+        ): Promise<AdvisorActionResult> => {
+          const detail = data.draftDetail?.(advisorId, draftId);
+          if (!detail) return { status: 'not-found' };
+          const ok = (await data.discardDraft?.(advisorId, draftId)) === true;
+          if (!ok) {
+            return {
+              status: 'not-actionable',
+              reason: '草稿已确认发送 / 已忽略 / 还在排队未推送，无法作废；到侧边栏或控制台确认实际状态。',
+            };
+          }
+          return {
+            status: 'ok',
+            message: `已作废草稿 ${draftId}（${detail.groupName}），这条不再发给客户，队列已释放。`,
+          };
+        },
+        resolvePromise: async (
+          advisorId: string,
+          promiseId: string,
+          outcome: 'done' | 'dismissed',
+        ): Promise<AdvisorActionResult> => {
+          const detail = data.promiseDetail?.(advisorId, promiseId);
+          if (!detail) return { status: 'not-found' };
+          const ok = (await data.resolvePromise?.(advisorId, promiseId, outcome)) === true;
+          if (!ok) {
+            return {
+              status: 'not-actionable',
+              reason: '这条承诺已处理过（已兑现 / 已作废），或状态不允许；到侧边栏或控制台确认实际状态。',
+            };
+          }
+          const verb = outcome === 'done' ? '已兑现' : '已作废';
+          return {
+            status: 'ok',
+            message: `承诺 ${promiseId}（${detail.customerName ?? detail.groupName}：「${detail.excerpt}」）${verb}。`,
           };
         },
       };

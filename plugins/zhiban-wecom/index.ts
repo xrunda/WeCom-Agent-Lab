@@ -920,7 +920,9 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
             .listPromises()
             .filter((promise) => promise.advisorId === advisorId && promise.status === 'pending')
             .map((promise) => ({
+              id: promise.id,
               groupName: promise.groupName,
+              excerpt: promise.excerpt,
               dueAt: promise.dueAt,
               dueLabel: promise.dueLabel,
             })),
@@ -937,6 +939,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         getAdvisor: (id) => store.getAdvisor(id),
         getActiveDraft: (advisorId) => store.getActiveDraft(advisorId),
         getDraft: (id) => store.getDraft(id),
+        getPromise: (id) => store.getPromise(id),
         openAlerts: openAlertsFor,
         openPendingCount: pendingRepliesFor,
         sendText: async (chatId, text) => {
@@ -946,6 +949,16 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
         sendImage: async (chatId, path) => {
           if (!botRef) throw new Error('WECOM_BOT_NOT_READY');
           await botRef.sendImage(chatId, path);
+        },
+        // 写操作复用既有链路：作废草稿走侧边栏「跳过」，承诺处理走 promise 卡片逻辑。
+        // promiseRef / acknowledgeRef 在本插件装配末尾才就绪，这里只在调用时取，避免时序问题。
+        discardDraft: async (draftId, actor) => {
+          if (!acknowledgeRef) throw new Error('WECOM_RUNTIME_NOT_READY');
+          await acknowledgeRef(draftId, 'skipped', actor);
+        },
+        resolvePromise: async (promiseId, action, actor) => {
+          if (!promiseRef) throw new Error('PROMISE_SERVICE_NOT_READY');
+          await promiseRef.handleButtonKey(`promise:${promiseId}:${action}`);
         },
         canReadPatient: true,
       });

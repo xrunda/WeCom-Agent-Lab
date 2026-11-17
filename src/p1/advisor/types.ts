@@ -20,7 +20,10 @@ export interface AdvisorDraftView {
 }
 
 export interface AdvisorPromiseView {
+  id: string;
   groupName: string;
+  /** 承诺原话（句子本身） */
+  excerpt: string;
   dueAt: number;
   dueLabel: string;
 }
@@ -62,6 +65,18 @@ export interface AdvisorWecomDataPort {
   sendImage?(advisorId: string, path: string): Promise<boolean>;
   /** 客户昵称权限：false 时工具只返回患者 id 尾号 */
   canReadPatient: boolean;
+  /** 本人名下的草稿详情（含正文）；无权限 / 不存在返回 undefined */
+  draftDetail?(advisorId: string, draftId: string): AdvisorDraftDetail | undefined;
+  /** 本人名下的承诺详情（含原话）；无权限 / 不存在返回 undefined */
+  promiseDetail?(advisorId: string, promiseId: string): AdvisorPromiseDetail | undefined;
+  /** 作废一条草稿（侧边栏「跳过」同一状态机）；成功返回 true，状态不允许返回 false */
+  discardDraft?(advisorId: string, draftId: string): Promise<boolean>;
+  /** 处理承诺：done=兑现 / dismissed=作废；成功返回 true，非 pending 返回 false */
+  resolvePromise?(
+    advisorId: string,
+    promiseId: string,
+    action: 'done' | 'dismissed',
+  ): Promise<boolean>;
 }
 
 // ---------- 工具结果 ----------
@@ -81,7 +96,7 @@ export interface AdvisorOverviewResult {
 }
 
 export type AdvisorSearchScope = 'patient' | 'knowledge' | 'script' | 'alert';
-export type AdvisorGetScope = AdvisorSearchScope | 'rule';
+export type AdvisorGetScope = AdvisorSearchScope | 'rule' | 'draft' | 'promise';
 
 /** search / get 里的单条命中；知识 / 话术 / 规则必须携带机构原文 */
 export interface AdvisorHitItem {
@@ -174,6 +189,41 @@ export type AdvisorMealPhotoResult =
     }
   | { status: 'forbidden' }
   | { status: 'not-found' };
+
+/** 草稿详情：正文 + 元数据；只读本人名下 */
+export interface AdvisorDraftDetail {
+  id: string;
+  groupName: string;
+  riskLevel: RiskLevel;
+  status: string;
+  /** 正文；顾问本人名下的草稿正文，用于「还能不能发」的判断 */
+  body: string;
+  version?: number;
+  /** 进入当前状态的时间，用来算已等多久 */
+  since: number;
+}
+
+/** 承诺详情：原话 + 到期；只读本人名下 */
+export interface AdvisorPromiseDetail {
+  id: string;
+  groupName: string;
+  /** 客户昵称；有 patient.read 时才返回 */
+  customerName?: string;
+  /** 承诺原话 */
+  excerpt: string;
+  dueAt: number;
+  dueLabel: string;
+  status: string;
+  remindCount: number;
+}
+
+/** 写工具（作废草稿 / 处理承诺）的结果 */
+export type AdvisorActionResult =
+  | { status: 'ok'; message: string }
+  | { status: 'unconnected' }
+  | { status: 'forbidden' }
+  | { status: 'not-found' }
+  | { status: 'not-actionable'; reason: string };
 
 // ---------- 会话 ----------
 

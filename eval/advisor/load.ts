@@ -20,7 +20,7 @@ export function loadCases(baseDir = EVAL_ROOT): AdvisorEvalCase[] {
     if (ids.has(item.id)) throw new Error(`评测案例 id 重复: ${item.id}`);
     ids.add(item.id);
   }
-  if (cases.length !== 12) throw new Error(`v1 应恰好 12 条，实际 ${cases.length}`);
+  if (cases.length !== 16) throw new Error(`v1 应恰好 16 条，实际 ${cases.length}`);
   return cases;
 }
 
@@ -37,7 +37,9 @@ function assertCase(value: unknown): AdvisorEvalCase {
     item.expectTool !== 'advisor_get' &&
     item.expectTool !== 'patient_chronic' &&
     item.expectTool !== 'patient_meals' &&
-    item.expectTool !== 'patient_meal_photo'
+    item.expectTool !== 'patient_meal_photo' &&
+    item.expectTool !== 'draft_discard' &&
+    item.expectTool !== 'promise_resolve'
   ) {
     throw new Error(`expectTool 非法: ${String(item.id)}`);
   }

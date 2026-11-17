@@ -30,8 +30,8 @@ function service(overrides: Partial<AdvisorStatusDeps> = {}) {
       },
     ],
     promises: () => [
-      { groupName: '高血压管理 1 群', dueAt: NOW + 3 * 60 * 60_000, dueLabel: '今天 18:00' },
-      { groupName: '下周的群', dueAt: NOW + 7 * 24 * 60 * 60_000, dueLabel: '11-21 18:00' },
+      { id: 'prom_1', groupName: '高血压管理 1 群', excerpt: '明天提醒我量血压', dueAt: NOW + 3 * 60 * 60_000, dueLabel: '今天 18:00' },
+      { id: 'prom_2', groupName: '下周的群', excerpt: '下周给你送体检报告', dueAt: NOW + 7 * 24 * 60 * 60_000, dueLabel: '11-21 18:00' },
     ],
     alerts: () => [{ id: 'alert_1', title: '员工发言命中红线', at: NOW - 5 * 60_000 }],
     now: () => NOW,
@@ -54,6 +54,9 @@ test('我的待办汇总草稿、今日到期承诺与未处理告警', () => {
   assert.match(text, /待处理草稿 1 条（最久 2 小时）/);
   assert.match(text, /今日到期承诺 1 条（最近 今天 18:00）/);
   assert.match(text, /未处理告警 1 条（最近：员工发言命中红线）/);
+  // 逐条带 id 与摘要，让顾问能按 id 让 Agent 处理
+  assert.match(text, /草稿 draft_1 · 高血压管理 1 群/);
+  assert.match(text, /承诺 prom_1 · 高血压管理 1 群 · 明天提醒我量血压/);
   // 下周到期的承诺不算今日
   assert.equal(text.includes('11-21'), false);
 });

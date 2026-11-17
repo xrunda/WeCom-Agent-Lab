@@ -9,7 +9,9 @@ export type AdvisorEvalScope =
   | 'knowledge'
   | 'script'
   | 'alert'
-  | 'rule';
+  | 'rule'
+  | 'draft'
+  | 'promise';
 
 export interface AdvisorEvalCase {
   id: string;
@@ -22,7 +24,9 @@ export interface AdvisorEvalCase {
     | 'advisor_get'
     | 'patient_chronic'
     | 'patient_meals'
-    | 'patient_meal_photo';
+    | 'patient_meal_photo'
+    | 'draft_discard'
+    | 'promise_resolve';
   expectArgs: {
     scope?: AdvisorEvalScope;
     query?: string;
@@ -30,6 +34,9 @@ export interface AdvisorEvalCase {
     patientId?: string;
     date?: string;
     mealType?: string;
+    draftId?: string;
+    promiseId?: string;
+    outcome?: string;
   };
   /** 期望工具结果的 status */
   expectStatus: 'ok' | 'forbidden' | 'not-found' | 'unconnected';
