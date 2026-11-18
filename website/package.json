@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "sitemap": "node scripts/sitemap.ts"
+    "sitemap": "node scripts/sitemap.ts",
+    "prebuild": "node scripts/llms.ts",
+    "llms": "node scripts/llms.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

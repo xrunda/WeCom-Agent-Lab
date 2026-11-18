@@ -1,5 +1,6 @@
 import { Icon } from '../components/Icons';
 import { usePageMeta } from '../components/usePageMeta';
+import { ARCHIVE_EXAMPLE_TOTAL, PLAN } from '../plan';
 import { WECOM_CONTACT_URL } from '../site';
 
 interface CapabilityGroup {
@@ -108,15 +109,15 @@ export function PricingPage() {
           <aside className="price-card" aria-labelledby="price-card-title">
             <p className="price-card__label">种子合作方案</p>
             <h2 className="price-card__title" id="price-card-title">
-              <span className="price-card__amount">¥19,800</span>
+              <span className="price-card__amount">¥{PLAN.priceLabel}</span>
               <span className="price-card__unit">/ 月</span>
             </h2>
             <p className="price-card__note">种子合作参考价，实际报价及服务范围以双方确认的方案为准。</p>
             <p className="price-card__scope">
-              含 <strong>10 个顾问席位</strong>；控制台管理员账号不单独计费、不占顾问席位。
+              含 <strong>{PLAN.seats} 个顾问席位</strong>；控制台管理员账号不单独计费、不占顾问席位。
             </p>
             <p className="price-card__scope price-card__scope--note">
-              使用客户群服务，还需为每位顾问单独购买企微会话存档（参考 900 元 / 人 / 年，付给企业微信）。
+              使用客户群服务，还需为每位顾问单独购买企微会话存档（参考 {PLAN.archiveFee} 元 / 人 / 年，付给企业微信）。
             </p>
             <div className="price-card__actions">
               <BookDemoLink />
@@ -185,17 +186,17 @@ export function PricingPage() {
             <p className="eyebrow">第三方费用</p>
             <h2>企微会话存档费，<br />单独向企业微信支付。</h2>
             <p className="lede">
-              知伴读取客户群消息、核验回复是否送达，依赖企业微信的会话存档能力。它由企业微信按开通存档的顾问人数收费，参考 900 元 / 人 / 年，直接付给企业微信，不含在平台服务费里。
+              知伴读取客户群消息、核验回复是否送达，依赖企业微信的会话存档能力。它由企业微信按开通存档的顾问人数收费，参考 {PLAN.archiveFee} 元 / 人 / 年，直接付给企业微信，不含在平台服务费里。
             </p>
             <p className="archive-fee__must">
               没有开通存档的顾问，无法使用知伴的客户群服务；这笔费用需要先在企业微信管理后台购买，实际金额以购买页为准。
             </p>
           </div>
           <div className="archive-fee__calc" aria-label="10 位顾问的企微存档费">
-            <p className="archive-fee__label">10 位顾问的企微存档费</p>
-            <p className="archive-fee__formula">10 位顾问 × 900 元 / 人 / 年</p>
-            <p className="archive-fee__total">≈ 9,000 元 / 年</p>
-            <p className="archive-fee__caption">付给企业微信 · 不含在 19,800 元 / 月的平台服务费内</p>
+            <p className="archive-fee__label">{PLAN.seats} 位顾问的企微存档费</p>
+            <p className="archive-fee__formula">{PLAN.seats} 位顾问 × {PLAN.archiveFee} 元 / 人 / 年</p>
+            <p className="archive-fee__total">≈ {ARCHIVE_EXAMPLE_TOTAL} 元 / 年</p>
+            <p className="archive-fee__caption">付给企业微信 · 不含在 {PLAN.priceLabel} 元 / 月的平台服务费内</p>
           </div>
         </div>
       </section>
