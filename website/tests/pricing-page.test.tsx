@@ -32,11 +32,23 @@ describe('产品定价页', () => {
     expect(screen.getByText('按 10 位顾问规划，控制台管理员账号不单独计费、不占顾问席位。')).toBeInTheDocument();
   });
 
-  it('四项能力与企微存档费分开列，金额带示例口径', () => {
+  it('权益以表格列出全部能力，并按四组归类', () => {
     renderPage();
-    for (const title of ['客户专属助手', '主动跟进', '企业微信顾问助手', '机构管理']) {
-      expect(screen.getAllByRole('heading', { level: 3, name: title }).length).toBeGreaterThan(0);
+    const table = screen.getByRole('table', { name: '种子合作方案包含的产品能力' });
+    // 四个分组标题
+    for (const group of ['客户专属助手', '顾问在企微里', '质量与安全', '机构管理']) {
+      expect(within(table).getByText(group)).toBeInTheDocument();
     }
+    // 各能力行以行首单元格列出
+    const names = within(table).getAllByRole('rowheader').map((el) => el.textContent);
+    for (const name of ['长期记忆', '主动计划', '自然语言查询', '回复草稿', '回读核验', '团队关注', '价值看板']) {
+      expect(names).toContain(name);
+    }
+    expect(within(table).getAllByRole('img', { name: '包含' }).length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('企微存档费单独列出，金额带示例口径', () => {
+    renderPage();
     expect(screen.getByText('10 位顾问 × 900 元 / 人 / 年')).toBeInTheDocument();
     expect(screen.getByText('≈ 9,000 元 / 年')).toBeInTheDocument();
     expect(screen.getByText('示例金额 · 不含在平台服务费内')).toBeInTheDocument();
