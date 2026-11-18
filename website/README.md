@@ -75,6 +75,8 @@ npm test                    # 前端校验测试 + 预约接收端测试
 
 见 [.env.example](.env.example)。不要提交真实令牌或线索文件。
 
+部署在 nginx 等反向代理后时设 `WEBSITE_TRUST_PROXY=1`，按 `X-Forwarded-For` 首个地址做单 IP 限流；直连时保持默认 `0`。
+
 生产域名确定后再生成 canonical 与 sitemap：
 
 ```bash

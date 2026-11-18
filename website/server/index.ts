@@ -7,7 +7,8 @@ const host = process.env.WEBSITE_HOST ?? '127.0.0.1';
 const storeDir = resolve(process.env.WEBSITE_STORE_DIR ?? 'server/data');
 const adminToken = process.env.WEBSITE_ADMIN_TOKEN ?? '';
 
-const server = createApp({ storeDir, adminToken });
+const trustProxy = process.env.WEBSITE_TRUST_PROXY === '1';
+const server = createApp({ storeDir, adminToken, trustProxy });
 server.listen(port, host, () => {
   console.log(JSON.stringify({ event: 'server.started', host, port, storeDir }));
 });

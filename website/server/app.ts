@@ -33,6 +33,7 @@ export interface AppOptions {
   distDir?: string;
   now?: () => Date;
   rateLimitPerHour?: number;
+  trustProxy?: boolean;
   logger?: (line: string) => void;
 }
 
@@ -50,7 +51,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-function clientIp(req: IncomingMessage): string {
+function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const value = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const first = value?.split(',')[0]?.trim();
+    if (first) return first;
+  }
   return req.socket.remoteAddress ?? 'unknown';
 }
 
@@ -79,7 +86,12 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function safePath(distDir: string, urlPath: string): string | null {
-  const decoded = decodeURIComponent(urlPath.split('?')[0] ?? '/');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(urlPath.split('?')[0] ?? '/');
+  } catch {
+    return null;
+  }
   const normalized = normalize(decoded).replace(/^([/\\])+/, '');
   const target = resolve(distDir, normalized);
   if (!target.startsWith(distDir.endsWith(sep) ? distDir : `${distDir}${sep}`) && target !== distDir) {
@@ -88,7 +100,12 @@ function safePath(distDir: string, urlPath: string): string | null {
   return target;
 }
 
-async function serveStatic(res: ServerResponse, distDir: string, urlPath: string): Promise<void> {
+async function serveStatic(
+  req: IncomingMessage,
+  res: ServerResponse,
+  distDir: string,
+  urlPath: string,
+): Promise<void> {
   const isHtmlRoute = !extname(urlPath);
   let target = safePath(distDir, urlPath) ?? '';
   try {
@@ -116,6 +133,10 @@ async function serveStatic(res: ServerResponse, distDir: string, urlPath: string
     'Content-Type': MIME[extname(target)] ?? 'application/octet-stream',
     'X-Content-Type-Options': 'nosniff',
   });
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
   createReadStream(target).pipe(res);
 }
 
@@ -125,6 +146,7 @@ export function createApp(options: AppOptions): Server {
   const logger = options.logger ?? ((line: string) => console.log(line));
   const now = options.now ?? (() => new Date());
   const rateLimit = options.rateLimitPerHour ?? 5;
+  const trustProxy = options.trustProxy ?? false;
   const rates = new Map<string, RateEntry>();
   const adminToken = options.adminToken?.trim() ?? '';
 
@@ -148,7 +170,7 @@ export function createApp(options: AppOptions): Server {
   const server = createServer((req, res) => {
     const started = Date.now();
     const urlPath = (req.url ?? '/').split('?')[0] ?? '/';
-    const ip = clientIp(req);
+    const ip = clientIp(req, trustProxy);
 
     res.on('finish', () => {
       logger(
@@ -248,7 +270,7 @@ export function createApp(options: AppOptions): Server {
     }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
-      void serveStatic(res, distDir, urlPath);
+      void serveStatic(req, res, distDir, urlPath);
       return;
     }
 
