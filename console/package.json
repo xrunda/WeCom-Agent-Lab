@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "build:sidebar": "tsc --noEmit && vite build --config vite.sidebar.config.ts",
     "dev:sidebar": "vite --config vite.sidebar.config.ts",
-    "build:subpath": "tsc --noEmit && CONSOLE_BASE=/console/ vite build"
+    "build:subpath": "tsc --noEmit && CONSOLE_BASE=/console/ VITE_API_MODE=real vite build"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
