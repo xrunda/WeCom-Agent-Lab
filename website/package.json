@@ -1,0 +1,33 @@
+{
+  "name": "zhiban-website",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "知伴健康产品官网（V1）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "serve": "node server/index.ts",
+    "test": "vitest run && node --test tests/server.test.ts",
+    "typecheck": "tsc --noEmit",
+    "sitemap": "node scripts/sitemap.ts"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>企微 / 微信界面示意</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #ededed;
+    color: #191919;
+  }
+  .screen { width: 390px; height: 844px; display: flex; flex-direction: column; background: #ededed; overflow: hidden; }
+  .status { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px 0 28px; font-size: 12px; font-weight: 600; background: #ededed; flex: none; }
+  .status__icons { display: flex; gap: 5px; align-items: center; }
+  .status__icons i { display: block; width: 14px; height: 8px; background: #191919; border-radius: 2px; opacity: .85; }
+  .status__icons i:nth-child(1) { width: 10px; }
+  .status__icons i:nth-child(2) { width: 12px; }
+  .status__icons i:nth-child(3) { width: 18px; }
+  .nav { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #ededed; border-bottom: 1px solid #dcdcdc; flex: none; }
+  .nav__back { color: #191919; font-size: 22px; line-height: 1; }
+  .nav__title { flex: 1; min-width: 0; }
+  .nav__title strong { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav__title span { display: block; font-size: 11px; color: #888; margin-top: 2px; }
+  .nav__more { font-size: 20px; letter-spacing: 2px; color: #333; }
+  .chat { flex: 1; overflow: hidden; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 10px; }
+  .time { text-align: center; font-size: 10px; color: #999; margin: 2px 0; }
+  .row { display: flex; gap: 8px; align-items: flex-start; }
+  .row--me { flex-direction: row-reverse; }
+  .avatar { width: 30px; height: 30px; border-radius: 5px; flex: none; display: grid; place-items: center; background: #fff; overflow: hidden; }
+  .avatar img { width: 24px; height: 24px; object-fit: contain; }
+  .avatar--person { background: #147d70; color: #fff; font-size: 11px; font-weight: 600; }
+  .bubble { max-width: 268px; padding: 9px 11px; border-radius: 4px 10px 10px 10px; background: #fff; font-size: 13px; line-height: 1.55; position: relative; }
+  .row--me .bubble { background: #95ec69; border-radius: 10px 4px 10px 10px; }
+  .bubble p { margin: 0; }
+  .bubble p + p { margin-top: 6px; }
+  .bubble ul { margin: 4px 0 0; padding-left: 16px; }
+  .bubble li { margin: 2px 0; }
+  .bubble .muted { color: #888; font-size: 11px; }
+  .bubble .source { display: block; margin-top: 7px; padding-top: 6px; border-top: 1px solid #eee; color: #888; font-size: 10.5px; }
+  .card { width: 286px; background: #fff; border: 1px solid #e3e3e3; border-radius: 6px; overflow: hidden; }
+  .card__head { padding: 11px 12px 9px; border-bottom: 1px solid #eee; }
+  .card__title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: #123849; }
+  .card__title::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #147d70; }
+  .card__sub { margin-top: 4px; font-size: 10.5px; color: #888; }
+  .card__body { padding: 10px 12px; font-size: 12px; line-height: 1.65; }
+  .kv { display: flex; gap: 8px; margin: 4px 0; }
+  .kv b { width: 58px; flex: none; color: #666; font-weight: 500; }
+  .kv span { color: #222; }
+  .card__actions { display: flex; border-top: 1px solid #eee; }
+  .card__actions a { flex: 1; padding: 10px 0; text-align: center; font-size: 12px; font-weight: 600; color: #147d70; text-decoration: none; }
+  .card__actions a + a { border-left: 1px solid #eee; }
+  .photo { width: 220px; border-radius: 8px; overflow: hidden; background: #fff; }
+  .photo img { display: block; width: 100%; height: 150px; object-fit: cover; }
+  .photo span { display: block; padding: 6px 8px; font-size: 10.5px; color: #666; }
+  .input { height: 58px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f7f7f7; border-top: 1px solid #dcdcdc; flex: none; }
+  .input__icon { width: 30px; height: 30px; border: 1px solid #999; border-radius: 50%; display: grid; place-items: center; font-size: 16px; color: #333; }
+  .input__box { flex: 1; height: 34px; border-radius: 5px; background: #fff; border: 1px solid #ddd; display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: #aaa; }
+  .input__right { display: flex; gap: 10px; color: #555; font-size: 18px; }
+  .system-note { text-align: center; font-size: 10px; color: #999; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="screen" id="screen"></div>
+<script>
+const params = new URLSearchParams(location.search);
+const scene = params.get('scene') || 'reminder';
+const statusBar = `
+  <div class="status"><span>9:41</span><span class="status__icons"><i></i><i></i><i></i></span></div>`;
+const mark = `<span class="avatar"><img src="zhiban-mark.png" alt=""></span>`;
+const me = `<span class="avatar avatar--person">陈</span>`;
+const inputBar = `
+  <div class="input">
+    <span class="input__icon">◎</span>
+    <span class="input__box">输入消息…</span>
+    <span class="input__right">☺ ＋</span>
+  </div>`;
+
+function botNav(title, sub) {
+  return `<div class="nav"><span class="nav__back">‹</span><div class="nav__title"><strong>${title}</strong><span>${sub}</span></div><span class="nav__more">⋯</span></div>`;
+}
+
+const scenes = {
+  reminder: `
+    ${statusBar}
+    ${botNav('知伴助手', '企业微信 · 1:1')}
+    <div class="chat">
+      <div class="time">今天 10:00</div>
+      <div class="row">
+        ${mark}
+        <div class="card">
+          <div class="card__head">
+            <div class="card__title">回访提醒</div>
+            <div class="card__sub">林女士 · 示例健康服务群 · 今天 10:00</div>
+          </div>
+          <div class="card__body">
+            <div class="kv"><b>上次反馈</b><span>早餐后血糖 6.8；午餐偏油</span></div>
+            <div class="kv"><b>最近记录</b><span>昨天 12:36 午餐照片</span></div>
+            <div class="kv"><b>建议</b><span>先看记录，再确认回复</span></div>
+          </div>
+          <div class="card__actions"><a>查看记录</a><a>稍后提醒</a></div>
+        </div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="bubble"><p>陈顾问，林女士今天 10:00 到回访时间。</p><p>需要我把上次反馈和昨天午餐照片整理出来吗？</p></div>
+      </div>
+      <div class="system-note">提醒由跟进安排触发 · 示例数据</div>
+    </div>
+    ${inputBar}`,
+
+  'qa-feedback': `
+    ${statusBar}
+    ${botNav('知伴助手', '企业微信 · 1:1')}
+    <div class="chat">
+      <div class="time">今天 10:02</div>
+      <div class="row row--me">
+        ${me}
+        <div class="bubble"><p>林女士上次反馈了什么？</p></div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="bubble">
+          <p><strong>上次反馈：</strong>11-17 早餐后 2 小时血糖 6.8 mmol/L；午餐外卖偏油，希望晚餐清淡一些。</p>
+          <p>她今天早餐发了小米粥、鸡蛋和拌青菜，饭后走了 20 分钟。</p>
+          <span class="source">来源：林女士的服务记录 · 2026-11-17</span>
+        </div>
+      </div>
+      <div class="row row--me">
+        ${me}
+        <div class="bubble"><p>上午 10 点提醒我回访她。</p></div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="bubble"><p>好，回访提醒已经在跟进安排里。到点我会把上次反馈一起发给你。</p></div>
+      </div>
+    </div>
+    ${inputBar}`,
+
+  'qa-photo': `
+    ${statusBar}
+    ${botNav('知伴助手', '企业微信 · 1:1')}
+    <div class="chat">
+      <div class="time">今天 10:04</div>
+      <div class="row row--me">
+        ${me}
+        <div class="bubble"><p>帮我找一下林女士昨天的午餐照片。</p></div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="bubble">
+          <p>找到了，昨天 12:36 的午餐照片。</p>
+        </div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="photo">
+          <img src="sea-bass.jpg" alt="清蒸鱼、糙米饭、西兰花">
+          <span>清蒸鱼、糙米饭、西兰花 · 11-17 12:36</span>
+        </div>
+      </div>
+      <div class="row">
+        ${mark}
+        <div class="bubble"><p class="muted">已随服务记录归档，回复客户时可以直接引用。</p></div>
+      </div>
+    </div>
+    ${inputBar}`,
+
+  'group-log': `
+    ${statusBar}
+    <div class="nav"><span class="nav__back">‹</span><div class="nav__title"><strong>示例健康服务群</strong><span>5 位成员</span></div><span class="nav__more">⋯</span></div>
+    <div class="chat">
+      <div class="time">今天 08:30</div>
+      <div class="row">
+        <span class="avatar avatar--person">林</span>
+        <div class="bubble"><p>今天早餐：小米粥、鸡蛋、拌青菜，饭后走了 20 分钟。</p></div>
+      </div>
+      <div class="row">
+        <span class="avatar avatar--person">林</span>
+        <div class="photo">
+          <img src="millet-porridge.jpg" alt="小米粥、鸡蛋和拌青菜">
+          <span>早餐 · 08:30</span>
+        </div>
+      </div>
+      <div class="system-note">会话存档已开启 · 微信场景示意</div>
+    </div>
+    ${inputBar}`,
+
+  'group-reply': `
+    ${statusBar}
+    <div class="nav"><span class="nav__back">‹</span><div class="nav__title"><strong>示例健康服务群</strong><span>5 位成员</span></div><span class="nav__more">⋯</span></div>
+    <div class="chat">
+      <div class="time">今天 10:06</div>
+      <div class="row">
+        <span class="avatar avatar--person">林</span>
+        <div class="bubble"><p>昨天午餐有点油，今天晚饭想清淡一点。</p></div>
+      </div>
+      <div class="row row--me">
+        <span class="avatar avatar--person">陈</span>
+        <div class="bubble"><p>可以，今晚清蒸鱼配青菜，主食半碗就好。你上次说海鲜过敏，鱼选淡水鱼。</p><p>明天记得记录一次血压，有需要随时在群里告诉我。</p></div>
+      </div>
+      <div class="row">
+        <span class="avatar avatar--person">林</span>
+        <div class="bubble"><p>好的，谢谢陈顾问。</p></div>
+      </div>
+      <div class="system-note">回复由顾问本人发出 · 微信场景示意</div>
+    </div>
+    ${inputBar}`,
+};
+
+document.getElementById('screen').innerHTML = scenes[scene] || scenes.reminder;
+</script>
+</body>
+</html>
