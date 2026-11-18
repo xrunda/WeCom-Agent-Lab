@@ -8,8 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "serve": "node server/index.ts",
-    "test": "vitest run && node --test tests/server.test.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "sitemap": "node scripts/sitemap.ts"
   },

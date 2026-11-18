@@ -19,65 +19,38 @@
 ```bash
 cd website
 npm ci
-npm run dev                 # 前端 http://127.0.0.1:5180
+npm run dev                 # http://127.0.0.1:5180
 ```
 
-另开一个终端启动预约接收端（开发代理默认指向 8080）：
+构建与预览：
 
 ```bash
-cd website
-WEBSITE_ADMIN_TOKEN="$(openssl rand -hex 24)" \
-WEBSITE_STORE_DIR=/tmp/zhiban-website-store \
-npm run serve               # API + dist 静态文件
-```
-
-开发时 `npm run dev` 会把 `/api` 代理到 `WEBSITE_API_TARGET`（默认 `http://127.0.0.1:8080`）。
-
-## 构建与预览
-
-```bash
-cd website
 npm run build
-WEBSITE_ADMIN_TOKEN="$(cat /tmp/website-admin-token)" \
-WEBSITE_STORE_DIR=/tmp/zhiban-website-store \
-npm run serve               # http://127.0.0.1:8080
+npm run preview -- --port 8080   # http://127.0.0.1:8080
 ```
 
 检查与测试：
 
 ```bash
 npm run typecheck
-npm test                    # 前端校验测试 + 预约接收端测试
+npm test                    # Vitest
 ```
 
-## 预约接收端
+## 预约入口
 
-- 入口：`POST /api/demo-requests`
-- 字段：`orgName`、`contactName`、`contact`（手机 / 邮箱 / 微信号）、`topic`（选填）
-- 成功：`200 {ok:true,id}`；缺项：`400` 并返回 `error.fields`；限流：`429`；服务端失败：`500`
-- 持久化：`WEBSITE_STORE_DIR/demo-requests.jsonl`，目录 `0700`、文件 `0600`
-- 查看线索：`GET /api/demo-requests`，请求头 `Authorization: Bearer $WEBSITE_ADMIN_TOKEN`
-  - 未配置令牌（为空或少于 24 个字符）返回 `503`
-  - 令牌不匹配返回 `401`
-  - 响应不回显原始表单指纹；联系方式仅供授权人员查看
-- 基础防刷：单 IP 每小时 5 次、蜜罐字段、10 分钟内相同联系方式的重复提交返回同一条记录
-- 日志只记方法、路径、状态码、耗时和记录 id，不记表单内容
+`/demo` 不再收集表单，改为企业微信「联系我」获客链接：
 
-本地验证记录（2026-11-18）：
+- 链接：`https://work.weixin.qq.com/ca/cawcded818a8d398cf`
+- 页面展示对应二维码 + 「打开企业微信，联系顾问」按钮
+- 手机端点击按钮直接打开企业微信；电脑端可用微信或企业微信扫码
+- 访客添加顾问企业微信后由顾问本人对接，官网不留存联系方式
+- 二维码文件：`public/assets/brand/wecom-contact-qr.png`
 
-- 缺项：机构名称 / 联系人 / 联系方式分别返回字段错误
-- 成功：提交后可从接收端查到，联系方式允许手机、邮箱、微信号
-- 失败重试：模拟网络失败显示「预约暂未提交成功，请稍后重试。」，输入保留；恢复后重试成功
-- 重复提交：同一联系方式在 10 分钟窗口内返回同一条记录
-- 权限：目录 `drwx------`、文件 `-rw-------`；日志无联系方式和机构名
+更换获客链接时，需要同时更新 `src/pages/DemoPage.tsx` 的 `WECOM_CONTACT_URL` 和二维码图片。
 
 ## 环境变量
 
-见 [.env.example](.env.example)。不要提交真实令牌或线索文件。
-
-部署在 nginx 等反向代理后时设 `WEBSITE_TRUST_PROXY=1`，按 `X-Forwarded-For` 首个地址做单 IP 限流；直连时保持默认 `0`。
-
-生产域名确定后再生成 canonical 与 sitemap：
+见 [.env.example](.env.example)。生产域名确定后再生成 canonical 与 sitemap：
 
 ```bash
 VITE_SITE_ORIGIN=https://example.com VITE_ALLOW_INDEX=1 npm run build
@@ -98,5 +71,4 @@ VITE_SITE_ORIGIN=https://example.com npm run sitemap
 
 - 真实企微 1:1 提醒、问答、餐食照片截图需要真机录制后替换当前界面示意
 - 正式域名、HTTPS、预览是否允许索引
-- 线上预约接收端的 `WEBSITE_ADMIN_TOKEN` 与持久化目录
-- 官网与预览环境的部署位置
+- 官网预览与生产部署位置

@@ -1,6 +1,7 @@
 import { Icon } from '../components/Icons';
-import { DemoForm } from '../components/DemoForm';
 import { usePageMeta } from '../components/usePageMeta';
+
+export const WECOM_CONTACT_URL = 'https://work.weixin.qq.com/ca/cawcded818a8d398cf';
 
 const STEPS = [
   { title: '了解现有流程', text: '先聊聊贵机构现在怎么建档、打卡和回访。', icon: 'chat' as const },
@@ -39,10 +40,35 @@ export function DemoPage() {
               ))}
             </ol>
           </aside>
-          <section className="demo-form-card" aria-labelledby="form-title">
-            <h2 id="form-title">预约演示</h2>
-            <p className="demo-form-card__hint">我们会通过您留下的联系方式沟通演示时间。</p>
-            <DemoForm />
+
+          <section className="contact-card" aria-labelledby="contact-title">
+            <div className="contact-card__qr">
+              <img
+                src="/assets/brand/wecom-contact-qr.png"
+                alt="知伴健康顾问的企业微信二维码"
+                width={688}
+                height={688}
+              />
+            </div>
+            <div className="contact-card__body">
+              <p className="eyebrow">直接联系</p>
+              <h2 id="contact-title">添加顾问企业微信</h2>
+              <p className="contact-card__text">
+                扫码添加后，直接和顾问约演示时间。不用填写表单，也不留联系方式给第三方。
+              </p>
+              <a
+                className="btn btn--primary"
+                href={WECOM_CONTACT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                打开企业微信，联系顾问
+                <Icon name="arrow" size={15} />
+              </a>
+              <p className="contact-card__note">
+                手机端点击按钮可直接打开企业微信；电脑端也可以用微信或企业微信扫码。
+              </p>
+            </div>
           </section>
         </div>
       </section>
