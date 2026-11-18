@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons';
 import { VideoTeaser } from '../components/VideoTeaser';
 import { Screenshot } from '../components/Screenshot';
 import { usePageMeta } from '../components/usePageMeta';
+import { WECOM_CONTACT_URL } from '../site';
 
 const TIMELINE = [
   {
@@ -70,10 +71,10 @@ export function HomePage() {
               客户照常在微信群晒餐、发日志。知伴为每位客户建立一个专属助手，帮顾问接上之前的服务，到点提醒跟进，让负责人看得见服务进度。
             </p>
             <div className="actions">
-              <Link className="btn btn--primary" to="/demo">
+              <a className="btn btn--primary" href={WECOM_CONTACT_URL} target="_blank" rel="noopener noreferrer">
                 预约演示
                 <Icon name="arrow" size={16} />
-              </Link>
+              </a>
               <a className="btn btn--ghost" href="#service-day">
                 看一次完整跟进
               </a>
@@ -180,10 +181,10 @@ export function HomePage() {
             <h2>从一位顾问、一个客户群开始。</h2>
             <p className="lede">接入 1–2 周真实业务，双方一起观察、评价知伴在哪些环节帮得上忙。</p>
           </div>
-          <Link className="btn btn--primary" to="/demo">
+          <a className="btn btn--primary" href={WECOM_CONTACT_URL} target="_blank" rel="noopener noreferrer">
             预约演示
             <Icon name="arrow" size={15} />
-          </Link>
+          </a>
         </div>
       </section>
     </main>

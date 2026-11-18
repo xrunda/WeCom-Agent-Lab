@@ -13,12 +13,6 @@ export default defineConfig({
   },
   server: {
     port: 5180,
-    proxy: {
-      '/api': {
-        target: process.env.WEBSITE_API_TARGET || 'http://127.0.0.1:8080',
-        changeOrigin: true,
-      },
-    },
   },
   build: {
     outDir: 'dist',
@@ -29,7 +23,6 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     css: false,
-    include: ['tests/**/*.test.ts'],
-    exclude: ['tests/server.test.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
   },
 });

@@ -1,8 +1,7 @@
-import { Link } from 'react-router-dom';
-
 import { Icon } from '../components/Icons';
 import { Screenshot } from '../components/Screenshot';
 import { usePageMeta } from '../components/usePageMeta';
+import { WECOM_CONTACT_URL } from '../site';
 
 export function ManagementPage() {
   usePageMeta('/management');
@@ -71,10 +70,10 @@ export function ManagementPage() {
             <h2>把服务安排落到具体的人和群。</h2>
             <p className="lede">明确哪个顾问负责哪个群，团队调整或交接时就有记录可查。</p>
             <div className="actions actions--top">
-              <Link className="btn btn--primary" to="/demo">
+              <a className="btn btn--primary" href={WECOM_CONTACT_URL} target="_blank" rel="noopener noreferrer">
                 预约演示
                 <Icon name="arrow" size={15} />
-              </Link>
+              </a>
             </div>
           </div>
         </div>

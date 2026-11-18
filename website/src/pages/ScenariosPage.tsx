@@ -1,9 +1,8 @@
-import { Link } from 'react-router-dom';
-
 import { Icon } from '../components/Icons';
 import { ProductVideo } from '../components/ProductVideo';
 import { Screenshot } from '../components/Screenshot';
 import { usePageMeta } from '../components/usePageMeta';
+import { WECOM_CONTACT_URL } from '../site';
 
 export function ScenariosPage() {
   usePageMeta('/scenarios');
@@ -116,10 +115,10 @@ export function ScenariosPage() {
               客户问上次是谁跟进的，或者顾问换班需要接手，都可以顺着服务记录查。
             </p>
             <div className="actions actions--top">
-              <Link className="btn btn--primary" to="/demo">
+              <a className="btn btn--primary" href={WECOM_CONTACT_URL} target="_blank" rel="noopener noreferrer">
                 聊聊我们的服务场景
                 <Icon name="arrow" size={15} />
-              </Link>
+              </a>
             </div>
           </div>
         </div>
