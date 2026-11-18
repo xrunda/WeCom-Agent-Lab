@@ -439,28 +439,15 @@ h3 {
   min-width: 0;
 }
 
-
-.hero__inset {
-  position: static;
-  width: 72%;
-  margin: 16px 0 0 auto;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: var(--shadow);
+.hero__video {
+  width: 100%;
 }
 
-.hero__inset img {
-  border-radius: 7px;
-}
-
-.hero__inset span {
-  display: block;
-  padding: 7px 4px 1px;
+.hero__video-note {
+  margin-top: 10px;
   color: var(--muted);
-  font-size: 10.5px;
-  line-height: 1.4;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .hero--compact {
@@ -801,7 +788,6 @@ h3 {
 
 /* ---------- video ---------- */
 
-.video-teaser,
 .video-section .video-frame {
   margin-top: 32px;
 }
@@ -838,6 +824,46 @@ h3 {
     linear-gradient(180deg, rgba(9, 34, 44, 0.45), rgba(9, 34, 44, 0.82));
   color: #fff;
   cursor: pointer;
+}
+
+.video-frame--hero .video-frame__video {
+  object-fit: contain;
+  background: #fbfaf6;
+}
+
+.video-frame--hero .video-frame__cover {
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex-direction: row;
+  gap: 12px;
+  padding: 0 0 16px 16px;
+  background: linear-gradient(180deg, transparent 52%, rgba(9, 34, 44, 0.72));
+}
+
+.video-frame--hero .video-frame__play,
+.video-frame--hero .video-frame__label,
+.video-frame--hero .video-frame__note {
+  position: relative;
+  z-index: 1;
+}
+
+.video-frame--hero .video-frame__play {
+  width: 54px;
+  height: 54px;
+  flex: none;
+}
+
+.video-frame--hero .video-frame__label {
+  padding: 9px 15px;
+  border-radius: 999px;
+  background: rgba(9, 34, 44, 0.74);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.video-frame--hero .video-frame__note {
+  display: none;
 }
 
 .video-frame__cover:hover .video-frame__play {
@@ -1431,11 +1457,6 @@ h3 {
   .hero--compact .hero__grid {
     gap: 40px;
   }
-
-  .hero__inset {
-    left: -12px;
-    bottom: -20px;
-  }
 }
 
 @media (max-width: 960px) {
@@ -1464,11 +1485,6 @@ h3 {
     width: 100%;
     max-width: 560px;
     margin-inline: auto;
-  }
-
-  .hero__inset {
-    width: 86%;
-    margin: 14px 0 0 auto;
   }
 
   .timeline {
