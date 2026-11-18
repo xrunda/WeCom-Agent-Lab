@@ -8,6 +8,7 @@ import { WecomRedirectPage } from './pages/WecomRedirectPage';
 import { HomePage } from './pages/HomePage';
 import { ManagementPage } from './pages/ManagementPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PricingPage } from './pages/PricingPage';
 import { ScenariosPage } from './pages/ScenariosPage';
 
 function ScrollToAnchor() {
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/advisor" element={<AdvisorPage />} />
         <Route path="/management" element={<ManagementPage />} />
         <Route path="/scenarios" element={<ScenariosPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/demo" element={<WecomRedirectPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

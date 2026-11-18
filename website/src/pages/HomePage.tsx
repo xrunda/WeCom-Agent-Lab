@@ -180,6 +180,10 @@ export function HomePage() {
             <p className="eyebrow">合作邀请</p>
             <h2>从一位顾问、一个客户群开始。</h2>
             <p className="lede">接入 1–2 周真实业务，双方一起观察、评价知伴在哪些环节帮得上忙。</p>
+            <Link className="text-link" to="/pricing">
+              查看产品定价
+              <Icon name="arrow" size={14} />
+            </Link>
           </div>
           <a className="btn btn--primary" href={WECOM_CONTACT_URL} target="_blank" rel="noopener noreferrer">
             预约演示

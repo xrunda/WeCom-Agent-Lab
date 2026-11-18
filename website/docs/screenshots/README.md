@@ -1,4 +1,4 @@
-# 五页截图
+# 六页截图
 
 2026-11-18 生成。桌面 1440px、移动 390px；整页截图，用于 PR 与验收比对。
 
@@ -9,6 +9,7 @@
 | 顾问工作台 | `advisor-1440.jpg` | `advisor-390.jpg` |
 | 机构管理 | `management-1440.jpg` | `management-390.jpg` |
 | 业务场景 | `scenarios-1440.jpg` | `scenarios-390.jpg` |
+| 产品定价 | `pricing-1440.jpg` | `pricing-390.jpg` |
 
 生成环境：本地 `npm run build` + `npm run preview`，产品截图来自控制台 mock 模式，企微 / 微信截图为界面示意。截图内数据均为虚构演示数据。
 
