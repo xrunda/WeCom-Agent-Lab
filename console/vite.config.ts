@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // 部署在 /console/ 子路径时用 CONSOLE_BASE=/console/ 构建；默认挂在域名根路径。
+  base: process.env.CONSOLE_BASE || '/',
   plugins: [react()],
   resolve: {
     alias: {

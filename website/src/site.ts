@@ -14,6 +14,9 @@ export const NAV: NavItem[] = [
 
 export const SITE_TAGLINE = '知伴健康 · 为健康服务机构提供客户跟进与团队协作工具';
 
+/** 控制台入口：官网只做跳转，不校验登录态。 */
+export const CONSOLE_URL = '/console/';
+
 /** 企业微信「联系我」获客链接：所有「预约演示」入口直接打开这里。 */
 export const WECOM_CONTACT_URL = 'https://work.weixin.qq.com/ca/cawcded818a8d398cf';
 

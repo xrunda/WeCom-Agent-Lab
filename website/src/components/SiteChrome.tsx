@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
-import { NAV, WECOM_CONTACT_URL } from '../site';
+import { CONSOLE_URL, NAV, WECOM_CONTACT_URL } from '../site';
 import { Icon } from './Icons';
 
 export function SiteHeader() {
@@ -46,6 +46,9 @@ export function SiteHeader() {
         </nav>
 
         <div className="site-header__actions">
+          <a className="site-header__console" href={CONSOLE_URL}>
+            登录控制台
+          </a>
           <a
             className="btn btn--primary btn--small"
             href={WECOM_CONTACT_URL}
@@ -83,6 +86,10 @@ export function SiteHeader() {
                 <Icon name="arrow" size={15} />
               </NavLink>
             ))}
+            <a className="mobile-menu__console" href={CONSOLE_URL}>
+              登录控制台
+              <Icon name="arrow" size={15} />
+            </a>
             <a
               className="mobile-menu__cta btn btn--primary"
               href={WECOM_CONTACT_URL}
@@ -114,15 +121,18 @@ export function SiteFooter() {
             </Link>
           ))}
         </nav>
-        <a
-          className="btn btn--primary btn--small"
-          href={WECOM_CONTACT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          预约演示
-          <Icon name="arrow" size={14} />
-        </a>
+        <div className="site-footer__actions">
+          <a className="site-footer__console" href={CONSOLE_URL}>登录控制台</a>
+          <a
+            className="btn btn--primary btn--small"
+            href={WECOM_CONTACT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            预约演示
+            <Icon name="arrow" size={14} />
+          </a>
+        </div>
       </div>
       <p className="site-footer__tagline">知伴健康 · 为健康服务机构提供客户跟进与团队协作工具</p>
     </footer>
