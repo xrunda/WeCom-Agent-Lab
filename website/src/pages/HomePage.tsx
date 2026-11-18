@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Icon } from '../components/Icons';
+import { AgentCard } from '../components/AgentCard';
 import { ProductVideo } from '../components/ProductVideo';
 import { Screenshot } from '../components/Screenshot';
 import { usePageMeta } from '../components/usePageMeta';
@@ -58,8 +60,11 @@ const ROLES = [
   },
 ];
 
+type HeroMode = 'human' | 'agent';
+
 export function HomePage() {
   usePageMeta('/');
+  const [mode, setMode] = useState<HeroMode>('human');
   return (
     <main>
       <section className="hero">
@@ -79,22 +84,67 @@ export function HomePage() {
                 看一次完整跟进
               </a>
             </div>
-            <ul className="hero__points" aria-label="三项核心能力">
-              <li><Icon name="book" size={16} />专属助手</li>
-              <li><Icon name="bell" size={16} />主动提醒</li>
-              <li><Icon name="chat" size={16} />企微问答</li>
-            </ul>
+            <p className="hero__agent-line">
+              <Icon name="spark" size={15} />
+              你的 Agent 可以直接读
+              <a href="/llms.txt" target="_blank" rel="noopener noreferrer">
+                /llms.txt
+              </a>
+            </p>
           </div>
 
-          <div className="hero__media hero__video">
-            <ProductVideo
-              src="/assets/video/product-demo.mp4"
-              poster="/assets/video/hero-poster.jpg"
-              subtitles="/assets/video/subtitles.vtt"
-              title="知伴健康产品演示"
-              variant="hero"
-            />
-            <p className="hero__video-note">产品演示 · 客户发日志 → 顾问确认 → 负责人回看</p>
+          <div className="hero__media hero-mode">
+            <div className="mode-switch" role="tablist" aria-label="查看方式">
+              <button
+                type="button"
+                role="tab"
+                id="hero-tab-human"
+                aria-selected={mode === 'human'}
+                aria-controls="hero-panel-human"
+                className={`mode-switch__btn${mode === 'human' ? ' is-active' : ''}`}
+                onClick={() => setMode('human')}
+              >
+                给人看
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="hero-tab-agent"
+                aria-selected={mode === 'agent'}
+                aria-controls="hero-panel-agent"
+                className={`mode-switch__btn${mode === 'agent' ? ' is-active' : ''}`}
+                onClick={() => setMode('agent')}
+              >
+                给 Agent 看
+              </button>
+            </div>
+
+            <div
+              role="tabpanel"
+              id="hero-panel-human"
+              aria-labelledby="hero-tab-human"
+              hidden={mode !== 'human'}
+            >
+              <div className="hero__video">
+                <ProductVideo
+                  src="/assets/video/product-demo.mp4"
+                  poster="/assets/video/hero-poster.jpg"
+                  subtitles="/assets/video/subtitles.vtt"
+                  title="知伴健康产品演示"
+                  variant="hero"
+                />
+                <p className="hero__video-note">产品演示 · 客户发日志 → 顾问确认 → 负责人回看</p>
+              </div>
+            </div>
+
+            <div
+              role="tabpanel"
+              id="hero-panel-agent"
+              aria-labelledby="hero-tab-agent"
+              hidden={mode !== 'agent'}
+            >
+              <AgentCard />
+            </div>
           </div>
         </div>
       </section>
