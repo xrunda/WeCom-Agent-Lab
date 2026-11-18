@@ -7,9 +7,11 @@ interface ProductVideoProps {
   poster: string;
   subtitles: string;
   title: string;
+  /** hero：首屏用浅色封面，不在浅色海报上压深色蒙层。 */
+  variant?: 'hero';
 }
 
-export function ProductVideo({ src, poster, subtitles, title }: ProductVideoProps) {
+export function ProductVideo({ src, poster, subtitles, title, variant }: ProductVideoProps) {
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -23,7 +25,7 @@ export function ProductVideo({ src, poster, subtitles, title }: ProductVideoProp
   };
 
   return (
-    <div className="video-frame">
+    <div className={`video-frame${variant ? ` video-frame--${variant}` : ''}`}>
       <video
         ref={videoRef}
         className="video-frame__video"
@@ -34,7 +36,7 @@ export function ProductVideo({ src, poster, subtitles, title }: ProductVideoProp
         aria-label={title}
       >
         <source src={src} type="video/mp4" />
-        <track kind="subtitles" src={subtitles} srcLang="zh" label="中文" default />
+        <track kind="subtitles" src={subtitles} srcLang="zh" label="中文（视频已内嵌字幕，可选）" />
         您的浏览器不支持视频播放。
       </video>
       {!playing ? (

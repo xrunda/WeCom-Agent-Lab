@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import { Icon } from '../components/Icons';
-import { VideoTeaser } from '../components/VideoTeaser';
+import { ProductVideo } from '../components/ProductVideo';
 import { Screenshot } from '../components/Screenshot';
 import { usePageMeta } from '../components/usePageMeta';
 import { WECOM_CONTACT_URL } from '../site';
@@ -86,17 +86,15 @@ export function HomePage() {
             </ul>
           </div>
 
-          <div className="hero__media">
-            <Screenshot
-              src="/assets/screens/hero-reminder.png"
-              alt="企业微信里，系统向陈顾问推送林女士的回访提醒"
-              caption="企微界面示意 · 演示数据"
-              className="shot--hero"
+          <div className="hero__media hero__video">
+            <ProductVideo
+              src="/assets/video/product-demo.mp4"
+              poster="/assets/video/hero-poster.jpg"
+              subtitles="/assets/video/subtitles.vtt"
+              title="知伴健康产品演示"
+              variant="hero"
             />
-            <div className="hero__inset">
-              <img src="/assets/screens/console-record-crop.png" alt="林女士服务记录局部" loading="lazy" />
-              <span>客户记录局部 · 演示数据</span>
-            </div>
+            <p className="hero__video-note">产品演示 · 客户发日志 → 顾问确认 → 负责人回看</p>
           </div>
         </div>
       </section>
@@ -148,29 +146,29 @@ export function HomePage() {
       </section>
 
       <section className="section section--cream">
-        <div className="container">
-          <div className="section-head section-head--split">
-            <div>
-              <p className="eyebrow">业务场景</p>
-              <h2>从一对一指导群开始</h2>
-              <p className="lede">
-                从第一天建档，到每天晒餐、发日志，再到顾问按时回访，看看知伴怎么接进您现有的服务。
-              </p>
-            </div>
-            <div className="actions actions--tight">
+        <div className="container split">
+          <div>
+            <p className="eyebrow">业务场景</p>
+            <h2>从一对一指导群开始</h2>
+            <p className="lede">
+              从第一天建档，到每天晒餐、发日志，再到顾问按时回访，看看知伴怎么接进您现有的服务。
+            </p>
+            <div className="actions actions--top">
               <Link className="btn btn--primary" to="/scenarios">
                 查看业务场景
                 <Icon name="arrow" size={15} />
               </Link>
               <Link className="btn btn--ghost" to="/scenarios#product-demo">
-                播放产品演示
+                看完整演示
                 <Icon name="play" size={14} />
               </Link>
             </div>
           </div>
-          <div className="video-teaser">
-            <VideoTeaser poster="/assets/video/poster.jpg" to="/scenarios#product-demo" />
-          </div>
+          <Screenshot
+            src="/assets/screens/console-todo-highlight.png"
+            alt="机构后台的实时服务流，标出客户、负责顾问与当前状态"
+            caption="产品界面 · 演示数据"
+          />
         </div>
       </section>
 
