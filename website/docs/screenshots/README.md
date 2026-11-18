@@ -4,7 +4,8 @@
 
 | 页面 | 1440 | 390 |
 |---|---|---|
-| 首页 | `home-1440.jpg` | `home-390.jpg` |
+| 首页（给人看） | `home-1440.jpg` | `home-390.jpg` |
+| 首页（给 Agent 看） | `home-agent-1440.jpg` | `home-agent-390.jpg` |
 | 客户专属助手 | `customer-agent-1440.jpg` | `customer-agent-390.jpg` |
 | 顾问工作台 | `advisor-1440.jpg` | `advisor-390.jpg` |
 | 机构管理 | `management-1440.jpg` | `management-390.jpg` |

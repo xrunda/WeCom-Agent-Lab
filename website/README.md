@@ -56,6 +56,14 @@ npm test                    # Vitest
 - 不写统一标价、折扣、年付金额、超额单价、医疗效果、无限用量、定制交付或服务等级承诺。
 - 报价依据：`docs/P1-multi-advisor.md` §12、`docs/M1-purchase-decision.md`、PRD §8。
 
+## 首页双通道
+
+首屏右侧提供「给人看 / 给 Agent 看」切换：
+
+- **给人看**：产品演示视频（默认）。
+- **给 Agent 看**：机器卡，显示 `GET /llms.txt` 的状态行、定位/价格/边界三条结构化事实，以及「复制给 Agent 的提问」和「打开 llms.txt」。卡片内容取自 `src/plan.ts` 与 `src/llms.ts` 的同一套口径。
+- 首屏 CTA 下方常驻一行「你的 Agent 可以直接读 /llms.txt」。
+
 ## 给 AI Agent 的入口
 
 官网提供两份机器可读文件，方便客户直接让 Agent 读官网：

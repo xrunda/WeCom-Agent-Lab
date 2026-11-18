@@ -394,6 +394,199 @@ h3 {
   margin-top: 8px;
 }
 
+
+/* ---------- hero mode switch / agent card ---------- */
+
+.mode-switch {
+  display: inline-flex;
+  padding: 3px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mode-switch__btn {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.mode-switch__btn:hover {
+  color: var(--navy);
+}
+
+.mode-switch__btn.is-active {
+  background: var(--navy);
+  color: #fff;
+}
+
+.hero__agent-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hero__agent-line svg {
+  color: var(--teal);
+}
+
+.hero__agent-line a {
+  color: var(--teal-2);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(20, 125, 112, 0.4);
+}
+
+.hero__agent-line a:hover {
+  border-color: var(--teal);
+}
+
+.agent-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 48px -34px rgba(18, 56, 73, 0.45);
+}
+
+.agent-card__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.agent-card__method {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--soft);
+  color: var(--teal-2);
+  font-weight: 700;
+}
+
+.agent-card__status code {
+  color: var(--navy);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.agent-card__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.agent-card__meta {
+  font-size: 11.5px;
+}
+
+.agent-card__facts {
+  margin: 0;
+  padding: 4px 0 0;
+}
+
+.agent-card__row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #eef3f0;
+}
+
+.agent-card__row:last-child {
+  border-bottom: 0;
+}
+
+.agent-card__row dt {
+  color: var(--teal-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-card__row dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.agent-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin-top: 14px;
+}
+
+.agent-card__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.agent-card__link:hover {
+  color: var(--navy);
+  border-color: var(--teal);
+}
+
+.agent-card__guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f4f8f6;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.agent-card__guide svg {
+  color: var(--ok);
+}
+
+.agent-card__guide.is-done {
+  background: var(--soft);
+  color: var(--teal-2);
+  font-weight: 600;
+}
+
+.agent-card__note {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
 /* ---------- hero ---------- */
 
 .hero {
