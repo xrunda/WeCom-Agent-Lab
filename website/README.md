@@ -56,6 +56,16 @@ npm test                    # Vitest
 - 不写统一标价、折扣、年付金额、超额单价、医疗效果、无限用量、定制交付或服务等级承诺。
 - 报价依据：`docs/P1-multi-advisor.md` §12、`docs/M1-purchase-decision.md`、PRD §8。
 
+## 给 AI Agent 的入口
+
+官网提供两份机器可读文件，方便客户直接让 Agent 读官网：
+
+- `/llms.txt`：按 [llmstxt.org](https://llmstxt.org) 约定写的项目介绍——定位、能力、计费口径、边界、六个页面链接、预约方式。由 `src/llms.ts` 生成，价格与席位数取自 `src/plan.ts`，与定价页同源。
+- `/robots.txt`：允许抓取并指向 `sitemap.xml`。
+- 另在 `index.html` 里放了 `SoftwareApplication` 的 JSON-LD 结构化数据，以及指向 `llms.txt` 的 `rel="alternate"` 链接。
+
+两份文件在 `npm run build` 前由 `prebuild` 自动生成；单独执行 `npm run llms` 也可以。默认写入生产域名 `https://zhiban.xrunda.com`，换域名时用 `VITE_SITE_ORIGIN` 覆盖。
+
 ## 环境变量
 
 见 [.env.example](.env.example)。生产域名确定后再生成 canonical 与 sitemap：
