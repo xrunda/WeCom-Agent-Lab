@@ -62,6 +62,8 @@ describe('首页双通道', () => {
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText.mock.calls[0][0]).toContain('https://zhiban.xrunda.com/llms.txt');
-    expect(await screen.findByRole('button', { name: /已复制/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /再复制一次/ })).toBeInTheDocument();
+    // 复制之后要明确指向具体的 AI 应用，而不是泛泛说「发给 Agent」
+    expect(screen.getByRole('status')).toHaveTextContent('打开豆包、WorkBuddy 或千问办公');
   });
 });

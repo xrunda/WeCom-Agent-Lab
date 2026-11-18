@@ -52,7 +52,8 @@ export function AgentCard() {
       ok = legacyCopy(AGENT_PROMPT);
     }
     setCopied(ok ? 'done' : 'failed');
-    window.setTimeout(() => setCopied('idle'), 2600);
+    // 失败提示保留久一点，成功提示给足时间让用户切到 AI 应用
+    window.setTimeout(() => setCopied('idle'), ok ? 8000 : 5000);
   };
 
   return (
@@ -75,7 +76,7 @@ export function AgentCard() {
 
       <div className="agent-card__actions">
         <button type="button" className="btn btn--primary btn--small" onClick={() => void copyPrompt()}>
-          {copied === 'done' ? '已复制，发给你的 Agent' : copied === 'failed' ? '复制失败，请手动选择' : '复制给 Agent 的提问'}
+          {copied === 'done' ? '再复制一次' : copied === 'failed' ? '再试一次' : '复制给 Agent 的提问'}
           {copied === 'done' ? <Icon name="check" size={14} /> : null}
         </button>
         <a
@@ -89,8 +90,23 @@ export function AgentCard() {
         </a>
       </div>
 
+      <p className={`agent-card__guide${copied === 'done' ? ' is-done' : ''}`} role="status" aria-live="polite">
+        {copied === 'done' ? (
+          <>
+            <Icon name="check" size={14} />
+            已复制。现在打开豆包、WorkBuddy 或千问办公，把提问粘贴进去发送。
+          </>
+        ) : copied === 'failed' ? (
+          <>复制没有成功，请手动选中上面的提问文字再复制。</>
+        ) : (
+          <>
+            复制后，打开豆包、WorkBuddy 或千问办公，粘贴提问即可。
+          </>
+        )}
+      </p>
+
       <p className="agent-card__note">
-        这段提问可以直接粘贴给对方的 AI 助手。官网的机器入口是给 Agent 读的；产品里每位客户那个专属 Agent 是另一回事。
+        官网的机器入口是给 Agent 读的；产品里每位客户那个专属 Agent 是另一回事。
       </p>
     </div>
   );
