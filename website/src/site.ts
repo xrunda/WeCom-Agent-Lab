@@ -9,6 +9,7 @@ export const NAV: NavItem[] = [
   { path: '/advisor', label: '顾问工作台' },
   { path: '/management', label: '机构管理' },
   { path: '/scenarios', label: '业务场景' },
+  { path: '/pricing', label: '产品定价' },
 ];
 
 export const SITE_TAGLINE = '知伴健康 · 为健康服务机构提供客户跟进与团队协作工具';
@@ -47,5 +48,10 @@ export const PAGE_META: Record<string, PageMeta> = {
     path: '/scenarios',
     title: '业务场景 · 知伴健康',
     description: '一对一健康指导群，每天的服务怎么跟下来。',
+  },
+  '/pricing': {
+    path: '/pricing',
+    title: '产品定价 · 知伴健康',
+    description: '了解知伴健康种子合作方案、平台服务内容、企业微信会话存档费用与业务接入方式。',
   },
 };
