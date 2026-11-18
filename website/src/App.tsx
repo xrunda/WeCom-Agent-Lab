@@ -4,7 +4,7 @@ import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { SiteFooter, SiteHeader } from './components/SiteChrome';
 import { AdvisorPage } from './pages/AdvisorPage';
 import { CustomerAgentPage } from './pages/CustomerAgentPage';
-import { DemoPage } from './pages/DemoPage';
+import { WecomRedirectPage } from './pages/WecomRedirectPage';
 import { HomePage } from './pages/HomePage';
 import { ManagementPage } from './pages/ManagementPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -47,7 +47,7 @@ export default function App() {
         <Route path="/advisor" element={<AdvisorPage />} />
         <Route path="/management" element={<ManagementPage />} />
         <Route path="/scenarios" element={<ScenariosPage />} />
-        <Route path="/demo" element={<DemoPage />} />
+        <Route path="/demo" element={<WecomRedirectPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <SiteFooter />

@@ -6,7 +6,7 @@ if (!origin) {
   process.exit(1);
 }
 
-const paths = ['/', '/customer-agent', '/advisor', '/management', '/scenarios', '/demo'];
+const paths = ['/', '/customer-agent', '/advisor', '/management', '/scenarios'];
 const base = origin.replace(/\/+$/, '');
 const body = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

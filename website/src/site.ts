@@ -13,6 +13,9 @@ export const NAV: NavItem[] = [
 
 export const SITE_TAGLINE = '知伴健康 · 为健康服务机构提供客户跟进与团队协作工具';
 
+/** 企业微信「联系我」获客链接：所有「预约演示」入口直接打开这里。 */
+export const WECOM_CONTACT_URL = 'https://work.weixin.qq.com/ca/cawcded818a8d398cf';
+
 export interface PageMeta {
   path: string;
   title: string;
@@ -44,10 +47,5 @@ export const PAGE_META: Record<string, PageMeta> = {
     path: '/scenarios',
     title: '业务场景 · 知伴健康',
     description: '一对一健康指导群，每天的服务怎么跟下来。',
-  },
-  '/demo': {
-    path: '/demo',
-    title: '预约演示 · 知伴健康',
-    description: '先用一个客户群，看看知伴能帮上什么忙。',
   },
 };

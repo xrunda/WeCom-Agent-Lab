@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
-import { NAV } from '../site';
+import { NAV, WECOM_CONTACT_URL } from '../site';
 import { Icon } from './Icons';
 
 export function SiteHeader() {
@@ -46,13 +46,15 @@ export function SiteHeader() {
         </nav>
 
         <div className="site-header__actions">
-          <NavLink
-            className={({ isActive }) => `btn btn--primary btn--small${isActive ? ' is-active' : ''}`}
-            to="/demo"
+          <a
+            className="btn btn--primary btn--small"
+            href={WECOM_CONTACT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             预约演示
             <Icon name="arrow" size={14} />
-          </NavLink>
+          </a>
           <button
             ref={buttonRef}
             type="button"
@@ -81,10 +83,15 @@ export function SiteHeader() {
                 <Icon name="arrow" size={15} />
               </NavLink>
             ))}
-            <Link className="mobile-menu__cta btn btn--primary" to="/demo">
+            <a
+              className="mobile-menu__cta btn btn--primary"
+              href={WECOM_CONTACT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               预约演示
               <Icon name="arrow" size={15} />
-            </Link>
+            </a>
           </nav>
         </div>
       ) : null}
@@ -107,10 +114,15 @@ export function SiteFooter() {
             </Link>
           ))}
         </nav>
-        <Link className="btn btn--primary btn--small" to="/demo">
+        <a
+          className="btn btn--primary btn--small"
+          href={WECOM_CONTACT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           预约演示
           <Icon name="arrow" size={14} />
-        </Link>
+        </a>
       </div>
       <p className="site-footer__tagline">知伴健康 · 为健康服务机构提供客户跟进与团队协作工具</p>
     </footer>
