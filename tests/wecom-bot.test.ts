@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  SubscribeFailedError,
   WeComBotAdapter,
   type InboundEvent,
   type InboundMessage,
+  type WeComBotConfig,
+  type WeComBotHandlers,
   type WebSocketLike,
   type WsEvent,
 } from '../src/c2/adapters/wecom-bot.ts';
@@ -290,6 +293,160 @@ test('#55/#208 sendImage 先分片上传拿 media_id，再用 media_id 发送', 
   assert.deepEqual(send2.body.image, { media_id: 'mid_1' });
   ws.respond(send2.headers.req_id);
   await again;
+});
+
+// ---------- #226 断线重连 ----------
+
+interface BotRig {
+  adapter: WeComBotAdapter;
+  sockets: FakeWebSocket[];
+  logs: string[];
+  handlers: WeComBotHandlers;
+}
+
+/** 每次重连都造一个新的假 socket，便于按顺序断言 */
+function makeRig(
+  overrides: Omit<Partial<WeComBotConfig>, 'wsFactory'> = {},
+  handlers: WeComBotHandlers = {},
+): BotRig {
+  const sockets: FakeWebSocket[] = [];
+  const logs: string[] = [];
+  const adapter = new WeComBotAdapter(
+    {
+      botId: 'bot_1',
+      secret: 'secret_1',
+      logger: (line) => logs.push(line),
+      reconnectDelaysMs: [5],
+      wsFactory: () => {
+        const ws = new FakeWebSocket();
+        sockets.push(ws);
+        return ws;
+      },
+      ...overrides,
+    },
+    handlers,
+  );
+  return { adapter, sockets, logs, handlers };
+}
+
+async function completeHandshake(ws: FakeWebSocket, connectPromise: Promise<void>): Promise<void> {
+  ws.emit('open');
+  await new Promise((resolve) => setImmediate(resolve));
+  const frame = expectFrame(ws);
+  assert.equal(frame.cmd, 'aibot_subscribe');
+  ws.respond(frame.headers.req_id);
+  await connectPromise;
+}
+
+async function waitFor<T>(check: () => T | undefined, ms = 500): Promise<T> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    const value = check();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('waitFor timeout');
+}
+
+test('#226 异常关闭后自动重连，重新订阅并回调 onReconnected', async () => {
+  let reconnected: { attempts: number; downMs: number } | undefined;
+  const rig = makeRig({}, { onReconnected: (info) => { reconnected = info; } });
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.sockets[0]!.emit('close', 1006);
+
+  const second = await waitFor(() => rig.sockets[1]);
+  await completeHandshake(second, new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+  await waitFor(() => reconnected);
+  assert.equal(reconnected!.attempts, 1);
+  assert.equal(second.lastFrame().cmd, 'aibot_subscribe');
+  assert.ok(rig.logs.some((line) => line.includes('长连接已恢复')));
+});
+
+test('#226 主动 close() 不再重连', async () => {
+  const rig = makeRig();
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.adapter.close();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(rig.sockets.length, 1);
+});
+
+test('#226 被新连接顶替（disconnected_event）不重连，避免互踢', async () => {
+  const rig = makeRig();
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.sockets[0]!.emit(
+    'message',
+    JSON.stringify({ cmd: 'disconnected_event', headers: { req_id: 'x' } }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(rig.sockets.length, 1);
+  assert.ok(rig.logs.some((line) => line.includes('停止重连')));
+});
+
+test('#226 心跳连续失败判定半开，主动断开并重连', async () => {
+  const rig = makeRig({ pingIntervalMs: 5, requestTimeoutMs: 5, pingFailureLimit: 2 });
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  // 不响应 ping：两次超时后应丢弃旧连接
+  const second = await waitFor(() => rig.sockets[1]);
+  await completeHandshake(second, new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  assert.ok(rig.logs.some((line) => line.includes('半开')));
+});
+
+test('#226 重连过程中发送请求立即失败，不挂死在 pending', async (t) => {
+  const rig = makeRig();
+  t.after(() => rig.adapter.close());
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.sockets[0]!.emit('close', 1006);
+  await assert.rejects(rig.adapter.sendText('LiGuang', '正文'), /WS_NOT_CONNECTED/);
+});
+
+test('#226 重连被服务端拒绝（订阅失败）后停止重试', async () => {
+  const rig = makeRig();
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.sockets[0]!.emit('close', 1006);
+  const second = await waitFor(() => rig.sockets[1]);
+  second.emit('open');
+  await new Promise((resolve) => setImmediate(resolve));
+  second.respond(expectFrame(second).headers.req_id, 853000, 'invalid bot_id or secret');
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(rig.sockets.length, 2);
+  assert.ok(rig.logs.some((line) => line.includes('停止重连')));
+});
+
+test('#226 网络级重连失败会继续按退避重试', async (t) => {
+  const rig = makeRig();
+  t.after(() => rig.adapter.close());
+  const initial = rig.adapter.connect();
+  await completeHandshake(rig.sockets[0]!, initial);
+
+  rig.sockets[0]!.emit('close', 1006);
+  const second = await waitFor(() => rig.sockets[1]);
+  // 建连阶段报错（不是订阅被拒）→ 应该再来一次
+  second.emit('error', new Error('ECONNRESET'));
+
+  const third = await waitFor(() => rig.sockets[2]);
+  assert.ok(third);
+});
+
+test('SubscribeFailedError 标记为致命错误，便于重连逻辑区分', () => {
+  const error = new SubscribeFailedError('SUBSCRIBE_FAILED 853000');
+  assert.ok(error instanceof Error);
+  assert.equal(error.fatal, true);
 });
 
 test('#55 sendImage 拒绝超限、非 JPG/PNG 与读不到的文件，错误不含路径', async (t) => {

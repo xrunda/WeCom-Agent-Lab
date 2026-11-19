@@ -294,6 +294,34 @@ test('demo 长连接被关闭时告警；dev 只记日志', async () => {
   assert.equal(dev.store.listAlerts().length, 0);
 });
 
+test('#226 一次断线只告警一次，重连成功后自动关闭', () => {
+  const h = harness({ environment: 'demo' });
+  h.runtime.handleBotClose(1006);
+  // 重连过程中反复断开不应该刷屏
+  h.runtime.handleBotClose(1006);
+  const alerts = h.store.listAlerts().filter((a) => a.kind === 'BOT_DISCONNECTED');
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0]!.message, /1:1 消息收不到/);
+  assert.ok(alerts[0]!.id?.startsWith('alt_'));
+
+  h.runtime.handleBotReconnected({ attempts: 3, downMs: 12_000 });
+
+  const updated = h.events.find((e) => e.type === 'alert.updated')?.data as
+    | Record<string, unknown>
+    | undefined;
+  assert.ok(updated);
+  assert.equal(updated.id, alerts[0]!.id);
+  assert.equal(updated.status, 'resolved');
+  assert.equal(updated.resolvedBy, 'system:bot-reconnect');
+  assert.ok(h.logs.some((line) => line.includes('机器人长连接已恢复')));
+});
+
+test('#226 没有断线时收到恢复回调不产生多余事件', () => {
+  const h = harness({ environment: 'demo' });
+  h.runtime.handleBotReconnected({ attempts: 1, downMs: 1_000 });
+  assert.equal(h.events.filter((e) => e.type === 'alert.updated').length, 0);
+});
+
 test('存档 seq 与最后运行时刻落盘', async () => {
   const h = harness();
   h.runtime.start();

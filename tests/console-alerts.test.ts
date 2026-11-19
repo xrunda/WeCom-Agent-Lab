@@ -259,6 +259,41 @@ test('告警更新补齐草稿关联，不覆盖已有字段与处理状态；�
   assert.equal(service.list().total, 2);
 });
 
+test('#226 BOT_DISCONNECTED 映射为独立类型；恢复事件只关闭 open 状态的告警', () => {
+  const { service } = setup();
+  const created = service.ingest({
+    id: 'alt_botdc_1',
+    kind: 'BOT_DISCONNECTED',
+    message: '机器人长连接断开（code=1006），恢复前企微 1:1 消息收不到；适配器正在自动重连',
+    at: 1_760_000_000_000,
+  })!;
+  assert.equal(created.kind, 'bot_disconnected');
+  assert.equal(created.title, '机器人长连接断开');
+  assert.equal(created.severity, 'critical');
+
+  const resolved = service.applyUpdate({
+    id: 'alt_botdc_1',
+    kind: 'BOT_DISCONNECTED',
+    status: 'resolved',
+    resolvedBy: 'system:bot-reconnect',
+    resolvedAt: created.createdAt + 60_000,
+  });
+  assert.equal(resolved?.status, 'resolved');
+  assert.equal(resolved?.resolvedBy, 'system:bot-reconnect');
+  assert.equal(resolved?.resolvedAt, created.createdAt + 60_000);
+
+  // 人工已经处理过的告警不被系统覆盖
+  const handled = service.ingest({ id: 'alt_botdc_2', kind: 'BOT_DISCONNECTED' })!;
+  service.resolve('alt_botdc_2', '人工确认恢复', ACTOR);
+  const untouched = service.applyUpdate({
+    id: 'alt_botdc_2',
+    status: 'resolved',
+    resolvedBy: 'system:bot-reconnect',
+  });
+  assert.equal(untouched?.resolvedBy, ACTOR.id);
+  assert.notEqual(handled.resolvedBy, 'system:bot-reconnect');
+});
+
 test('get 只返回本租户告警', () => {
   const { service } = setup();
   service.ingest({ id: 'alt_other', kind: 'remind' });

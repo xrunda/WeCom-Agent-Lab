@@ -1063,6 +1063,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
             if (event.eventKey) confirmHandler?.(event.eventKey);
           },
           onClose: (code) => runtime?.handleBotClose(code),
+          // #226：适配器自动重连成功，把断开期间的告警关掉
+          onReconnected: (info) => runtime?.handleBotReconnected(info),
         },
       );
 
