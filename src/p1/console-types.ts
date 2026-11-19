@@ -233,6 +233,8 @@ export type AlertKind =
   | 'advisor_paused'
   | 'redline'
   | 'push_failed'
+  /** #226 机器人长连接断开：1:1 渠道整体不可用，比单条推送失败严重 */
+  | 'bot_disconnected'
   | 'no_chat_id'
   | 'patrol_silent'
   | 'patrol_complaint';
@@ -273,7 +275,7 @@ export const C2_ALERT_KIND: Record<string, AlertKind> = {
   PUSH_FAILED: 'push_failed',
   NO_CHATID: 'no_chat_id',
   DOWNTIME: 'push_failed',
-  BOT_DISCONNECTED: 'push_failed',
+  BOT_DISCONNECTED: 'bot_disconnected',
   PERSIST_FAILED: 'push_failed',
   PATROL_SILENT: 'patrol_silent',
   PATROL_COMPLAINT: 'patrol_complaint',
@@ -288,6 +290,7 @@ const ALERT_META: Record<AlertKind, { title: string; severity: AlertSeverity }> 
   advisor_paused: { title: '顾问已暂停', severity: 'critical' },
   redline: { title: '健康红线命中', severity: 'warning' },
   push_failed: { title: '推送失败', severity: 'warning' },
+  bot_disconnected: { title: '机器人长连接断开', severity: 'critical' },
   no_chat_id: { title: '顾问尚未开通机器人会话', severity: 'warning' },
   patrol_silent: { title: '巡检：客户长期沉默', severity: 'warning' },
   patrol_complaint: { title: '巡检：投诉/风险信号', severity: 'critical' },

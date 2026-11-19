@@ -36,6 +36,16 @@ export interface WeComBotConfig {
   pingIntervalMs?: number;
   requestTimeoutMs?: number;
   logger?: Logger;
+  /**
+   * #226 断线自动重连的退避序列（毫秒）；用尽后固定取最后一个值持续重试。
+   * 传空数组等价于不重连。
+   */
+  reconnectDelaysMs?: number[];
+  /**
+   * #226 连续 ping 失败多少次判定长连接已半开（对端消失但没有 close 帧）。
+   * 默认 2。
+   */
+  pingFailureLimit?: number;
   /** 测试注入；默认使用 ws 包 */
   wsFactory?: WebSocketFactory;
 }
@@ -62,6 +72,13 @@ export interface WeComBotHandlers {
   onMessage?: (message: InboundMessage) => void;
   onEvent?: (event: InboundEvent) => void;
   onClose?: (code: number) => void;
+  /** #226 自动重连成功；attempts 为本次断线累计尝试次数，downMs 为断开时长 */
+  onReconnected?: (info: { attempts: number; downMs: number }) => void;
+}
+
+/** 订阅被服务端拒绝：凭据错误等，重试也不会好，用来跟「网络失败」区分 */
+export class SubscribeFailedError extends Error {
+  readonly fatal = true;
 }
 
 interface Frame {
@@ -73,6 +90,11 @@ interface Frame {
 }
 
 const DEFAULT_URL = 'wss://openws.work.weixin.qq.com';
+
+/** #226 重连退避：1s → 3s → 10s → 30s → 60s，之后每 60s 一次，不放弃 */
+const DEFAULT_RECONNECT_DELAYS_MS = [1_000, 3_000, 10_000, 30_000, 60_000];
+/** 心跳判定半开时对外的关闭码（沿用 WS 规范的异常断开码） */
+const BOT_HEARTBEAT_LOST_CODE = 1006;
 
 /**
  * API 模式智能机器人长连接适配器。
@@ -88,8 +110,15 @@ export class WeComBotAdapter implements BotPort {
   private readonly handlers: WeComBotHandlers;
   private ws?: WebSocketLike;
   private authed = false;
-  private closed = false;
+  /** 显式关闭（插件卸载 / 被顶替）；置位后不再重连 */
+  private stopped = false;
   private pingTimer?: ReturnType<typeof setInterval>;
+  /** #226 心跳连续失败次数；成功一次清零 */
+  private pingFailures = 0;
+  /** #226 重连定时器与本次断线的进度 */
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private reconnectAttempt = 0;
+  private downSince?: number;
   private seq = 0;
   private msgSeq = 0;
   /** 内容 md5 → media_id；临时素材有效期 3 天，这里保守缓存 2 天 */
@@ -108,13 +137,22 @@ export class WeComBotAdapter implements BotPort {
       url: DEFAULT_URL,
       pingIntervalMs: 30_000,
       requestTimeoutMs: 15_000,
+      reconnectDelaysMs: DEFAULT_RECONNECT_DELAYS_MS,
+      pingFailureLimit: 2,
       ...config,
     };
     this.handlers = handlers;
   }
 
+  /** 首次连接：失败直接抛错，让启动阶段看得见 */
   async connect(): Promise<void> {
-    if (this.ws) return;
+    this.stopped = false;
+    await this.openConnection();
+  }
+
+  /** 建连 + 订阅；首次连接与自动重连共用，调用方负责处理错误 */
+  private async openConnection(): Promise<void> {
+    if (this.stopped || this.ws) return;
 
     const factory: WebSocketFactory =
       this.config.wsFactory ??
@@ -123,31 +161,66 @@ export class WeComBotAdapter implements BotPort {
     this.ws = ws;
 
     ws.on('message', (data) => this.handleFrame(String(data)));
-    ws.on('close', (code) => this.handleClose(Number(code)));
+    // 带上 socket 自身：旧连接迟到的 close 事件不能把新连接拆掉
+    ws.on('close', (code) => this.handleClose(Number(code), ws));
     ws.on('error', (error) => {
       this.log(`WebSocket error: ${error instanceof Error ? error.message : String(error)}`);
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('WS_CONNECT_TIMEOUT')), this.config.requestTimeoutMs);
-      ws.once('open', () => {
-        clearTimeout(timer);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS_CONNECT_TIMEOUT')), this.config.requestTimeoutMs);
+        // 重连期间可能一直在等建连，这个计时器不能单独把进程钉住
+        timer.unref?.();
+        ws.once('open', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        ws.once('error', (error) => {
+          clearTimeout(timer);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
+        // 建连过程中被关闭：立刻失败，不用干等 15 秒超时
+        ws.once('close', (code) => {
+          clearTimeout(timer);
+          reject(new Error(`WS_CLOSED_DURING_CONNECT code=${String(code)}`));
+        });
       });
-      ws.once('error', (error) => {
-        clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      });
-    });
+    } catch (error) {
+      this.teardown();
+      throw error;
+    }
+
+    // 建连期间被显式关闭或被新连接替换：不再继续订阅
+    if (this.stopped || this.ws !== ws) return;
 
     this.startPing();
-    const res = await this.request('aibot_subscribe', {
-      bot_id: this.config.botId,
-      secret: this.config.secret,
-    });
+    let res: Frame;
+    try {
+      res = await this.request('aibot_subscribe', {
+        bot_id: this.config.botId,
+        secret: this.config.secret,
+      });
+    } catch (error) {
+      // 订阅请求本身失败（超时 / 连接已断）：清干净再抛，否则 ws 留着会挡住下一次重连
+      this.teardown();
+      try {
+        ws.close();
+      } catch {
+        // 已断开的连接 close 可能抛错，忽略
+      }
+      throw error;
+    }
     if (res.errcode !== 0) {
-      this.close();
-      throw new Error(`SUBSCRIBE_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim());
+      this.teardown();
+      try {
+        ws.close();
+      } catch {
+        // 已断开的连接 close 可能抛错，忽略
+      }
+      throw new SubscribeFailedError(
+        `SUBSCRIBE_FAILED ${res.errcode} ${res.errmsg ?? ''}`.trim(),
+      );
     }
     this.authed = true;
     this.log('已订阅智能机器人长连接');
@@ -265,16 +338,33 @@ export class WeComBotAdapter implements BotPort {
     return mediaId;
   }
 
+  /** 显式关闭：插件卸载或被新连接顶替，之后不再重连 */
   close(): void {
-    this.closed = true;
+    this.stopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    const ws = this.ws;
+    this.teardown();
+    try {
+      ws?.close();
+    } catch {
+      // 已断开的连接 close 可能抛错，忽略
+    }
+  }
+
+  /** 断连收尾：置空连接、停心跳、拒掉所有在途请求；不决定要不要重连 */
+  private teardown(): void {
+    this.authed = false;
+    this.ws = undefined;
     this.stopPing();
+    this.pingFailures = 0;
     for (const [id, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.reject(new Error('WS_CLOSED'));
       this.pending.delete(id);
     }
-    this.ws?.close();
-    this.ws = undefined;
   }
 
   private handleFrame(raw: string): void {
@@ -337,6 +427,7 @@ export class WeComBotAdapter implements BotPort {
         return;
       }
       case 'disconnected_event':
+        // 同一个机器人只允许一条长连接（F14）；被顶替时重连会和对方互踢，必须停
         this.log('长连接被新连接顶替，停止重连');
         this.close();
         return;
@@ -345,17 +436,78 @@ export class WeComBotAdapter implements BotPort {
     }
   }
 
-  private handleClose(code: number): void {
-    this.stopPing();
-    this.ws = undefined;
-    for (const [id, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.reject(new Error('WS_CLOSED'));
-      this.pending.delete(id);
+  private handleClose(code: number, socket: WebSocketLike): void {
+    // 旧连接迟到的 close：当前连接已经是别的 socket，什么都别动
+    if (this.ws !== socket) return;
+    const wasAuthed = this.authed;
+    this.log(`WebSocket 关闭 code=${code}`);
+    this.teardown();
+    if (this.stopped) return;
+    if (!wasAuthed) {
+      // 还没订阅成功就断了：由 connect()（首次）或 attemptReconnect（重连）的
+      // 调用方负责重试，这里不重复排程
+      this.log('建连阶段连接关闭，交由调用方重试');
+      return;
     }
-    if (!this.closed) {
-      this.log(`WebSocket 关闭 code=${code}`);
-      this.handlers.onClose?.(code);
+    this.handlers.onClose?.(code);
+    // #226：异常断开必须自己接回来，否则 1:1 渠道会一直哑到人工重启
+    this.scheduleReconnect();
+  }
+
+  /** 心跳连续失败：连接已半开（对端没了但没有 close 帧），主动丢弃并重连 */
+  private dropHalfOpen(): void {
+    const ws = this.ws;
+    this.log('心跳连续无响应，判定长连接已半开，主动断开重连');
+    this.teardown();
+    try {
+      ws?.close();
+    } catch {
+      // 已死的连接 close 可能抛错，忽略
+    }
+    if (this.stopped) return;
+    this.handlers.onClose?.(BOT_HEARTBEAT_LOST_CODE);
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer) return;
+    const delays = this.config.reconnectDelaysMs ?? [];
+    if (delays.length === 0) return;
+    const index = Math.min(this.reconnectAttempt, delays.length - 1);
+    const delay = delays[index] ?? DEFAULT_RECONNECT_DELAYS_MS.at(-1)!;
+    this.reconnectAttempt += 1;
+    if (this.downSince === undefined) this.downSince = Date.now();
+    this.log(`第 ${this.reconnectAttempt} 次重连将在 ${delay}ms 后尝试`);
+    const timer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.attemptReconnect();
+    }, delay);
+    timer.unref?.();
+    this.reconnectTimer = timer;
+  }
+
+  private async attemptReconnect(): Promise<void> {
+    if (this.stopped || this.ws) return;
+    const attempts = this.reconnectAttempt;
+    try {
+      await this.openConnection();
+      if (this.stopped) return;
+      const downMs = this.downSince === undefined ? 0 : Date.now() - this.downSince;
+      this.reconnectAttempt = 0;
+      this.downSince = undefined;
+      this.log(`长连接已恢复（尝试 ${attempts} 次，断开约 ${Math.round(downMs / 1_000)}s）`);
+      this.handlers.onReconnected?.({ attempts, downMs });
+    } catch (error) {
+      if (error instanceof SubscribeFailedError) {
+        // 凭据错误等：重试也不会好，停下来等人工处理，避免每次连接都被踢
+        this.stopped = true;
+        this.log(`重连被服务端拒绝，停止重连：${error.message}`);
+        return;
+      }
+      this.log(
+        `第 ${attempts} 次重连失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.scheduleReconnect();
     }
   }
 
@@ -381,11 +533,22 @@ export class WeComBotAdapter implements BotPort {
 
   private startPing(): void {
     this.stopPing();
+    this.pingFailures = 0;
     this.pingTimer = setInterval(() => {
-      if (!this.authed) return;
-      this.request('ping').catch((error: unknown) => {
-        this.log(`ping 失败：${error instanceof Error ? error.message : String(error)}`);
-      });
+      if (!this.authed || this.ws === undefined) return;
+      this.request('ping')
+        .then(() => {
+          this.pingFailures = 0;
+        })
+        .catch((error: unknown) => {
+          if (this.stopped || this.ws === undefined) return;
+          this.pingFailures += 1;
+          this.log(
+            `ping 失败（连续 ${this.pingFailures} 次）：${error instanceof Error ? error.message : String(error)}`,
+          );
+          // #226：半开连接不会触发 close，只能靠心跳次数兜底
+          if (this.pingFailures >= (this.config.pingFailureLimit ?? 2)) this.dropHalfOpen();
+        });
     }, this.config.pingIntervalMs);
     // 不阻塞进程退出（测试与 CLI 都只靠长连接本身保活）
     this.pingTimer.unref?.();

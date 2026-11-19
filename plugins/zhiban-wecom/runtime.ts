@@ -197,6 +197,12 @@ export class WecomRuntime {
    * 第一次同步按 sidebarBackfillHours 回看补建；之后每轮只扫增量。
    */
   private sidebarSyncedAt?: number;
+  /**
+   * #226：长连接断开期间为 true，避免每次重连失败都重复发告警；
+   * botAlertId 是这次断线告警在控制台里的 id，恢复后据此自动关闭。
+   */
+  private botDown = false;
+  private botAlertId?: string;
 
   constructor(deps: WecomRuntimeDeps) {
     this.store = deps.store;
@@ -814,18 +820,51 @@ export class WecomRuntime {
     }
   }
 
-  /** 长连接关闭：#65 要求 demo 被踢时立刻告警 */
+  /**
+   * #65 / #226 长连接断开。
+   *
+   * 适配器会按退避自动重连，所以这里只负责「让运维看得见」：
+   * 一次断线只发一条告警（重连失败不重复刷屏），恢复后由 handleBotReconnected 关闭。
+   * 文案要写清后果——断线期间企微 1:1 消息是收不到的。
+   */
   handleBotClose(code: number): void {
-    this.log(`长连接已关闭 code=${code}`);
+    this.log(`机器人长连接断开 code=${code}；1:1 消息在恢复前收不到，适配器正在自动重连`);
+    if (this.botDown) return;
+    this.botDown = true;
     if (this.config.environment !== 'demo') return;
 
+    const at = this.clock.now();
+    const alertId = `alt_botdc_${at}`;
+    this.botAlertId = alertId;
     const alert: Alert = {
+      id: alertId,
       kind: 'BOT_DISCONNECTED',
-      message: `demo 机器人长连接被关闭（code=${code}）；可能被其他实例顶掉，请检查开发环境是否误用 demo 凭据`,
-      at: this.clock.now(),
+      message: `机器人长连接断开（code=${code}），恢复前企微 1:1 消息收不到；适配器正在自动重连`,
+      at,
     };
     this.store.emitAlert(alert);
     this.emit('alert.created', alert);
+  }
+
+  /** #226 适配器重连成功：日志 + 把本次断线告警标为已处理 */
+  handleBotReconnected(info: { attempts: number; downMs: number }): void {
+    const downSeconds = Math.max(1, Math.round(info.downMs / 1_000));
+    this.log(`机器人长连接已恢复（尝试 ${info.attempts} 次，断开约 ${downSeconds}s）`);
+    if (!this.botDown) return;
+    this.botDown = false;
+    const id = this.botAlertId;
+    this.botAlertId = undefined;
+    if (!id) return;
+    const at = this.clock.now();
+    // 控制台按 alert.updated 处理：只认「open → resolved」，不动人工已处理的告警
+    this.emit('alert.updated', {
+      id,
+      kind: 'BOT_DISCONNECTED',
+      status: 'resolved',
+      resolvedBy: 'system:bot-reconnect',
+      resolvedAt: at,
+      updatedAt: at,
+    });
   }
 
   /** 把存档 seq 与最后运行时刻写进领域存储，重启后从此处续拉 */

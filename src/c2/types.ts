@@ -223,6 +223,11 @@ export interface Alert {
   kind: AlertKind;
   message: string;
   at: number;
+  /**
+   * #226 可选的外部 id：需要事后更新同一条告警（如长连接恢复后自动关闭）时填。
+   * 控制台按 `alt_` 前缀沿用这个 id，否则自己生成。
+   */
+  id?: string;
   advisorId?: string;
   draftId?: string;
 }

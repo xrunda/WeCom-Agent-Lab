@@ -203,6 +203,14 @@ export class AlertService {
       updated.source = sourceRaw;
       changed = true;
     }
+    // #226 断开类告警由产生方在恢复后自动关闭：只认 open → resolved，
+    // 不覆盖人工已经处理（acknowledged / resolved）的状态。
+    if (asString(event.status) === 'resolved' && updated.status === 'open') {
+      updated.status = 'resolved';
+      updated.resolvedBy = asString(event.resolvedBy) ?? 'system';
+      updated.resolvedAt = asNumber(event.resolvedAt) ?? this.now();
+      changed = true;
+    }
     if (!changed) return existing;
     updated.updatedAt = asNumber(event.updatedAt) ?? this.now();
     this.store.saveAlert(updated);
