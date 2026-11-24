@@ -763,7 +763,26 @@ CREATE INDEX idx_h5_audit_at ON h5_audits(tenant_id, at DESC);
 
 ---
 
-## 8. 与现有系统的兼容清单（验收映射）
+## 7.1 路径归属（患者端新增代码，多包并行依据）
+
+「患者端新增路径与跨包文件归属先在契约中确定，不能直接越界修改其他工作包」（各 PH5 issue）。归属如下：
+
+| 路径 | 归属 | 约定 |
+|---|---|---|
+| `docs/PATIENT-H5-data-model.md`、`docs/PATIENT-H5-api.md` | PH5-01 | 变更走 §13；其他包需要改契约时在自己的 PR 里评论登记 |
+| `src/p1/patient-h5.ts` | PH5-02 | 身份/邀请/会话/授权/隐私领域逻辑 |
+| `src/p1/patient-h5-<域>.ts` | 各包自有文件：profile（PH5-03/10）、plan（PH5-04）、calendar（PH5-05）、record（PH5-06）、followup（PH5-07）、content（PH5-08）、reminder（PH5-09） | 新建文件，不改他人文件 |
+| `plugins/zhiban-patient-h5/`（config.ts、domain.ts、http.ts、index.ts） | PH5-02 建骨架 | 后续包新增自己的 `plugins/zhiban-patient-h5/routes/<域>.ts`，不改骨架文件 |
+| `plugins/zhiban-console/routes/ph5-*.ts` | 各包自有文件 | 团队端接口；`plugins/zhiban-console/index.ts` 仅允许追加一小段装配调用（同 h-knowledge 先例），不改框架 |
+| `patient-h5/`（Vite 前端） | PH5-03 建骨架 | 页面目录 `patient-h5/src/pages/<页面>/` 各包自有；`patient-h5/src/api/`、`src/mock/`、根配置由建骨架包维护，其他包新增不改 |
+| `tests/ph5-*.test.ts` | 各包自有测试文件 | `tests/helpers.ts`、`tests/p1-helpers.ts` 不改（需要公共工具时放 `src/p1/patient-h5-<域>.ts` 内导出） |
+| `docs/design/patient-h5/**` | PH5-03 | 素材与清单 |
+| `docs/PATIENT-H5-VALIDATION.md` | PH5-11 | 验收报告 |
+| nginx / `deploy/` | PH5-11 | `/zhiban/h5` 与 `/h5/` 路由在部署包落地；PH5-02–10 本地开发经 DSH webServer 直连 |
+
+现有 P1 目录（`src/c2/**`、`plugins/zhiban-{wecom,patient,memory,care,guard,knowledge,console,advisor}/**`、`console/**`）对 PH5 各包**只读**（console 的 `routes/ph5-*.ts`、`index.ts` 装配追加、患者详情页的邀请区块组件目录除外）。
+
+
 
 | 现状 | 兼容方式 |
 |---|---|
