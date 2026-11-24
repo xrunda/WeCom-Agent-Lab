@@ -5,6 +5,9 @@
 > v1.1 修订：同步 P1 已实现能力——工作台「团队关注」、慢病管理、语音消息转写、企微内话术查询、称呼自定义
 > 配套：[P1 范围（模块、档位、交付清单）](docs/P1-scope.md) · [交接文档（平台事实 F1–F15）](docs/HANDOFF-C2-business-product.md) · [任务清单](ISSUES.md)
 
+> 产品方向讨论：[产品顶层定义](docs/PRODUCT-FOUNDATION.md)（阶段性共识，不直接变更 P1 范围）
+> 新增范围：[患者端 H5 PRD](docs/PATIENT-H5-PRD.md) · [里程碑与工作包](docs/PATIENT-H5-PLAN.md)（单独评审和排期）
+
 本文回答**做什么、为谁做、为什么、边界在哪**。具体到页面、接口、验收的内容，看 P1 范围文档和各个 issue。
 
 ---
