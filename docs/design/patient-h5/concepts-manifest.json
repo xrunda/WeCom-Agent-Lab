@@ -1,0 +1,128 @@
+{
+  "version": "0.1",
+  "date": "2026-11-24",
+  "purpose": "整页概念效果图归档，非正式页面素材或已实现界面",
+  "generator": "image_gen 内置生成工具",
+  "concepts": [
+    {
+      "pageId": "H01",
+      "title": "食养主张",
+      "file": "concepts/h01-food-philosophy-v1.png",
+      "sourceFilename": "exec-efd4cd87-9a2d-4daa-940c-fe208a7cb560.png",
+      "width": 862,
+      "height": 1824,
+      "bytes": 1694727,
+      "sha256": "f9deba55d2ffa2dbdf968413910ce9110e6883e9ded3c9ef85917eb8963dc6e0",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H04",
+      "title": "健康计划",
+      "file": "concepts/h04-health-plan-v1.png",
+      "sourceFilename": "exec-ebc89061-ca5e-4b5c-8ece-dcff99d917c3.png",
+      "width": 910,
+      "height": 1728,
+      "bytes": 1801770,
+      "sha256": "3ae290081cb4f4e59322d4ea3772fc908a8ec60d59a78fd6e494245d3b1bfbe5",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H05",
+      "title": "健康日历",
+      "file": "concepts/h05-health-calendar-v1.png",
+      "sourceFilename": "exec-8c6af653-f024-4081-ab64-21a4a6a37ff5.png",
+      "width": 911,
+      "height": 1726,
+      "bytes": 1747364,
+      "sha256": "6cfd49d3d47c43715b46309a6f1d2432d36b770e6342360fac3beabc2e3e7cd2",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H08-list",
+      "title": "食养阅读",
+      "file": "concepts/h08-food-reading-v1.png",
+      "sourceFilename": "exec-5d081c51-990c-43f1-96c5-b9118f31c547.png",
+      "width": 911,
+      "height": 1727,
+      "bytes": 1960824,
+      "sha256": "aa405e4afe5bd7a7a3b53caf3b238de1c4c8496231a26f953d3da75e771c3f80",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H03",
+      "title": "今日首页",
+      "file": "concepts/h03-today-v1.png",
+      "sourceFilename": "exec-4ed029d9-8a14-40f7-85ee-9cb78126a375.png",
+      "width": 910,
+      "height": 1727,
+      "bytes": 1804732,
+      "sha256": "21601a4f9a6e9f5ee12b23b83cff10102430b6acf641c7cf58fe71815067a762",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H06",
+      "title": "餐食记录",
+      "file": "concepts/h06-meal-record-v1.png",
+      "sourceFilename": "exec-5e1cafc5-ec8d-4005-ac99-bf00787a19a0.png",
+      "width": 909,
+      "height": 1730,
+      "bytes": 1939127,
+      "sha256": "33f2f1810141f5cd07420de399a7c4645ff60b3bb9fa0e12ee2e8f865f6015af",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H07",
+      "title": "晚间回顾",
+      "file": "concepts/h07-evening-review-v1.png",
+      "sourceFilename": "exec-ee3b19c8-5955-4a77-8623-6a36c2d3a14a.png",
+      "width": 910,
+      "height": 1728,
+      "bytes": 1521313,
+      "sha256": "591da8eae516a9b3c977286f521b32790b7cff72abd420fb80b4a68e1140e66f",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H09",
+      "title": "个人中心",
+      "file": "concepts/h09-my-health-v1.png",
+      "sourceFilename": "exec-72986c19-37e9-4105-a64b-5f17b5d33744.png",
+      "width": 909,
+      "height": 1730,
+      "bytes": 1549636,
+      "sha256": "490c7228653117d24d618fdaeba5e4ada04e883d6072508da53b471c120f174d",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H08-detail",
+      "title": "食养文章详情",
+      "file": "concepts/h08-article-detail-v1.png",
+      "sourceFilename": "exec-f370e18e-f5d0-4471-8004-955482f37839.png",
+      "width": 911,
+      "height": 1727,
+      "bytes": 1826399,
+      "sha256": "8207b880af961332616bcaa41e0a3a969267bb87d674ac62f4d60732e0d7aad2",
+      "status": "concept-reference",
+      "productionAsset": false
+    },
+    {
+      "pageId": "H10",
+      "title": "专业团队联系",
+      "file": "concepts/h10-care-team-v1.png",
+      "sourceFilename": "exec-2debf459-db13-408a-bb13-f55ffa793a36.png",
+      "width": 910,
+      "height": 1729,
+      "bytes": 1636904,
+      "sha256": "5e9459fda67ae463756ea1b68b4cf6db2379401d3aa7f63a28659a4a928a7a34",
+      "status": "concept-reference",
+      "productionAsset": false
+    }
+  ]
+}

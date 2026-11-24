@@ -3,6 +3,7 @@
 > 2026-11-24 · 状态：已创建 GitHub 规划，未开始实施。
 > 依据：[患者端 H5 PRD](PATIENT-H5-PRD.md) · [产品顶层定义](PRODUCT-FOUNDATION.md)
 > 总任务：[患者端 H5 Epic #228](https://github.com/xrunda/WeCom-Agent-Lab/issues/228)
+> 视觉参考：[效果图索引](design/patient-h5/README.md) · [素材清单与交付规范](design/patient-h5/ASSET-INVENTORY.md)
 
 ## 里程碑
 
