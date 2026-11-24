@@ -3,6 +3,10 @@
 > 版本：**v1.0**（2026-11-09）· 归属：WP-A（#62）
 > 配套：[P1-api.md](./P1-api.md) · 范围：[P1-scope.md](./P1-scope.md) · 平台约束：[HANDOFF-C2-business-product.md](./HANDOFF-C2-business-product.md) §1
 > 本文是前后端字段的**唯一依据**。后端实现、前端 mock、fixtures 与本文不一致时，以本文为准；需要改字段时按 §10 的流程走。
+>
+> **患者端 H5 契约**（新增于 PH5-01 #230，独立于本文范围，不改本文任何实体）：
+> [PATIENT-H5-data-model.md](./PATIENT-H5-data-model.md)（患者域新增实体与状态机）·
+> [PATIENT-H5-api.md](./PATIENT-H5-api.md)（患者 `/zhiban/h5` 前缀接口）。
 
 ---
 
