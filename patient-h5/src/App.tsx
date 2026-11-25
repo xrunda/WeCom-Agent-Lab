@@ -21,11 +21,12 @@ import { TeamPage } from './pages/TeamPage.tsx';
 import { RecordsPage } from './pages/RecordsPage.tsx';
 import { PrefsPage } from './pages/PrefsPage.tsx';
 import { Icon, type IconName } from './components/Icon.tsx';
+import { ArticlePage } from './pages/ArticlePage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { OnboardingWizard } from './pages/OnboardingWizard.tsx';
 import { TodayPage } from './pages/TodayPage.tsx';
 
-type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'team' | 'records' | 'prefs' | 'app';
+type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'team' | 'records' | 'prefs' | 'article' | 'app';
 type Tab = 'today' | 'calendar' | 'nurture' | 'me';
 
 /** 从地址栏提取一次性邀请码并立即清理 URL（不进入历史与分享链接） */
@@ -49,6 +50,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('today');
   const [me, setMe] = useState<MeResponse | null>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [articleId, setArticleId] = useState<string | null>(null);
 
   const toLogin = useCallback(() => {
     setStage('login');
@@ -154,6 +156,12 @@ export function App() {
     return <PrivacyPage onUnauthorized={toLogin} onDone={() => setStage('app')} />;
   }
 
+  if (stage === 'article' && articleId) {
+    return (
+      <ArticlePage articleId={articleId} onBack={() => setStage('app')} onUnauthorized={toLogin} />
+    );
+  }
+
   if (stage === 'records') {
     return <RecordsPage onBack={() => setStage('app')} onUnauthorized={toLogin} />;
   }
@@ -230,7 +238,15 @@ export function App() {
           onOpenTeam={() => setStage('team')}
         />
       )}
-      {tab === 'nurture' && <NurturePage onUnauthorized={toLogin} />}
+      {tab === 'nurture' && (
+        <NurturePage
+          onUnauthorized={toLogin}
+          onOpenArticle={(id) => {
+            setArticleId(id);
+            setStage('article');
+          }}
+        />
+      )}
       {tab === 'me' && (
         <MePage
           me={me}

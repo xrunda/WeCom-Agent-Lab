@@ -52,6 +52,8 @@ import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
 import { createCalendarRoutes } from './routes/calendar.ts';
 import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './routes/records.ts';
 import { createFollowupRoutes } from './routes/followup.ts';
+import { createContentRoutes } from './routes/content.ts';
+import { ContentService, MemoryContentBackend } from '../../src/p1/patient-h5-content.ts';
 import { FollowupService, MemoryFollowupBackend } from '../../src/p1/patient-h5-followup.ts';
 import { MemoryReminderBackend, ReminderService } from '../../src/p1/patient-h5-reminder.ts';
 import { createProfileCenterRoutes } from './routes/profile-center.ts';
@@ -235,6 +237,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     let recordTable: AnyTableLike | undefined;
     let mediaTable: AnyTableLike | undefined;
     let reminderTable: AnyTableLike | undefined;
+    let contentTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
@@ -246,6 +249,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       recordTable = domain.table('patient_records') as unknown as AnyTableLike;
       mediaTable = domain.table('h5_media') as unknown as AnyTableLike;
       reminderTable = domain.table('reminder_tasks') as unknown as AnyTableLike;
+      contentTable = domain.table('content_articles') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -516,7 +520,25 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
         patientView(patientId)?.accompaniedSince ?? service.getBinding(patientId)?.boundAt ?? null,
     });
 
+    const contentBackend = contentTable
+      ? {
+          load: () =>
+            [...contentTable!.entries()]
+              .map(([, value]) => value as never)
+              .filter((item) => (item as { tenantId?: string }).tenantId === config.tenantId),
+          put: (record: { id: string }) => contentTable!.put(record.id, record),
+        }
+      : new MemoryContentBackend();
+    const content = new ContentService({
+      tenantId: config.tenantId,
+      backend: contentBackend as never,
+      ids: idFactory(Date.now),
+      onAudit: (event) => ctx.emit('h5.content.audit', event),
+    });
+    ctx.provide('zhibanPatientH5Content', content);
+
     const extensions = [
+      ...createContentRoutes({ content }),
       ...createProfileCenterRoutes({
         center,
         tenantReminderDefaults: { dailyLimit: 2, quietHours: { start: '21:00', end: '08:00' } },

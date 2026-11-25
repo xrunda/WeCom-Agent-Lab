@@ -347,6 +347,30 @@ export interface ArticleView {
   publishedAt: number;
 }
 
+export interface ArticleSectionView {
+  kind: 'classic_quote' | 'plain_explanation' | 'modern_life' | 'practice' | 'brand_copy';
+  text: string;
+  citation?: string;
+  verified?: boolean;
+}
+
+export interface ArticleDetailView extends ArticleView {
+  sections: ArticleSectionView[];
+  authorName: string;
+  citations: Array<{ text: string; source: string; verified: boolean }>;
+  ingredientSafety?: { usage: string; conditions: string; cautions: string };
+  seasonTerm?: string | null;
+  version: number;
+}
+
+export async function fetchArticleDetail(id: string): Promise<ArticleDetailView> {
+  if (isDemoMode()) {
+    const { demoArticleDetail } = await import('./mock/demo-api.ts');
+    return demoArticleDetail(id);
+  }
+  return apiRequest<ArticleDetailView>(`/articles/${id}`);
+}
+
 export async function fetchArticles(): Promise<{ items: ArticleView[] }> {
   if (isDemoMode()) {
     const { demoArticles } = await import('./mock/demo-api.ts');
