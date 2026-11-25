@@ -17,11 +17,12 @@ import { InviteLoginPage } from './pages/InviteLoginPage.tsx';
 import { MePage } from './pages/MePage.tsx';
 import { NurturePage } from './pages/NurturePage.tsx';
 import { PlanPage } from './pages/PlanPage.tsx';
+import { TeamPage } from './pages/TeamPage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { OnboardingWizard } from './pages/OnboardingWizard.tsx';
 import { TodayPage } from './pages/TodayPage.tsx';
 
-type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'app';
+type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'team' | 'app';
 type Tab = 'today' | 'calendar' | 'nurture' | 'me';
 
 /** 从地址栏提取一次性邀请码并立即清理 URL（不进入历史与分享链接） */
@@ -150,6 +151,10 @@ export function App() {
     return <PrivacyPage onUnauthorized={toLogin} onDone={() => setStage('app')} />;
   }
 
+  if (stage === 'team') {
+    return <TeamPage onBack={() => setStage('app')} onUnauthorized={toLogin} />;
+  }
+
   if (stage === 'plan') {
     return (
       <PlanPage
@@ -203,6 +208,7 @@ export function App() {
           onStartOnboarding={() => setStage('onboarding')}
           onOpenCalendar={() => setTab('calendar')}
           onOpenNurture={() => setTab('nurture')}
+          onOpenTeam={() => setStage('team')}
           onUnauthorized={toLogin}
         />
       )}

@@ -51,6 +51,8 @@ import type { ManifestoConfig } from './routes/profile.ts';
 import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
 import { createCalendarRoutes } from './routes/calendar.ts';
 import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './routes/records.ts';
+import { createFollowupRoutes } from './routes/followup.ts';
+import { FollowupService, MemoryFollowupBackend } from '../../src/p1/patient-h5-followup.ts';
 import { MemoryRecordBackend, RecordService, UNCONFIGURED_RECOGNITION } from '../../src/p1/patient-h5-record.ts';
 import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
@@ -340,12 +342,54 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       onAudit: (event) => ctx.emit('h5.audit', event),
       onPlanEvent: (event) => ctx.emit('h5.plan.event', event),
     });
+    // PH5-07：跟进请求统一由 FollowupService 管理（认领、SLA、升级）
+    const followupBackend = followupTable
+      ? {
+          load: () =>
+            [...followupTable!.entries()]
+              .map(([, value]) => value as never)
+              .filter((item) => (item as { tenantId?: string }).tenantId === config.tenantId),
+          put: (record: { id: string }) => followupTable!.put(record.id, record),
+        }
+      : new MemoryFollowupBackend();
+    const followups = new FollowupService({
+      tenantId: config.tenantId,
+      backend: followupBackend as never,
+      ids: idFactory(Date.now),
+      ...(config.supervisorAccountId
+        ? { supervisorAccountId: config.supervisorAccountId }
+        : {}),
+      onAudit: (event) => ctx.emit('h5.followup.audit', event),
+    });
+    /** 兼容旧调用点：把历史写法收敛到统一服务 */
     const adjust = {
-      put: (record: Record<string, unknown>) =>
-        followupTable
-          ? followupTable.put(String(record.id), record)
-          : Promise.resolve(),
+      put: async (record: Record<string, unknown>) => {
+        await followups.create({
+          patientId: String(record.patientId),
+          kind: (record.kind as never) ?? 'question',
+          message: String(record.message ?? ''),
+          ...(typeof record.linkedPlanId === 'string' && record.linkedPlanId
+            ? { linkedPlanId: record.linkedPlanId }
+            : {}),
+          ...(typeof record.linkedCalendarItemId === 'string'
+            ? { linkedCalendarItemId: record.linkedCalendarItemId }
+            : {}),
+          ...(typeof record.linkedRecordId === 'string'
+            ? { linkedRecordId: record.linkedRecordId }
+            : {}),
+        });
+      },
     };
+
+    ctx.provide('zhibanPatientH5Followup', {
+      list: (query: { status?: string; patientIds?: string[] }) =>
+        followups.listForTeam(query as never),
+      claim: (input: { id: string; accountId: string; accountName: string }) => followups.claim(input),
+      resolve: (input: { id: string; accountId: string; note: string }) => followups.resolve(input),
+      unresolvedCount: (patientIds?: string[]) => followups.unresolvedCount(patientIds),
+      escalateOverdue: () => followups.escalateOverdue(),
+      get: (id: string) => followups.findById(id),
+    });
 
     ctx.provide('zhibanPatientH5Plan', {
       list: (patientId: string) => plan.list(patientId),
@@ -378,18 +422,13 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       ids: idFactory(Date.now),
       sideEffects: {
         createRiskFollowup: async (input) => {
-          await adjust.put({
-            id: idFactory(() => Date.now())('fup'),
-            tenantId: config.tenantId,
+          // 不适反馈按风险类处理：SLA 更短，且不会被当成普通计划调整
+          await followups.create({
             patientId: input.patientId,
-            kind: 'plan_adjust',
+            kind: 'risk',
             message: input.message,
-            linkedPlanId: '',
-            planVersion: 0,
-            riskLevel: 'low',
-            status: 'pending',
-            createdAt: input.at,
-            updatedAt: input.at,
+            riskLevel: 'medium',
+            linkedRecordId: input.recordId,
           });
         },
         matchCalendarItem: async (input) => {
@@ -400,6 +439,20 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     const mediaStore = new MemoryMediaStore();
 
     const extensions = [
+      ...createFollowupRoutes({
+        followups,
+        team: () => ({
+          advisorName: patientView('')?.advisorId ? '负责顾问' : '负责顾问',
+          members: [],
+          serviceHours: config.serviceHours ?? '工作日 09:00–18:00',
+          categories: [
+            { key: 'plan', label: '计划问题' },
+            { key: 'record', label: '记录问题' },
+            { key: 'body', label: '身体感受' },
+            { key: 'other', label: '其他' },
+          ],
+        }),
+      }),
       ...createRecordRoutes({ records: recordService, media: mediaStore }),
       ...createCalendarRoutes({ calendar: calendarService }),
       ...createPlanRoutes({ plan, adjust, ids: idFactory(Date.now) }),

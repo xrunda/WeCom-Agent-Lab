@@ -44,6 +44,7 @@ interface Props {
   onStartOnboarding: () => void;
   onOpenCalendar: () => void;
   onOpenNurture: () => void;
+  onOpenTeam: () => void;
   onUnauthorized: () => void;
 }
 
@@ -53,6 +54,7 @@ export function TodayPage({
   onStartOnboarding,
   onOpenCalendar,
   onOpenNurture,
+  onOpenTeam,
   onUnauthorized,
 }: Props) {
   const [today, setToday] = useState<TodayView | null>(null);
@@ -220,7 +222,7 @@ export function TodayPage({
               <p className="team-card__title">专业团队一直在这里</p>
               <p className="muted">有疑问、想沟通，随时联系。</p>
             </div>
-            <button type="button" className="btn btn-secondary btn-inline">
+            <button type="button" className="btn btn-secondary btn-inline" onClick={onOpenTeam}>
               联系团队
             </button>
           </section>

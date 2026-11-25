@@ -108,6 +108,7 @@ import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
 import type { KnowledgeApi } from './routes/h-knowledge.ts';
 import { registerPatientH5InvitationRoutes } from './routes/ph5-invitations.ts';
 import { registerPatientH5PlanRoutes } from './routes/ph5-plan.ts';
+import { registerPatientH5FollowupRoutes } from './routes/ph5-followup.ts';
 import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
 import type { GuardRulesApi } from './routes/h-risk-rules.ts';
 import { registerScriptRoutes } from './routes/h-scripts.ts';
@@ -1403,6 +1404,39 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
             patientId: plan.patientId,
             version: plan.version,
             status: plan.status,
+          }),
+        );
+      },
+    });
+
+    // PH5-07（#236）跟进队列：认领与处理由 zhiban-patient-h5 执行，控制台做权限与审计。
+    registerPatientH5FollowupRoutes({
+      router,
+      getFollowup: () => ctx.get('zhibanPatientH5Followup'),
+      tenantActor,
+      patientScope: (actor) => {
+        // scope=self：只看名下患者（账号表上的 scope/advisorId，契约 §1.6）
+        const account = actor.account as { scope?: string; advisorId?: string };
+        if (account.scope !== 'self' || !account.advisorId) return undefined;
+        const api = patientReadApi();
+        const ids = (api?.listPatients?.() ?? [])
+          .filter((item) => item.advisorId === account.advisorId)
+          .map((item) => item.id);
+        return ids;
+      },
+      assertScope: (actor, patientId) => {
+        const account = actor.account as { scope?: string; advisorId?: string };
+        if (account.scope !== 'self') return;
+        const api = patientReadApi();
+        const owned = (api?.listPatients?.() ?? []).some(
+          (item) => item.id === patientId && item.advisorId === account.advisorId,
+        );
+        if (!owned) throw new ConsoleError('NOT_FOUND', '请求不存在');
+      },
+      audit: (actor, action, followupId, patientId) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'followup_request', followupId, {
+            patientId,
           }),
         );
       },
