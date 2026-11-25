@@ -222,6 +222,32 @@ export function demoUpdatePrefs(
   return demoPrefsState;
 }
 
+export function demoArticleDetail(id: string): import('../api.ts').ArticleDetailView {
+  const base = DEMO_ARTICLES.find((item) => item.id === id) ?? DEMO_ARTICLES[0]!;
+  return {
+    ...base,
+    sections: [
+      {
+        kind: 'classic_quote',
+        text: '五谷为养，五果为助，五畜为益，五菜为充',
+        citation: '《黄帝内经·素问·脏气法时论》',
+        verified: true,
+      },
+      { kind: 'plain_explanation', text: '主食养身，果菜相助；把种类吃全、份量适当，就是日常的食养。' },
+      { kind: 'practice', text: '今天的早餐可以多加一种蔬菜，主食保持七分饱。' },
+    ],
+    authorName: '编辑部',
+    citations: [
+      {
+        text: '五谷为养，五果为助，五畜为益，五菜为充',
+        source: '《黄帝内经·素问·脏气法时论》',
+        verified: true,
+      },
+    ],
+    version: 2,
+  };
+}
+
 export function demoPlan(): Promise<PlanView> {
   return Promise.resolve({
     id: DEMO_PLAN.id,

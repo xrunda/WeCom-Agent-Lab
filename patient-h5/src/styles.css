@@ -2357,3 +2357,29 @@ body {
   font-size: 14px;
   color: var(--ink-soft);
 }
+
+/* ---------- 文章详情（H08） ---------- */
+/* ---------- 文章详情（H08） ---------- */
+.article-detail__head h1 {
+  margin: 6px 0 4px;
+  font-size: 24px;
+  line-height: 1.4;
+  font-family: 'Songti SC', 'STSong', 'Noto Serif SC', serif;
+}
+
+.article-detail__cover {
+  margin: 10px 0 14px;
+}
+
+.article-detail__body p {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.article-detail__foot {
+
+.article-detail__foot {
+  text-align: center;
+  margin: 14px 0;
+}

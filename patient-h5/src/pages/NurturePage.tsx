@@ -40,9 +40,10 @@ interface Props {
   onStart?: () => void;
   onSkip?: () => void;
   onUnauthorized?: () => void;
+  onOpenArticle?: (id: string) => void;
 }
 
-export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
+export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArticle }: Props) {
   const [manifesto, setManifesto] = useState<Manifesto | null>(null);
   const [articles, setArticles] = useState<ArticleView[]>([]);
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('recommend');
@@ -150,7 +151,15 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
       </nav>
 
       {featured ? (
-        <article className="featured-card">
+        <article
+          className="featured-card"
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpenArticle?.(featured.id)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') onOpenArticle?.(featured.id);
+          }}
+        >
           <AssetSlot
             id="P06"
             ratio="16 / 10"
@@ -190,7 +199,16 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
       <ul className="article-list">
         {rest.length === 0 && <li className="muted article-list__empty">更多内容整理中。</li>}
         {rest.map((item) => (
-          <li className="article-row" key={item.id}>
+          <li
+            className="article-row"
+            key={item.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpenArticle?.(item.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') onOpenArticle?.(item.id);
+            }}
+          >
             <AssetSlot
               id="P07"
               ratio="1 / 1"
