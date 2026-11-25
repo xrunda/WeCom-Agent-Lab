@@ -4,12 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import {
-  ApiError,
-  createPrivacyRequest,
-  fetchPrivacySummary,
-  newIdempotencyKey,
-} from '../api.ts';
+import { ApiError, createPrivacyRequest, fetchPrivacySummary } from '../api.ts';
 import type { PrivacySummary } from '../api.ts';
 
 interface Props {
@@ -21,6 +16,20 @@ const KIND_LABEL: Record<string, string> = {
   correction: '申请更正',
   deletion: '申请删除',
 };
+
+const CONSENT_SCOPE_LABEL: Record<string, string> = {
+  health_processing: 'AI 处理健康信息',
+  team_access: '团队查看记录',
+};
+
+/** 内容指纹：同一份申请重试时复用幂等键（不含健康正文之外的语义） */
+function hashText(text: string): string {
+  let hash = 5381;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
 
 const STATUS_LABEL: Record<string, { text: string; tag: string }> = {
   submitted: { text: '待处理', tag: 'tag tag-pending' },
@@ -56,7 +65,10 @@ export function PrivacyPage({ onUnauthorized }: Props) {
     }
     setSubmitting(true);
     try {
-      await createPrivacyRequest({ kind, detail: detail.trim(), idempotencyKey: newIdempotencyKey() });
+      // 幂等键按「类型 + 内容」派生：弱网重试沿用同一个 key，服务端才能去重；
+      // 内容改了才换 key（避免把不同申请并成一条）。
+      const key = `prq_${kind}_${hashText(detail.trim())}`;
+      await createPrivacyRequest({ kind, detail: detail.trim(), idempotencyKey: key });
       setNotice('申请已提交，团队处理后你会在服务会话收到回复。');
       setDetail('');
       reload();
@@ -78,7 +90,15 @@ export function PrivacyPage({ onUnauthorized }: Props) {
         </div>
         <div className="status-line">
           <span className="label">团队可见范围</span>
-          <span>{summary ? (summary.requests.length >= 0 ? '见授权页逐项设置' : '') : '—'}</span>
+          <span>
+            {summary
+              ? summary.teamAccessScopes.length === 0
+                ? '当前未向团队开放'
+                : summary.teamAccessScopes
+                    .map((scope) => CONSENT_SCOPE_LABEL[scope] ?? scope)
+                    .join('、')
+              : '—'}
+          </span>
         </div>
         <p className="muted">
           撤回授权、更正、导出或删除都在这里发起；处理进度会显示在下方。

@@ -101,7 +101,8 @@ export interface PatientH5RuntimeApi {
   }): Promise<PrivacyRequestRecord>;
   meStatus(patientId: string): string;
   /** 供控制台展示邀请链接（一次性返回，不落日志；列表不再回 code） */
-  invitationLink(record: InvitationRecord, publicBaseUrl: string): string;
+  /** 邀请链接（域名来自服务端配置，不接受调用方传入，防钓鱼域名注入） */
+  invitationLink(record: InvitationRecord): string;
 }
 
 const DEFAULT_H5_PUBLIC_BASE = 'https://h5.example.invalid';
@@ -193,14 +194,22 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
         const patient = patientView(patientId);
         return patient ? service.meStatus(patient) : 'service_paused';
       },
-      invitationLink: (record, publicBaseUrl) =>
-        `${publicBaseUrl || DEFAULT_H5_PUBLIC_BASE}/h5/invite?code=${encodeURIComponent(record.code)}`,
+      invitationLink: (record) =>
+        `${config.publicBaseUrl ?? DEFAULT_H5_PUBLIC_BASE}/h5/invite?code=${encodeURIComponent(record.code)}`,
     };
     ctx.provide('zhibanPatientH5', api);
+
+    if (!config.publicBaseUrl) {
+      log('未配置 publicBaseUrl：邀请链接会指向占位域名，真实发放前必须在配置中登记 H5 站点地址');
+    }
+    if (!config.cookieSecure) {
+      log('警告：cookieSecure=false，会话 Cookie 允许明文传输；仅限本地开发，生产必须为 true');
+    }
 
     registerPatientH5Http(ctx.webServer, {
       service,
       allowedOrigins: config.allowedOrigins,
+      cookieSecure: config.cookieSecure,
       log,
     });
 

@@ -143,6 +143,8 @@ export function decideConsent(input: {
 
 export interface PrivacySummary {
   retentionNotice: string;
+  /** 已授权给团队的 scope（契约 api §3.3） */
+  teamAccessScopes: string[];
   requests: Array<{
     id: string;
     kind: 'export' | 'correction' | 'deletion';

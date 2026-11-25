@@ -21,6 +21,10 @@ export interface PatientH5Config {
   retentionNotice: string;
   /** H5 前端来源（Origin 校验白名单）；空数组 = 只允许同源 */
   allowedOrigins: string[];
+  /** H5 站点公网地址，用于生成邀请链接；必须由服务端配置，不从请求参数取 */
+  publicBaseUrl?: string;
+  /** 会话 Cookie 是否带 Secure；生产置 true（默认按 publicBaseUrl 协议推断） */
+  cookieSecure: boolean;
 }
 
 interface RawConfig {
@@ -34,6 +38,8 @@ interface RawConfig {
   consentTextsVersion?: unknown;
   retentionNotice?: unknown;
   allowedOrigins?: unknown;
+  publicBaseUrl?: unknown;
+  cookieSecure?: unknown;
 }
 
 const DEFAULTS = {
@@ -64,6 +70,17 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
   const loginModeRaw = input.patientLoginMode;
   const patientLoginMode: PatientLoginMode =
     loginModeRaw === 'invite_only' ? 'invite_only' : 'invite_then_phone';
+  const publicBaseUrl =
+    typeof input.publicBaseUrl === 'string' && /^https?:\/\//.test(input.publicBaseUrl)
+      ? input.publicBaseUrl.replace(/\/+$/, '')
+      : undefined;
+  // 默认策略：站点配置为 http:// 才允许非 Secure Cookie；其余一律 Secure
+  const cookieSecure =
+    typeof input.cookieSecure === 'boolean'
+      ? input.cookieSecure
+      : publicBaseUrl === undefined
+        ? true
+        : publicBaseUrl.startsWith('https://');
   return {
     tenantId: input.tenantId,
     smsMode,
@@ -92,5 +109,7 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
     allowedOrigins: Array.isArray(input.allowedOrigins)
       ? input.allowedOrigins.filter((item): item is string => typeof item === 'string')
       : [],
+    ...(publicBaseUrl ? { publicBaseUrl } : {}),
+    cookieSecure,
   };
 }

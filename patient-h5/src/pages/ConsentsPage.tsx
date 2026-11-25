@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import { ApiError, decideConsent, fetchConsents, reportEvent } from '../api.ts';
+import { ApiError, decideConsent, fetchConsents } from '../api.ts';
 import type { ConsentItem } from '../api.ts';
 
 interface Props {
@@ -47,7 +47,6 @@ export function ConsentsPage({ onUnauthorized, onDone }: Props) {
       setNotice(
         action === 'grant' ? `已授权「${item.title}」。` : `已撤回「${item.title}」，相关服务将停止。`,
       );
-      void reportEvent('h5.consent_decide', { itemId: item.scope });
       reload();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) onUnauthorized();

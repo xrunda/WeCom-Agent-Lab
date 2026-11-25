@@ -28,7 +28,7 @@ interface CallResult {
   headers: Record<string, string | number>;
 }
 
-function boot(options: { allowedOrigins?: string[] } = {}) {
+function boot(options: { allowedOrigins?: string[]; cookieSecure?: boolean } = {}) {
   const clock = new FakeClock(NOW);
   const backend = new MemoryH5Backend();
   const service = new PatientH5Service({
@@ -53,6 +53,7 @@ function boot(options: { allowedOrigins?: string[] } = {}) {
   registerPatientH5Http(webServer, {
     service,
     allowedOrigins: options.allowedOrigins ?? [],
+    ...(options.cookieSecure !== undefined ? { cookieSecure: options.cookieSecure } : {}),
     now: () => clock.now(),
   });
   return { clock, backend, service, route: routes[0]! };
@@ -353,4 +354,14 @@ test('H5Error 状态映射：RATE_LIMITED→429、INVITATION_EXPIRED→410', asy
   assert.equal(error.status, 410);
   const rate = new H5Error('RATE_LIMITED', 'x');
   assert.equal(rate.status, 429);
+});
+
+test('会话 Cookie 默认带 Secure；cookieSecure=false 时不带（仅本地开发）', async () => {
+  const secure = boot();
+  const secureCookie = await redeemAndCookie(secure);
+  assert.match(String(secureCookie.setCookie), /; Secure/);
+
+  const insecure = boot({ cookieSecure: false });
+  const plain = await redeemAndCookie(insecure);
+  assert.ok(!String(plain.setCookie).includes('; Secure'), '明文站点不应带 Secure');
 });

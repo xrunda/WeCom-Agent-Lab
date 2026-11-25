@@ -386,6 +386,11 @@ const DEFAULT_SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VERIFY_CODE_TTL_MS = 5 * 60 * 1000;
 const INVITATION_FAILURE_LIMIT = 5;
+/** 同一验证码最多尝试次数；超过即作废（防枚举） */
+const VERIFY_CODE_MAX_ATTEMPTS = 5;
+/** 手机号登录失败上限与时间窗（防暴力猜码） */
+const LOGIN_FAILURE_LIMIT = 5;
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function phoneTailOf(phone: string): string {
@@ -448,6 +453,8 @@ export class PatientH5Service {
   /** 验证码与失败计数是短时状态：进程内存即可（5 分钟 TTL，重启失效可接受） */
   private readonly verifyCodes = new Map<string, VerifyCodeEntry>();
   private readonly invitationFailures = new Map<string, number[]>();
+  /** 手机号登录失败计数（同手机号 15 分钟 5 次），防暴力猜码 */
+  private readonly loginFailures = new Map<string, number[]>();
 
   constructor(options: PatientH5ServiceOptions) {
     this.tenantId = options.tenantId;
@@ -521,15 +528,28 @@ export class PatientH5Service {
   }
 
   listInvitations(patientId: string): InvitationRecord[] {
+    const now = this.now();
     return this.backend
       .load()
       .invitations.filter((item) => item.tenantId === this.tenantId && item.patientId === patientId)
+      .map((item) => this.withEffectiveStatus(item, now))
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * 过期是时间事实，不靠写入维护：`pending` 且已过 expiresAt 读取时派生为 `expired`。
+   * 否则控制台会把失效邀请一直显示为「待使用」，顾问继续把死链发给患者。
+   */
+  private withEffectiveStatus(record: InvitationRecord, now: number): InvitationRecord {
+    if (record.status === 'pending' && record.expiresAt <= now) {
+      return { ...record, status: 'expired' };
+    }
+    return record;
   }
 
   /** 团队侧视图：永远不含 code 与完整手机号（契约 api §12.1） */
   invitationView(record: InvitationRecord): Omit<InvitationRecord, 'code' | 'phone'> {
-    const { code: _code, phone: _phone, ...rest } = record;
+    const { code: _code, phone: _phone, ...rest } = this.withEffectiveStatus(record, this.now());
     return rest;
   }
 
@@ -601,6 +621,10 @@ export class PatientH5Service {
     return Math.floor(100_000 + Math.random() * 900_000);
   }
 
+  /**
+   * 校验验证码。6 位码在 5 分钟有效期内只允许尝试 VERIFY_CODE_MAX_ATTEMPTS 次，
+   * 超过即作废并要求重新获取——否则可被枚举（安全评审，禁用无限尝试）。
+   */
   private verifyCode(phone: string, code: unknown): void {
     if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
       throw new H5Error('VERIFY_CODE_INVALID', '验证码错误或已过期');
@@ -609,6 +633,10 @@ export class PatientH5Service {
     const now = this.now();
     if (!entry || now - entry.issuedAt > this.verifyCodeTtlMs) {
       throw new H5Error('VERIFY_CODE_INVALID', '验证码错误或已过期');
+    }
+    if (entry.attempts >= VERIFY_CODE_MAX_ATTEMPTS) {
+      this.verifyCodes.delete(phone);
+      throw new H5Error('RATE_LIMITED', '验证码尝试次数过多，请重新获取');
     }
     entry.attempts += 1;
     if (entry.code !== code) {
@@ -655,7 +683,7 @@ export class PatientH5Service {
     }
 
     const now = this.now();
-    const binding = this.ensureBinding(invitation, now);
+    const binding = await this.ensureBinding(invitation, now);
     const issued = await this.issueSession(binding.patientId, 'invite_sms', input.userAgentSummary);
 
     invitation.status = 'used';
@@ -704,7 +732,13 @@ export class PatientH5Service {
     if (patient.status !== 'serving') {
       throw new H5Error('SERVICE_PAUSED', '服务已暂停');
     }
-    this.verifyCode(binding.phone, input.code);
+    this.assertLoginNotLimited(binding.phone);
+    try {
+      this.verifyCode(binding.phone, input.code);
+    } catch (error) {
+      this.recordLoginFailure(binding.phone);
+      throw error;
+    }
     const issued = await this.issueSession(binding.patientId, 'phone_sms', input.userAgentSummary);
     await this.audit({
       actorType: 'patient',
@@ -725,16 +759,46 @@ export class PatientH5Service {
     };
   }
 
-  private ensureBinding(invitation: InvitationRecord, now: number): H5BindingRecord {
-    const existing = this.backend
-      .load()
-      .bindings.find(
-        (item) =>
-          item.tenantId === this.tenantId &&
-          item.patientId === invitation.patientId &&
-          item.status === 'bound',
-      );
-    if (existing) return existing;
+  /**
+   * 建立或更新绑定。必须 await：绑定未落盘时不能返回兑换成功（否则重启后手机号登录查不到）。
+   * 换号重绑：已有绑定但手机号不同时更新为新号；新号已被同租户其他患者占用则拒绝。
+   */
+  private async ensureBinding(
+    invitation: InvitationRecord,
+    now: number,
+  ): Promise<H5BindingRecord> {
+    const snapshot = this.backend.load();
+    const occupied = snapshot.bindings.find(
+      (item) =>
+        item.tenantId === this.tenantId &&
+        item.status === 'bound' &&
+        item.phone === invitation.phone &&
+        item.patientId !== invitation.patientId,
+    );
+    if (occupied) {
+      throw new H5Error('CONFLICT', '该手机号已绑定其他服务对象，请联系顾问核对');
+    }
+    const existing = snapshot.bindings.find(
+      (item) =>
+        item.tenantId === this.tenantId &&
+        item.patientId === invitation.patientId &&
+        item.status === 'bound',
+    );
+    if (existing) {
+      if (existing.phone !== invitation.phone) {
+        const updated: H5BindingRecord = {
+          ...existing,
+          phone: invitation.phone,
+          phoneTail: invitation.phoneTail,
+          boundVia: invitation.id,
+          unboundAt: undefined,
+          unboundBy: undefined,
+        };
+        await this.backend.putBinding(updated);
+        return updated;
+      }
+      return existing;
+    }
     const record: H5BindingRecord = {
       id: this.ids('hbd'),
       tenantId: this.tenantId,
@@ -745,7 +809,7 @@ export class PatientH5Service {
       boundAt: now,
       boundVia: invitation.id,
     };
-    void this.backend.putBinding(record);
+    await this.backend.putBinding(record);
     return record;
   }
 
@@ -794,8 +858,10 @@ export class PatientH5Service {
       return null;
     }
     if (now - session.lastSeenAt > 60 * 1000) {
+      const touched = this.clone(session);
+      touched.lastSeenAt = now;
+      await this.backend.putSession(touched);
       session.lastSeenAt = now;
-      await this.backend.putSession(session);
     }
     const patient = this.loadPatientRef(session.patientId);
     if (!patient) return null;
@@ -807,10 +873,11 @@ export class PatientH5Service {
     by: 'patient' | 'account' | 'system',
     byId?: string,
   ): Promise<void> {
-    const session = this.backend
+    const found = this.backend
       .load()
       .sessions.find((item) => item.tenantId === this.tenantId && item.id === sessionId);
-    if (!session || session.status !== 'active') return;
+    if (!found || found.status !== 'active') return;
+    const session = this.clone(found);
     const now = this.now();
     session.status = 'revoked';
     session.revokedAt = now;
@@ -849,7 +916,8 @@ export class PatientH5Service {
       );
   }
 
-  private async expireSession(session: H5SessionRecord, now: number): Promise<void> {
+  private async expireSession(record: H5SessionRecord, now: number): Promise<void> {
+    const session = this.clone(record);
     session.status = 'expired';
     session.lastSeenAt = now;
     await this.backend.putSession(session);
@@ -897,81 +965,58 @@ export class PatientH5Service {
       ]);
     }
     const now = this.now();
-    const snapshot = this.backend.load();
-    const record = snapshot.consents.find(
-      (item) =>
-        item.tenantId === this.tenantId &&
-        item.patientId === input.patientId &&
-        item.scope === input.scope,
-    );
+    const found = this.backend
+      .load()
+      .consents.find(
+        (item) =>
+          item.tenantId === this.tenantId &&
+          item.patientId === input.patientId &&
+          item.scope === input.scope,
+      );
     const targetStatus: ConsentStatus = input.action === 'grant' ? 'granted' : 'withdrawn';
-    const current = record?.status ?? 'never';
+    const current = found?.status ?? 'never';
     const changed = current !== targetStatus;
 
-    if (record) {
-      if (changed) {
-        record.status = targetStatus;
-        record.version = this.consentTextsVersion;
-        record.history = [
-          ...record.history,
-          { action: input.action, at: now, version: this.consentTextsVersion, via: input.decidedVia },
-        ];
-        record.updatedAt = now;
-        record.decidedVia = input.decidedVia;
-        if (input.action === 'grant') record.grantedAt = now;
-        else record.withdrawnAt = now;
-        await this.backend.putConsent(record);
-      }
-    } else {
-      const fresh: ConsentRecord = {
-        id: this.ids('pcon'),
-        tenantId: this.tenantId,
-        patientId: input.patientId,
-        scope: input.scope,
-        status: targetStatus,
-        version: this.consentTextsVersion,
-        grantedAt: input.action === 'grant' ? now : undefined,
-        withdrawnAt: input.action === 'withdraw' ? now : undefined,
-        decidedVia: input.decidedVia,
-        history: [
-          { action: input.action, at: now, version: this.consentTextsVersion, via: input.decidedVia },
-        ],
-        updatedAt: now,
-      };
-      await this.backend.putConsent(fresh);
-      // 新建记录同样走审计与取消传播（撤回 never → withdrawn 也必须撤销会话）
-      await this.audit({
-        actorType: 'patient',
-        actorId: input.patientId,
-        action: input.action === 'grant' ? 'h5.consent.grant' : 'h5.consent.withdraw',
-        targetType: 'consent',
-        targetId: fresh.id,
-        detail: { scope: input.scope, version: this.consentTextsVersion, changed: true },
-      });
-      if (
-        input.scope === 'service_basic' &&
-        targetStatus === 'withdrawn' &&
-        input.action === 'withdraw'
-      ) {
-        for (const session of this.listSessions(input.patientId)) {
-          if (session.status === 'active') {
-            await this.revokeSession(session.id, 'system');
-          }
-        }
-      }
-      this.onConsentChange?.(input.patientId, input.scope, targetStatus);
-      return { record: fresh, changed: true };
+    // 存储对象不得原地修改：已有记录改克隆体，新记录直接构造（存储域约定）
+    const record: ConsentRecord = found
+      ? this.clone(found)
+      : {
+          id: this.ids('pcon'),
+          tenantId: this.tenantId,
+          patientId: input.patientId,
+          scope: input.scope,
+          status: current,
+          version: this.consentTextsVersion,
+          history: [],
+          updatedAt: now,
+        };
+
+    if (changed) {
+      record.status = targetStatus;
+      record.version = this.consentTextsVersion;
+      record.history = [
+        ...record.history,
+        { action: input.action, at: now, version: this.consentTextsVersion, via: input.decidedVia },
+      ];
+      record.updatedAt = now;
+      record.decidedVia = input.decidedVia;
+      if (input.action === 'grant') record.grantedAt = now;
+      else record.withdrawnAt = now;
+      await this.backend.putConsent(record);
     }
 
+    // 审计：首次决定与重复同向决定都记（重复决定 changed=false，便于排查）
     await this.audit({
       actorType: 'patient',
       actorId: input.patientId,
       action: input.action === 'grant' ? 'h5.consent.grant' : 'h5.consent.withdraw',
       targetType: 'consent',
-      targetId: record!.id,
+      targetId: record.id,
       detail: { scope: input.scope, version: this.consentTextsVersion, changed },
     });
+
     if (changed) {
+      // 埋点只由服务端写一次，前端不再重复上报（避免重复计数）
       await this.recordEvent(input.patientId, 'h5.consent_decide', undefined, {
         scope: input.scope,
         action: input.action,
@@ -986,7 +1031,7 @@ export class PatientH5Service {
       }
       this.onConsentChange?.(input.patientId, input.scope, targetStatus);
     }
-    return { record: record!, changed };
+    return { record, changed };
   }
 
   /** 契约 §6.2 的 scope 门控：供路由层与后续包复用 */
@@ -1103,11 +1148,12 @@ export class PatientH5Service {
     note: string;
     handledBy: string;
   }): Promise<PrivacyRequestRecord> {
-    const record = this.backend
+    const found = this.backend
       .load()
       .privacyRequests.find((item) => item.tenantId === this.tenantId && item.id === input.id);
-    if (!record) throw new H5Error('NOT_FOUND', '申请不存在');
-    if (record.status !== 'submitted') throw new H5Error('CONFLICT', '申请已处理');
+    if (!found) throw new H5Error('NOT_FOUND', '申请不存在');
+    if (found.status !== 'submitted') throw new H5Error('CONFLICT', '申请已处理');
+    const record = this.clone(found);
     const now = this.now();
     record.status = input.result;
     record.handledBy = input.handledBy;
@@ -1156,24 +1202,52 @@ export class PatientH5Service {
 
   // ---------- 内部 ----------
 
+  /** 存储返回的是介质里的对象本身，不得原地修改；改前先克隆（存储域约定） */
+  private clone<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
   private findInvitation(id: string): InvitationRecord | undefined {
-    return this.backend
+    const found = this.backend
       .load()
       .invitations.find((item) => item.tenantId === this.tenantId && item.id === id);
+    return found ? this.clone(found) : undefined;
   }
 
   private findInvitationByCode(code: string): InvitationRecord | undefined {
-    return this.backend
+    const found = this.backend
       .load()
       .invitations.find((item) => item.tenantId === this.tenantId && item.code === code);
+    return found ? this.clone(found) : undefined;
   }
 
   private findBindingByPhone(phone: string): H5BindingRecord | undefined {
-    return this.backend
+    const found = this.backend
       .load()
       .bindings.find(
         (item) => item.tenantId === this.tenantId && item.status === 'bound' && item.phone === phone,
       );
+    return found ? this.clone(found) : undefined;
+  }
+
+  private assertLoginNotLimited(phone: string): void {
+    const now = this.now();
+    const failures = (this.loginFailures.get(phone) ?? []).filter(
+      (at) => now - at < LOGIN_FAILURE_WINDOW_MS,
+    );
+    this.loginFailures.set(phone, failures);
+    if (failures.length >= LOGIN_FAILURE_LIMIT) {
+      throw new H5Error('RATE_LIMITED', '登录尝试次数过多，请 15 分钟后再试');
+    }
+  }
+
+  private recordLoginFailure(phone: string): void {
+    const now = this.now();
+    const failures = (this.loginFailures.get(phone) ?? []).filter(
+      (at) => now - at < LOGIN_FAILURE_WINDOW_MS,
+    );
+    failures.push(now);
+    this.loginFailures.set(phone, failures);
   }
 
   private failOnRateLimited(invitationId: string): void {

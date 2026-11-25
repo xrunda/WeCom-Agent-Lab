@@ -469,3 +469,112 @@ test('埋点白名单：未知事件拒绝，载荷不含正文', async () => {
   assert.equal(events.length, 1);
   assert.ok(!JSON.stringify(events).includes('13800003421'), '埋点不含手机号');
 });
+
+test('验证码尝试 5 次后作废，第 5 次返回 RATE_LIMITED（防枚举）', async () => {
+  const { service } = setup();
+  const invitation = await service.createInvitation({
+    patientId: 'pat_a',
+    advisorId: 'adv_1',
+    phone: '13800003421',
+    createdBy: 'acc_test',
+  });
+  await service.requestVerifyCode({ invitationCode: invitation.code });
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    await assert.rejects(
+      () =>
+        service.redeem({
+          invitationCode: invitation.code,
+          phone: '13800003421',
+          code: '000001',
+        }),
+      (error: unknown) => error instanceof H5Error && error.code === 'VERIFY_CODE_INVALID',
+    );
+  }
+  // 已用满 5 次尝试：第 6 次即使猜对也拒绝（验证码作废，需重新获取）
+  await assert.rejects(
+    () =>
+      service.redeem({
+        invitationCode: invitation.code,
+        phone: '13800003421',
+        code: MOCK_VERIFY_CODE,
+      }),
+    (error: unknown) => error instanceof H5Error && error.code === 'RATE_LIMITED',
+  );
+});
+
+test('手机号登录连续失败 5 次后限流（防暴力猜码）', async () => {
+  const sms = new RandomSms();
+  const { service } = setup({ sms });
+  await redeemFlow(service, { phone: '13800003421' }, sms);
+  // 同一验证码连续错 5 次（不重复发码：发码本身有 60 秒节流）
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await assert.rejects(
+      () => service.login({ phone: '13800003421', code: '000001' }),
+      (error: unknown) => error instanceof H5Error && error.code === 'VERIFY_CODE_INVALID',
+    );
+  }
+  await assert.rejects(
+    () => service.login({ phone: '13800003421', code: sms.lastCode }),
+    (error: unknown) => error instanceof H5Error && error.code === 'RATE_LIMITED',
+  );
+});
+
+test('换号重绑：新邀请的手机号覆盖旧绑定，旧号不再可登录', async () => {
+  const sms = new RandomSms();
+  const { service } = setup({ sms });
+  await redeemFlow(service, { phone: '13800003421' }, sms);
+  // 顾问用新号重新邀请同一患者
+  await redeemFlow(service, { phone: '13900001111' }, sms);
+  const binding = service.getBinding('pat_a');
+  assert.equal(binding?.phone, '13900001111', '绑定已更新为新号');
+  assert.equal(binding?.phoneTail, '1111');
+  // 新号可登录
+  await service.requestVerifyCode({ phone: '13900001111' });
+  const login = await service.login({ phone: '13900001111', code: sms.lastCode });
+  assert.ok(login.sessionToken);
+  // 旧号不再是可登录号码
+  await assert.rejects(
+    () => service.requestVerifyCode({ phone: '13800003421' }),
+    (error: unknown) => error instanceof H5Error && error.code === 'VALIDATION_FAILED',
+  );
+});
+
+test('同租户手机号不可绑定到两个患者', async () => {
+  const sms = new RandomSms();
+  const { service } = setup({ sms });
+  await redeemFlow(service, { phone: '13800003421' }, sms);
+  // 给 pat_b 建同样手机号的邀请并兑换
+  const invitation = await service.createInvitation({
+    patientId: 'pat_b',
+    advisorId: 'adv_1',
+    phone: '13800003421',
+    createdBy: 'acc_test',
+  });
+  await service.requestVerifyCode({ invitationCode: invitation.code });
+  await assert.rejects(
+    () =>
+      service.redeem({
+        invitationCode: invitation.code,
+        phone: '13800003421',
+        code: sms.lastCode,
+      }),
+    (error: unknown) => error instanceof H5Error && error.code === 'CONFLICT',
+  );
+});
+
+test('过期邀请在列表中派生为 expired，不再显示为待使用', async () => {
+  const { service, clock } = setup();
+  await service.createInvitation({
+    patientId: 'pat_a',
+    advisorId: 'adv_1',
+    phone: '13800003421',
+    createdBy: 'acc_test',
+    ttlHours: 1,
+  });
+  assert.equal(service.listInvitations('pat_a')[0]?.status, 'pending');
+  clock.advance(2 * 60 * 60 * 1000);
+  assert.equal(service.listInvitations('pat_a')[0]?.status, 'expired');
+  // 视图层同样派生（撤销按钮据此隐藏）
+  const view = service.invitationView(service.listInvitations('pat_a')[0]!);
+  assert.equal(view.status, 'expired');
+});

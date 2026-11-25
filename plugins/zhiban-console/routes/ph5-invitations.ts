@@ -53,7 +53,7 @@ export interface PatientH5RouteDeps {
           handledBy: string;
         }): Promise<PrivacyRequestRecord>;
         meStatus(patientId: string): string;
-        invitationLink(record: InvitationRecord, publicBaseUrl: string): string;
+        invitationLink(record: InvitationRecord): string;
         config: { tenantId: string };
       }
     | undefined;
@@ -139,7 +139,7 @@ export function registerPatientH5InvitationRoutes(deps: PatientH5RouteDeps): voi
       // 邀请链接一次性返回；列表接口不再回 code（契约 api §12.1）
       jsonResponse(rc.res, 201, {
         invitation: api.invitationView(record),
-        link: api.invitationLink(record, String(rc.query.get('publicBaseUrl') ?? '')),
+        link: api.invitationLink(record),
       }, rc.requestId);
     },
     { permission: 'patient.write' },

@@ -42,6 +42,8 @@ export const H5_SESSION_COOKIE = 'zb_h5_session';
 export interface PatientH5HttpOptions {
   service: PatientH5Service;
   allowedOrigins: string[];
+  /** 会话 Cookie 是否带 Secure；生产必须为 true（明文站点才关闭） */
+  cookieSecure?: boolean;
   now?: () => number;
   log?: (line: string) => void;
 }
@@ -109,12 +111,18 @@ function cookieValue(req: H5HttpRequest, name: string): string | undefined {
   return undefined;
 }
 
-function sessionCookieHeader(token: string, maxAgeSeconds: number): string {
-  return `${H5_SESSION_COOKIE}=${token}; Path=/zhiban/h5; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
+function sessionCookieHeader(token: string, maxAgeSeconds: number, secure: boolean): string {
+  return (
+    `${H5_SESSION_COOKIE}=${token}; Path=/zhiban/h5; HttpOnly; SameSite=Lax; ` +
+    `Max-Age=${maxAgeSeconds}${secure ? '; Secure' : ''}`
+  );
 }
 
-function clearSessionCookieHeader(): string {
-  return `${H5_SESSION_COOKIE}=; Path=/zhiban/h5; HttpOnly; SameSite=Lax; Max-Age=0`;
+function clearSessionCookieHeader(secure: boolean): string {
+  return (
+    `${H5_SESSION_COOKIE}=; Path=/zhiban/h5; HttpOnly; SameSite=Lax; Max-Age=0` +
+    (secure ? '; Secure' : '')
+  );
 }
 
 function headerValue(req: H5HttpRequest, name: string): string | undefined {
@@ -155,6 +163,7 @@ export function registerPatientH5Http(
 ): unknown {
   const now = options.now ?? Date.now;
   const limiter = new BusinessRateLimiter(SESSION_RATE_LIMIT, 60 * 1000);
+  const secureCookie = options.cookieSecure ?? true;
 
   return webServer.register({
     kind: 'prefix',
@@ -258,7 +267,7 @@ export function registerPatientH5Http(
             binding: { phoneTail: result.binding.phoneTail, boundAt: result.binding.boundAt },
             me: { status: result.meStatus },
           },
-          { 'Set-Cookie': sessionCookieHeader(result.sessionToken, maxAge) },
+          { 'Set-Cookie': sessionCookieHeader(result.sessionToken, maxAge, secureCookie) },
         );
         // 邀请兑换成功后前端清理 URL；code 不进日志
         options.log?.(`邀请兑换成功：ip=${ipOf(req)}`);
@@ -294,7 +303,7 @@ export function registerPatientH5Http(
             binding: { phoneTail: result.binding.phoneTail, boundAt: result.binding.boundAt },
             me: { status: result.meStatus },
           },
-          { 'Set-Cookie': sessionCookieHeader(result.sessionToken, maxAge) },
+          { 'Set-Cookie': sessionCookieHeader(result.sessionToken, maxAge, secureCookie) },
         );
       } catch (error) {
         if (error instanceof H5Error) {
@@ -310,7 +319,7 @@ export function registerPatientH5Http(
       checkOrigin(req);
       const token = cookieValue(req, H5_SESSION_COOKIE);
       if (token) await options.service.logout(token);
-      ok(204, '', { 'Set-Cookie': clearSessionCookieHeader() });
+      ok(204, '', { 'Set-Cookie': clearSessionCookieHeader(secureCookie) });
       return;
     }
 
@@ -384,7 +393,7 @@ export function registerPatientH5Http(
         ok(
           200,
           { scope: result.record.scope, status: result.record.status, version: result.record.version },
-          cleared ? { 'Set-Cookie': clearSessionCookieHeader() } : {},
+          cleared ? { 'Set-Cookie': clearSessionCookieHeader(secureCookie) } : {},
         );
       } catch (error) {
         if (error instanceof H5Error) fail(error);
