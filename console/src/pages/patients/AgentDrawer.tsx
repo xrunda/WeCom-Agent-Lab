@@ -36,6 +36,7 @@ import {
 import { ActionsTab } from './tabs/ActionsTab.tsx';
 import { CarePlansTab } from './tabs/CarePlansTab.tsx';
 import { DietTab } from './tabs/DietTab.tsx';
+import { H5AccessTab } from './tabs/H5AccessTab.tsx';
 import { HealthProfileTab } from './tabs/HealthProfileTab.tsx';
 import { MemoriesTab } from './tabs/MemoriesTab.tsx';
 import { PatientIdentityModal } from './PatientIdentityModal.tsx';
@@ -54,6 +55,7 @@ const DRAWER_TABS = new Set([
   'diet',
   'health',
   'service-plan',
+  'h5',
 ]);
 
 export interface AgentDrawerProps {
@@ -304,6 +306,13 @@ export function AgentDrawer({
                 key: 'service-plan',
                 label: '服务计划',
                 children: <ServicePlanTab patientId={detail.patient.id} term={term} />,
+              },
+              {
+                key: 'h5',
+                label: '患者端 H5',
+                children: (
+                  <H5AccessTab patientId={detail.patient.id} canWrite={can('patient.write')} />
+                ),
               },
             ]}
           />

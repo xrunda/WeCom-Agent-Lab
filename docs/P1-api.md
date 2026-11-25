@@ -3,6 +3,10 @@
 > 版本：**v1.0**（2026-11-09）· 归属：WP-A（#62）
 > 配套：[P1-data-model.md](./P1-data-model.md)（字段与枚举的唯一依据）· 范围：[P1-scope.md](./P1-scope.md) §4
 > 前端按本文写 mock，后端按本文实现。**字段以数据模型文档为准，接口以本文为准**；两者冲突时先提 #62。
+>
+> **患者端 H5 契约**（新增于 PH5-01 #230，独立于本文范围，不改本文任何接口）：
+> [PATIENT-H5-api.md](./PATIENT-H5-api.md)（患者前缀 `/zhiban/h5` + 控制台配套新增接口）·
+> [PATIENT-H5-data-model.md](./PATIENT-H5-data-model.md)（患者域新增实体）。
 
 ---
 
