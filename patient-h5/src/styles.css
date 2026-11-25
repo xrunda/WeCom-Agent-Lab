@@ -1160,8 +1160,8 @@ body {
   background: var(--primary);
   color: var(--primary-ink);
   font-family: inherit;
-  font-size: 15px;
-  padding: 8px 16px;
+  font-size: 14px;
+  padding: 8px 12px;
   min-height: 40px;
   cursor: pointer;
   border-radius: 999px;
