@@ -152,6 +152,12 @@ export interface AccountRecord {
   passwordHash: string;
   /** 企微 userid（租户内唯一）；扫码登录据此匹配账号，密码账号可空（#181） */
   wecomUserId?: string;
+  /**
+   * 患者端 H5 的职能能力（契约 PATIENT-H5-data-model §6.3）。
+   * 与 role 权限矩阵分开：`h5.plan.review` 等默认不授予任何人（含 admin），
+   * 必须显式分配，避免把「管理员」误当成「专业审核资质」。
+   */
+  h5Permissions?: string[];
   lastLoginAt?: number;
   createdAt: number;
   updatedAt: number;

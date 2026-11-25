@@ -16,11 +16,12 @@ import { ConsentsPage } from './pages/ConsentsPage.tsx';
 import { InviteLoginPage } from './pages/InviteLoginPage.tsx';
 import { MePage } from './pages/MePage.tsx';
 import { NurturePage } from './pages/NurturePage.tsx';
+import { PlanPage } from './pages/PlanPage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { OnboardingWizard } from './pages/OnboardingWizard.tsx';
 import { TodayPage } from './pages/TodayPage.tsx';
 
-type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'app';
+type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'app';
 type Tab = 'today' | 'calendar' | 'nurture' | 'me';
 
 /** 从地址栏提取一次性邀请码并立即清理 URL（不进入历史与分享链接） */
@@ -149,6 +150,20 @@ export function App() {
     return <PrivacyPage onUnauthorized={toLogin} onDone={() => setStage('app')} />;
   }
 
+  if (stage === 'plan') {
+    return (
+      <PlanPage
+        onBack={() => setStage('app')}
+        onAdjust={() => undefined}
+        onOpenCalendar={() => {
+          setTab('calendar');
+          setStage('app');
+        }}
+        onUnauthorized={toLogin}
+      />
+    );
+  }
+
   if (stage === 'manifesto') {
     // PRD §4：主张页在建档之前，可跳过；跳过不等于完成建档
     const nextStage = (): void => {
@@ -210,6 +225,7 @@ export function App() {
             setStage('login');
           }}
           onStartOnboarding={() => setStage('onboarding')}
+          onOpenPlan={() => setStage('plan')}
           onOpenConsents={() => setStage('consents')}
           onOpenPrivacy={() => setStage('privacy')}
           onChanged={refreshMeStable}

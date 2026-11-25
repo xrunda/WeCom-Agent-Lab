@@ -37,6 +37,7 @@ import { ActionsTab } from './tabs/ActionsTab.tsx';
 import { CarePlansTab } from './tabs/CarePlansTab.tsx';
 import { DietTab } from './tabs/DietTab.tsx';
 import { H5AccessTab } from './tabs/H5AccessTab.tsx';
+import { H5PlanTab } from './tabs/H5PlanTab.tsx';
 import { HealthProfileTab } from './tabs/HealthProfileTab.tsx';
 import { MemoriesTab } from './tabs/MemoriesTab.tsx';
 import { PatientIdentityModal } from './PatientIdentityModal.tsx';
@@ -56,6 +57,7 @@ const DRAWER_TABS = new Set([
   'health',
   'service-plan',
   'h5',
+  'h5-plan',
 ]);
 
 export interface AgentDrawerProps {
@@ -75,7 +77,12 @@ export function AgentDrawer({
   onChanged,
 }: AgentDrawerProps) {
   const activeTab = initialTab && DRAWER_TABS.has(initialTab) ? initialTab : 'profile';
-  const { can } = useAuth();
+  // 患者端方案审核能力与角色矩阵分开：默认无人，必须显式授予（契约 §6.3）
+  const { can, session } = useAuth();
+  // 患者端方案审核能力与角色矩阵分开：默认无人，必须显式授予（契约 §6.3）
+  const canReview = (
+    (session?.account as { h5Permissions?: string[] } | undefined)?.h5Permissions ?? []
+  ).includes('h5.plan.review');
   const { message } = App.useApp();
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -306,6 +313,11 @@ export function AgentDrawer({
                 key: 'service-plan',
                 label: '服务计划',
                 children: <ServicePlanTab patientId={detail.patient.id} term={term} />,
+              },
+              {
+                key: 'h5-plan',
+                label: '健康方案',
+                children: <H5PlanTab patientId={detail.patient.id} canReview={canReview} />,
               },
               {
                 key: 'h5',

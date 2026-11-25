@@ -345,9 +345,37 @@ export interface PlanView {
   foodTherapyRationale: string;
   focusPoints: string[];
   rationale: { basedOn: string[] };
+  actions: Array<{
+    actionId: string;
+    title: string;
+    purpose: string;
+    method: string;
+    schedule: { kind: string; time: string };
+    feedbackKind: string;
+    linkedArticleIds: string[];
+  }>;
+  feedbackRequirements: string[];
   review: { reviewerName: string; reviewedAt: number };
   publishedAt: number;
   acknowledgedAt: number | null;
+}
+
+export async function submitPlanAdjust(input: {
+  planVersion: number;
+  message: string;
+}): Promise<{ id: string; status: string }> {
+  if (isDemoMode()) {
+    return Promise.resolve({ id: `fup_demo_${Date.now()}`, status: 'pending' });
+  }
+  return apiRequest<{ id: string; status: string }>('/plan/adjust-requests', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function acknowledgePlan(): Promise<{ acknowledgedAt: number }> {
+  if (isDemoMode()) return Promise.resolve({ acknowledgedAt: Date.now() });
+  return apiRequest<{ acknowledgedAt: number }>('/plan/acknowledge', { method: 'POST', body: {} });
 }
 
 export async function fetchCurrentPlan(): Promise<PlanView> {
@@ -355,5 +383,7 @@ export async function fetchCurrentPlan(): Promise<PlanView> {
     const { demoPlan } = await import('./mock/demo-api.ts');
     return demoPlan();
   }
-  return apiRequest<PlanView>('/plan/current');
+  // 契约 api §5.1 响应为 { plan: {...} }，这里解包成视图
+  const body = await apiRequest<{ plan: PlanView }>('/plan/current');
+  return body.plan;
 }
