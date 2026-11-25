@@ -20,6 +20,7 @@ import { PlanPage } from './pages/PlanPage.tsx';
 import { TeamPage } from './pages/TeamPage.tsx';
 import { RecordsPage } from './pages/RecordsPage.tsx';
 import { PrefsPage } from './pages/PrefsPage.tsx';
+import { Icon, type IconName } from './components/Icon.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { OnboardingWizard } from './pages/OnboardingWizard.tsx';
 import { TodayPage } from './pages/TodayPage.tsx';
@@ -250,20 +251,10 @@ export function App() {
         />
       )}
       <nav className="tabbar" aria-label="主导航">
-        <TabButton active={tab === 'today'} onClick={() => setTab('today')} label="今天" icon="☀" />
-        <TabButton
-          active={tab === 'calendar'}
-          onClick={() => setTab('calendar')}
-          label="日历"
-          icon="历"
-        />
-        <TabButton
-          active={tab === 'nurture'}
-          onClick={() => setTab('nurture')}
-          label="食养"
-          icon="养"
-        />
-        <TabButton active={tab === 'me'} onClick={() => setTab('me')} label="我的" icon="我" />
+        <TabButton active={tab === 'today'} onClick={() => setTab('today')} label="今天" icon="home" />
+        <TabButton active={tab === 'calendar'} onClick={() => setTab('calendar')} label="日历" icon="calendar" />
+        <TabButton active={tab === 'nurture'} onClick={() => setTab('nurture')} label="食养" icon="bowl" />
+        <TabButton active={tab === 'me'} onClick={() => setTab('me')} label="我的" icon="user" />
       </nav>
     </div>
   );
@@ -278,7 +269,7 @@ function TabButton({
   active: boolean;
   onClick: () => void;
   label: string;
-  icon: string;
+  icon: IconName;
 }) {
   return (
     <button
@@ -287,7 +278,7 @@ function TabButton({
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
     >
-      <span aria-hidden="true">{icon}</span>
+      <Icon name={icon} size={24} strokeWidth={active ? 2 : 1.6} />
       <span>{label}</span>
     </button>
   );

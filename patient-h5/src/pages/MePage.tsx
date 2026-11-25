@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { fetchMeStats, type MeResponse, type ProfileCenterStats } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon, type IconName } from '../components/Icon.tsx';
 
 const STATUS_TEXT: Record<string, string> = {
   profile_incomplete: '资料待完善',
@@ -77,12 +78,12 @@ export function MePage({
     {
       key: 'profile',
       label: '我的健康档案',
-      icon: 'file',
+      icon: 'doc' as IconName,
       ready: true,
       onClick: onStartOnboarding,
     },
-    { key: 'records', label: '我的健康记录', icon: 'bowl', ready: true, onClick: onOpenRecords },
-    { key: 'team', label: '我的专业团队', icon: 'team', ready: false, onClick: undefined },
+    { key: 'records', label: '我的健康记录', icon: 'bowl' as IconName, ready: true, onClick: onOpenRecords },
+    { key: 'team', label: '我的专业团队', icon: 'team' as IconName, ready: false, onClick: undefined },
   ] as const;
 
   return (
@@ -159,10 +160,10 @@ export function MePage({
             disabled={!entry.ready}
             onClick={entry.onClick}
           >
-            <span className={`me-menu__icon me-menu__icon--${entry.icon}`} aria-hidden="true" />
+            <Icon name={entry.icon} size={22} className="me-menu__icon" />
             <span className="me-menu__label">{entry.label}</span>
             {entry.ready ? (
-              <span className="me-menu__arrow" aria-hidden="true">›</span>
+              <Icon name="chevron" size={16} className="me-menu__arrow" />
             ) : (
               <span className="me-menu__soon">即将开放</span>
             )}
@@ -172,19 +173,19 @@ export function MePage({
 
       <nav className="me-menu" aria-label="设置">
         <button type="button" className="me-menu__row" onClick={onOpenPrefs}>
-          <span className="me-menu__icon me-menu__icon--bell" aria-hidden="true" />
+          <Icon name="bell" size={22} className="me-menu__icon" />
           <span className="me-menu__label">提醒与偏好</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
         <button type="button" className="me-menu__row" onClick={onOpenPrivacy}>
-          <span className="me-menu__icon me-menu__icon--shield" aria-hidden="true" />
+          <Icon name="shield" size={22} className="me-menu__icon" />
           <span className="me-menu__label">隐私与授权</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
         <button type="button" className="me-menu__row" onClick={onOpenConsents}>
-          <span className="me-menu__icon me-menu__icon--shield" aria-hidden="true" />
+          <Icon name="shield" size={22} className="me-menu__icon" />
           <span className="me-menu__label">授权管理</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
       </nav>
 

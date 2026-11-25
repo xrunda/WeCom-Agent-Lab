@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, fetchArticles, fetchManifesto } from '../api.ts';
 import type { ArticleView, Manifesto } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon } from '../components/Icon.tsx';
 
 const CATEGORY_LABEL: Record<string, string> = {
   classics_life: '经典与生活',
@@ -125,7 +126,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
     <div className="page page-nurture">
       <header className="nurture-head">
         <div className="nurture-brand">
-          <span className="nurture-brand__leaf" aria-hidden="true" />
+          <Icon name="leaf" size={18} />
           知伴健康
         </div>
         <h1 className="nurture-title">食养</h1>
@@ -164,12 +165,12 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
 
       {planRelated && (
         <button type="button" className="plan-link-card">
-          <span className="plan-link-card__icon" aria-hidden="true" />
+          <Icon name="bowl" size={30} className="plan-link-card__icon" />
           <span className="plan-link-card__body">
             <span className="plan-link-card__label">与你的计划有关</span>
             <span className="plan-link-card__title">{planRelated.title}</span>
           </span>
-          <span className="plan-link-card__arrow" aria-hidden="true">→</span>
+          <Icon name="chevron" size={18} className="plan-link-card__arrow" />
         </button>
       )}
 

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, fetchToday } from '../api.ts';
 import type { CalendarItemView, TodayView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { RecordSheet } from '../components/RecordSheet.tsx';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
@@ -113,6 +114,13 @@ export function TodayPage({
       {today && (
         <>
           <section className="hero-card">
+            <AssetSlot
+              id="P02"
+              ratio="4 / 3"
+              radius={0}
+              label="今日餐食配图"
+              className="hero-card__asset"
+            />
             <div className="hero-card__body">
               <p className="hero-card__label">
                 陪伴你的第 <b>{today.companionDays ?? '—'}</b> 天
@@ -123,19 +131,13 @@ export function TodayPage({
                 <b>{progress?.pending ?? 0}</b> 项
               </p>
             </div>
-            <AssetSlot
-              id="P02"
-              ratio="4 / 3"
-              radius={12}
-              label="今日餐食配图"
-              className="hero-card__asset"
-            />
           </section>
 
           {next ? (
             <section className="next-card">
               <span className="next-card__badge">下一件小事</span>
               <div className="next-card__main">
+                <Icon name="bowl" size={30} className="next-card__icon" />
                 <div className="next-card__text">
                   <p className="next-card__time">
                     {formatTime(next.scheduledAt)} {next.title}
@@ -147,7 +149,7 @@ export function TodayPage({
                   className="btn btn-primary btn-inline next-card__cta"
                   onClick={onOpenCalendar}
                 >
-                  <span className="next-card__cta-icon" aria-hidden="true" />
+                  <Icon name="camera" size={18} />
                   {next.feedbackKind === 'record_review' ? '记录感受' : '记录这一餐'}
                 </button>
               </div>
@@ -182,9 +184,12 @@ export function TodayPage({
               disabled={!today.quickRecord.meal}
               onClick={() => setSheet('meal')}
             >
-              <span className="quick-card__icon" aria-hidden="true" />
-              <span className="quick-card__title">拍照记餐</span>
-              <span className="quick-card__hint">记录三餐，更了解自己。</span>
+              <Icon name="camera" size={30} className="quick-card__icon" />
+              <span className="quick-card__body">
+                <span className="quick-card__title">拍照记餐</span>
+                <span className="quick-card__hint">记录三餐，更了解自己。</span>
+              </span>
+              <Icon name="chevron" size={16} className="quick-card__arrow" />
             </button>
             <button
               type="button"
@@ -192,9 +197,12 @@ export function TodayPage({
               disabled={!today.quickRecord.review}
               onClick={() => setSheet('review')}
             >
-              <span className="quick-card__icon quick-card__icon--warm" aria-hidden="true" />
-              <span className="quick-card__title">说说身体感受</span>
-              <span className="quick-card__hint">今天的精神、胃口、睡眠等。</span>
+              <Icon name="chat" size={30} className="quick-card__icon" />
+              <span className="quick-card__body">
+                <span className="quick-card__title">说说身体感受</span>
+                <span className="quick-card__hint">今天的精神、胃口、睡眠等。</span>
+              </span>
+              <Icon name="chevron" size={16} className="quick-card__arrow" />
             </button>
           </section>
 
@@ -278,9 +286,11 @@ function TimelineRows({ today }: { today: TodayView }) {
             <span className="timeline__title">{item.title}</span>
             <span className="timeline__purpose">{item.purpose}</span>
           </span>
-          <span className={`chip chip--${item.status}`}>
-            {STATUS_TEXT[item.status] ?? item.status}
-          </span>
+          {item.status !== 'pending' && (
+            <span className={`chip chip--${item.status}`}>
+              {STATUS_TEXT[item.status] ?? item.status}
+            </span>
+          )}
         </li>
       ))}
     </>
