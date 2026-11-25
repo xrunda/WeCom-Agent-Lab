@@ -1,6 +1,6 @@
 # 患者端 H5：里程碑与工作包
 
-> 2026-11-24 · 状态：已创建 GitHub 规划，未开始实施。
+> 2026-11-24 创建 · 2026-11-25 更新状态：规划已创建；PH5-01～PH5-03 已提交实现 PR（#243/#244/#245，待评审），PH5-04 起未开始。本文只记规划，实施进度以对应 PR 与 issue 为准。
 > 依据：[患者端 H5 PRD](PATIENT-H5-PRD.md) · [产品顶层定义](PRODUCT-FOUNDATION.md)
 > 总任务：[患者端 H5 Epic #228](https://github.com/xrunda/WeCom-Agent-Lab/issues/228)
 > 视觉参考：[效果图索引](design/patient-h5/README.md) · [素材清单与交付规范](design/patient-h5/ASSET-INVENTORY.md)
