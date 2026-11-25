@@ -112,7 +112,7 @@ function call(
         const text = JSON.stringify(options.body);
         for (const listener of listeners.get('data') ?? []) listener(Buffer.from(text));
       }
-      for (const listener of listeners.get('end') ?? []) listener();
+      for (const listener of listeners.get('end') ?? []) listener(undefined);
     });
     // 兜底：3 秒无响应判失败
     setTimeout(() => reject(new Error('no response')), 3000).unref?.();
