@@ -1715,3 +1715,47 @@ body {
   color: var(--ink);
   margin-bottom: 10px;
 }
+
+/* ================= 事项详情与反馈（H05） ================= */
+
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 28, 24, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet h2 {
+  margin: 0;
+  font-size: 20px;
+  font-family: 'Songti SC', 'STSong', 'Noto Serif SC', serif;
+}
+
+.sheet__method {
+  margin: 4px 0;
+  font-size: 15px;
+  background: rgba(45, 90, 74, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.sheet__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}

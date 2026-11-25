@@ -49,6 +49,8 @@ import type { H5HttpRequest, H5HttpResponse } from './http.ts';
 import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
 import type { ManifestoConfig } from './routes/profile.ts';
 import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
+import { createCalendarRoutes } from './routes/calendar.ts';
+import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
 import type { PlanSessionControllerLike } from './plan-session.ts';
 import { LlmPlanGenerator } from '../../src/p1/patient-h5-plan-ai.ts';
@@ -352,7 +354,15 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       end: (input) => plan.end(input),
     } satisfies PatientH5PlanApi);
 
+    const calendarService = new CalendarService({
+      tenantId: config.tenantId,
+      plan,
+      backend: planBackend,
+      followups: adjust,
+      ids: idFactory(Date.now),
+    });
     const extensions = [
+      ...createCalendarRoutes({ calendar: calendarService }),
       ...createPlanRoutes({ plan, adjust, ids: idFactory(Date.now) }),
       ...createProfileRoutes({ profile, manifesto: config.manifesto }),
     ];

@@ -270,10 +270,14 @@ export interface CalendarItemView {
   purpose: string;
   method?: string;
   scheduledAt: number;
+  /** 本地日期 YYYY-MM-DD（判断能否提前完成用） */
+  scheduledDate?: string;
   status: ItemStatus;
   feedbackKind: 'checkin' | 'record_meal' | 'record_review';
   overdue: boolean;
   cancelReason?: string | null;
+  /** 今天及以前、未取消、未完成时才可反馈（未来事项不可提前完成） */
+  canFeedback?: boolean;
 }
 
 export interface TodayView {
@@ -305,6 +309,21 @@ export async function fetchToday(): Promise<TodayView> {
     return demoToday();
   }
   return apiRequest<TodayView>('/today');
+}
+
+export async function submitItemFeedback(input: {
+  itemId: string;
+  kind: 'patient_confirmed' | 'missed' | 'needs_help';
+  reason?: string;
+}): Promise<CalendarItemView> {
+  if (isDemoMode()) {
+    const { demoFeedback } = await import('./mock/demo-api.ts');
+    return demoFeedback(input);
+  }
+  return apiRequest<CalendarItemView>(`/calendar/items/${input.itemId}/feedback`, {
+    method: 'POST',
+    body: { kind: input.kind, ...(input.reason ? { reason: input.reason } : {}) },
+  });
 }
 
 export async function fetchCalendar(): Promise<CalendarView> {

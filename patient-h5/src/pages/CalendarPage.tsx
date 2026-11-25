@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 
-import { ApiError, fetchCalendar } from '../api.ts';
+import { ApiError, fetchCalendar, submitItemFeedback } from '../api.ts';
 import type { CalendarItemView, CalendarView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 
@@ -42,6 +42,9 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
   const [calendar, setCalendar] = useState<CalendarView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string>(() => localDate());
+  const [detail, setDetail] = useState<CalendarItemView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCalendar()
@@ -53,6 +56,25 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
         }
       });
   }, [onUnauthorized]);
+
+  const send = async (
+    item: CalendarItemView,
+    kind: 'patient_confirmed' | 'missed' | 'needs_help',
+  ): Promise<void> => {
+    setBusy(true);
+    try {
+      const updated = await submitItemFeedback({ itemId: item.id, kind });
+      setDetail(updated);
+      setNotice(kind === 'needs_help' ? '已告诉团队，会有人跟进' : '已记录');
+      // 重新拉取当天数据，保证进度与状态一致
+      const refreshed = await fetchCalendar();
+      setCalendar(refreshed);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : '提交失败，请重试');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const today = localDate();
   const days = calendar?.days ?? [];
@@ -123,7 +145,16 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
       <ol className="timeline timeline--rich">
         {items.length === 0 && <li className="timeline__empty muted">这一天还没有安排</li>}
         {items.map((item: CalendarItemView) => (
-          <li className="timeline__row timeline__row--rich" key={item.id}>
+          <li
+            className="timeline__row timeline__row--rich"
+            key={item.id}
+            onClick={() => setDetail(item)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setDetail(item);
+            }}
+          >
             <span className={`timeline__dot timeline__dot--${item.status}`} aria-hidden="true" />
             <span className="timeline__time">{formatTime(item.scheduledAt)}</span>
             <span className="timeline__body">
@@ -152,6 +183,70 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
           </div>
           <AssetSlot id="I01" ratio="1 / 1" radius={10} label="植物插画" className="tip-card__asset" />
         </section>
+      )}
+
+      {notice && (
+        <div className="notice notice-ok" role="status">
+          {notice}
+        </div>
+      )}
+
+      {detail && (
+        <div className="sheet-mask" onClick={() => setDetail(null)} role="presentation">
+          <div
+            className="sheet"
+            role="dialog"
+            aria-label="事项详情"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>{detail.title}</h2>
+            <p className="muted">{detail.purpose}</p>
+            {detail.method && <p className="sheet__method">{detail.method}</p>}
+            <p className="muted">
+              {formatTime(detail.scheduledAt)} · {STATUS_TEXT[detail.status] ?? detail.status}
+              {detail.overdue ? ' · 待跟进' : ''}
+            </p>
+            {detail.canFeedback ? (
+              <div className="sheet__actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() => void send(detail, 'patient_confirmed')}
+                >
+                  我完成了
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={busy}
+                  onClick={() => void send(detail, 'missed')}
+                >
+                  今天没做到
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busy}
+                  onClick={() => void send(detail, 'needs_help')}
+                >
+                  需要帮助
+                </button>
+              </div>
+            ) : (
+              <p className="muted">
+                {detail.status === 'cancelled'
+                  ? '这一项已被取消，不能再反馈。'
+                  : (detail.scheduledDate ?? '') > localDate()
+                    ? '还没到这一天，暂时不能确认。'
+                    : '这一项已经反馈过了。'}
+              </p>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={() => setDetail(null)}>
+              关闭
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="team-line">

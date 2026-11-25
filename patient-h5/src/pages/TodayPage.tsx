@@ -137,8 +137,12 @@ export function TodayPage({
                   </p>
                   <p className="next-card__purpose">{next.purpose}</p>
                 </div>
-                <button type="button" className="btn btn-primary btn-inline next-card__cta">
-                  记录{next.feedbackKind === 'record_review' ? '感受' : '这一餐'}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-inline next-card__cta"
+                  onClick={onOpenCalendar}
+                >
+                  去日历反馈
                 </button>
               </div>
             </section>

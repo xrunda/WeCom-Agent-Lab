@@ -70,7 +70,7 @@ export function demoMe(): Promise<MeResponse> {
 }
 
 export function demoToday(): Promise<TodayView> {
-  const items = demoCalendarItems().map(toView);
+  const items = demoTodayItems();
   const done = items.filter((item) => item.status === 'done').length;
   const missed = items.filter((item) => item.status === 'missed').length;
   const needsHelp = items.filter((item) => item.status === 'needs_help').length;
@@ -88,8 +88,30 @@ export function demoToday(): Promise<TodayView> {
   });
 }
 
+/** 演示模式的反馈：只改内存副本，刷新页面即还原 */
+const demoFeedbackState = new Map<string, CalendarItemView['status']>();
+
+export async function demoFeedback(input: {
+  itemId: string;
+  kind: 'patient_confirmed' | 'missed' | 'needs_help';
+}): Promise<CalendarItemView> {
+  const status =
+    input.kind === 'patient_confirmed' ? 'done' : input.kind === 'missed' ? 'missed' : 'needs_help';
+  demoFeedbackState.set(input.itemId, status);
+  const item = demoTodayItems().find((entry) => entry.id === input.itemId);
+  if (!item) throw new Error('事项不存在');
+  return { ...item, status, canFeedback: status !== 'done' };
+}
+
+function demoTodayItems(): CalendarItemView[] {
+  return demoCalendarItems().map((item) => {
+    const status = demoFeedbackState.get(item.id) ?? item.status;
+    return { ...toView(item), status, canFeedback: status !== 'done' && status !== 'cancelled' };
+  });
+}
+
 export function demoCalendar(): Promise<CalendarView> {
-  const items = demoCalendarItems().map(toView);
+  const items = demoTodayItems();
   const days = weekDates().map((date) => ({
     date,
     // 只有今天有完整事项；其余日期给空数组，页面按「暂无安排」渲染
