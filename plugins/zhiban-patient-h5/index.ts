@@ -53,6 +53,12 @@ import { createCalendarRoutes } from './routes/calendar.ts';
 import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './routes/records.ts';
 import { createFollowupRoutes } from './routes/followup.ts';
 import { FollowupService, MemoryFollowupBackend } from '../../src/p1/patient-h5-followup.ts';
+import { MemoryReminderBackend, ReminderService } from '../../src/p1/patient-h5-reminder.ts';
+import { createProfileCenterRoutes } from './routes/profile-center.ts';
+import {
+  MemoryReminderPrefsStore,
+  ProfileCenterService,
+} from '../../src/p1/patient-h5-profile-center.ts';
 import { MemoryRecordBackend, RecordService, UNCONFIGURED_RECOGNITION } from '../../src/p1/patient-h5-record.ts';
 import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
@@ -107,6 +113,8 @@ interface PatientViewLike {
   displayName: string;
   status: string;
   advisorId?: string;
+  /** 服务开始时间（P1 patient.accompaniedSince）；没有时用绑定时间兜底 */
+  accompaniedSince?: number;
 }
 
 interface PatientApiLike {
@@ -213,6 +221,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       displayName: patient.displayName,
       status: patient.status,
       ...(patient.advisorId ? { advisorId: patient.advisorId } : {}),
+      ...(patient.accompaniedSince ? { accompaniedSince: patient.accompaniedSince } : {}),
     };
   };
 
@@ -225,6 +234,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     let followupTable: AnyTableLike | undefined;
     let recordTable: AnyTableLike | undefined;
     let mediaTable: AnyTableLike | undefined;
+    let reminderTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
@@ -235,6 +245,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       followupTable = domain.table('followup_requests') as unknown as AnyTableLike;
       recordTable = domain.table('patient_records') as unknown as AnyTableLike;
       mediaTable = domain.table('h5_media') as unknown as AnyTableLike;
+      reminderTable = domain.table('reminder_tasks') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -259,6 +270,9 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       onConsentChange: (patientId, scope, status) => {
         // 取消传播钩子（契约 §5）：PH5-09 提醒包接入后在此取消未发出提醒
         ctx.emit('h5.consent.change', { patientId, scope, status, at: Date.now() });
+        if (scope === 'reminder' && status === 'withdrawn') {
+          void reminders.cancelForPlan(patientId, { reason: 'consent_withdrawn' }).catch(() => undefined);
+        }
       },
       onAudit: (record: H5AuditRecord) => {
         ctx.emit('h5.audit', record);
@@ -340,7 +354,24 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       profile,
       ids: idFactory(Date.now),
       onAudit: (event) => ctx.emit('h5.audit', event),
-      onPlanEvent: (event) => ctx.emit('h5.plan.event', event),
+      onPlanEvent: (event) => {
+        ctx.emit('h5.plan.event', event);
+        // 换版/暂停/结束：撤销未发出的提醒（发送前还会再复查一次）
+        const reason =
+          event.type === 'published'
+            ? 'plan_superseded'
+            : event.type === 'suspended'
+              ? 'plan_suspended'
+              : event.type === 'ended'
+                ? 'plan_ended'
+                : 'plan_superseded';
+        void reminders
+          .cancelForPlan(event.patientId, {
+            reason: reason as never,
+            ...(event.cancelledItemIds.length ? { itemIds: event.cancelledItemIds } : {}),
+          })
+          .catch(() => undefined);
+      },
     });
     // PH5-07：跟进请求统一由 FollowupService 管理（认领、SLA、升级）
     const followupBackend = followupTable
@@ -438,7 +469,58 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     });
     const mediaStore = new MemoryMediaStore();
 
+    const prefsStore = new MemoryReminderPrefsStore();
+    const reminderBackend = reminderTable
+      ? {
+          load: () =>
+            [...reminderTable!.entries()]
+              .map(([, value]) => value as never)
+              .filter((item) => (item as { tenantId?: string }).tenantId === config.tenantId),
+          put: (record: { id: string }) => reminderTable!.put(record.id, record),
+        }
+      : new MemoryReminderBackend();
+    const reminders = new ReminderService({
+      tenantId: config.tenantId,
+      backend: reminderBackend as never,
+      ids: idFactory(Date.now),
+      loadItems: (patientId) => plan.listCalendarItems(patientId),
+      loadPlanStatus: (patientId) => plan.currentForPatient(patientId)?.status,
+      prefsOf: (patientId) => prefsStore.load(patientId),
+      onAudit: (event) => ctx.emit('h5.reminder.audit', event),
+    });
+
+    ctx.provide('zhibanPatientH5Reminder', {
+      list: (query: { patientId?: string; status?: string; date?: string }) =>
+        reminders.list(query as never),
+      usage: (patientId: string, date?: string) => reminders.usage(patientId, date),
+      generateForPatient: (patientId: string) => reminders.generateForPatient(patientId),
+      gentleInquiry: (patientId: string) => reminders.gentleInquiry(patientId),
+      enqueue: (id: string) => reminders.enqueue(id),
+      cancel: (id: string, reason?: never) => reminders.cancel(id, reason ?? 'team_cancelled'),
+      cancelForPlan: (patientId: string, reason: never, itemIds?: string[]) =>
+        reminders.cancelForPlan(patientId, { reason, ...(itemIds ? { itemIds } : {}) }),
+      markSent: (id: string, draftId?: string) =>
+        reminders.markSent({ id, ...(draftId ? { draftId } : {}) }),
+      markVerified: (id: string, verificationId?: string) =>
+        reminders.markVerified(id, verificationId),
+      markFailed: (id: string, errorCode: string) => reminders.markFailed(id, errorCode),
+    });
+
+    const center = new ProfileCenterService({
+      profile,
+      records: recordService,
+      followups,
+      prefsStore,
+      // 陪伴天数以服务开始时间为准；没有服务开始时间时退回绑定时间
+      startedAtOf: (patientId) =>
+        patientView(patientId)?.accompaniedSince ?? service.getBinding(patientId)?.boundAt ?? null,
+    });
+
     const extensions = [
+      ...createProfileCenterRoutes({
+        center,
+        tenantReminderDefaults: { dailyLimit: 2, quietHours: { start: '21:00', end: '08:00' } },
+      }),
       ...createFollowupRoutes({
         followups,
         team: () => ({

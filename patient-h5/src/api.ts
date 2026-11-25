@@ -602,3 +602,74 @@ export async function fetchTeamRequests(): Promise<{ items: FollowupView[] }> {
   }
   return apiRequest<{ items: FollowupView[] }>('/team/requests');
 }
+
+// ---------- 个人中心（H09，契约 api §4.1 / §7.5 / §10） ----------
+
+export interface ProfileCenterStats {
+  companionDays: number;
+  mealRecords: number;
+  reviewDays: number;
+  basis: { startedAt: number | null; mealWindowDays: number };
+}
+
+export async function fetchMeStats(): Promise<ProfileCenterStats> {
+  if (isDemoMode()) {
+    const { demoStats } = await import('./mock/demo-api.ts');
+    return demoStats();
+  }
+  return apiRequest<ProfileCenterStats>('/me/stats');
+}
+
+export interface RecordHistoryItem {
+  id: string;
+  kind: 'meal' | 'evening_review' | 'note';
+  occurredAt: number;
+  occurredDate: string;
+  content: Record<string, unknown>;
+}
+
+export async function fetchRecordHistory(date?: string): Promise<{ items: RecordHistoryItem[] }> {
+  if (isDemoMode()) {
+    const { demoHistory } = await import('./mock/demo-api.ts');
+    return { items: demoHistory(date) };
+  }
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return apiRequest<{ items: RecordHistoryItem[] }>(`/records/history${query}`);
+}
+
+export async function requestProfileCorrection(input: {
+  entryId: string;
+  detail: string;
+}): Promise<{ followupId: string }> {
+  if (isDemoMode()) return { followupId: 'fup_demo_correction' };
+  return apiRequest<{ followupId: string }>('/profile/corrections', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export interface ReminderPrefs {
+  enabled: boolean;
+  dailyLimit?: number;
+  quietHours?: { start: string; end: string };
+  gentleInquiry?: boolean;
+  tenantDefaults: { dailyLimit: number; quietHours: { start: string; end: string } };
+}
+
+export async function fetchReminderPrefs(): Promise<ReminderPrefs> {
+  if (isDemoMode()) {
+    const { demoPrefs } = await import('./mock/demo-api.ts');
+    return demoPrefs();
+  }
+  return apiRequest<ReminderPrefs>('/reminder-prefs');
+}
+
+export async function updateReminderPrefs(
+  patch: Partial<Pick<ReminderPrefs, 'enabled' | 'dailyLimit' | 'quietHours' | 'gentleInquiry'>>,
+): Promise<ReminderPrefs> {
+  if (isDemoMode()) {
+    const { demoUpdatePrefs } = await import('./mock/demo-api.ts');
+    return demoUpdatePrefs(patch);
+  }
+  return apiRequest<ReminderPrefs>('/reminder-prefs', { method: 'PATCH', body: patch });
+}
