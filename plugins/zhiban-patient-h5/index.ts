@@ -50,6 +50,8 @@ import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
 import type { ManifestoConfig } from './routes/profile.ts';
 import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
 import { createCalendarRoutes } from './routes/calendar.ts';
+import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './routes/records.ts';
+import { MemoryRecordBackend, RecordService, UNCONFIGURED_RECOGNITION } from '../../src/p1/patient-h5-record.ts';
 import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
 import type { PlanSessionControllerLike } from './plan-session.ts';
@@ -219,6 +221,8 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     let planTable: AnyTableLike | undefined;
     let calendarTable: AnyTableLike | undefined;
     let followupTable: AnyTableLike | undefined;
+    let recordTable: AnyTableLike | undefined;
+    let mediaTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
@@ -227,6 +231,8 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       planTable = domain.table('health_plans') as unknown as AnyTableLike;
       calendarTable = domain.table('calendar_items') as unknown as AnyTableLike;
       followupTable = domain.table('followup_requests') as unknown as AnyTableLike;
+      recordTable = domain.table('patient_records') as unknown as AnyTableLike;
+      mediaTable = domain.table('h5_media') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -361,7 +367,40 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       followups: adjust,
       ids: idFactory(Date.now),
     });
+    const recordBackend =
+      recordTable && mediaTable
+        ? new DomainRecordBackend(recordTable, mediaTable, idempotencyTable, config.tenantId)
+        : new MemoryRecordBackend();
+    const recordService = new RecordService({
+      tenantId: config.tenantId,
+      backend: recordBackend,
+      recognition: UNCONFIGURED_RECOGNITION,
+      ids: idFactory(Date.now),
+      sideEffects: {
+        createRiskFollowup: async (input) => {
+          await adjust.put({
+            id: idFactory(() => Date.now())('fup'),
+            tenantId: config.tenantId,
+            patientId: input.patientId,
+            kind: 'plan_adjust',
+            message: input.message,
+            linkedPlanId: '',
+            planVersion: 0,
+            riskLevel: 'low',
+            status: 'pending',
+            createdAt: input.at,
+            updatedAt: input.at,
+          });
+        },
+        matchCalendarItem: async (input) => {
+          await calendarService.matchRecord(input);
+        },
+      },
+    });
+    const mediaStore = new MemoryMediaStore();
+
     const extensions = [
+      ...createRecordRoutes({ records: recordService, media: mediaStore }),
       ...createCalendarRoutes({ calendar: calendarService }),
       ...createPlanRoutes({ plan, adjust, ids: idFactory(Date.now) }),
       ...createProfileRoutes({ profile, manifesto: config.manifesto }),

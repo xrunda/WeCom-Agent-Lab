@@ -1759,3 +1759,26 @@ body {
   gap: 8px;
   margin: 8px 0;
 }
+
+/* ---------- 记录面板（H06 / H07） ---------- */
+.sheet__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sheet__group {
+  margin: 4px 0;
+}
+
+.sheet__photo {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.sheet__candidates {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
