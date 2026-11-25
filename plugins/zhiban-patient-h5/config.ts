@@ -29,6 +29,12 @@ export interface PatientH5Config {
   cookieSecure: boolean;
   /** 食养主张（PH5-03）：固定服务文案，租户可覆盖；缺省用 DEFAULT_MANIFESTO */
   manifesto?: ManifestoConfig;
+  /** 方案生成会话的工作区根目录；缺省用系统临时目录 */
+  planWorkspaceRoot?: string;
+  /** 生成会话使用的 agent 预设（DSH 侧配置名） */
+  planAgentPreset?: string;
+  /** 只用于审计回显的模型名，不做路由 */
+  planModelName?: string;
 }
 
 interface RawConfig {
@@ -45,6 +51,9 @@ interface RawConfig {
   publicBaseUrl?: unknown;
   cookieSecure?: unknown;
   manifesto?: unknown;
+  planWorkspaceRoot?: unknown;
+  planAgentPreset?: unknown;
+  planModelName?: unknown;
 }
 
 const DEFAULTS = {
@@ -117,6 +126,15 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
     ...(publicBaseUrl ? { publicBaseUrl } : {}),
     cookieSecure,
     ...(parseManifesto(input.manifesto) ? { manifesto: parseManifesto(input.manifesto) } : {}),
+    ...(typeof input.planWorkspaceRoot === 'string' && input.planWorkspaceRoot
+      ? { planWorkspaceRoot: input.planWorkspaceRoot }
+      : {}),
+    ...(typeof input.planAgentPreset === 'string' && input.planAgentPreset
+      ? { planAgentPreset: input.planAgentPreset }
+      : {}),
+    ...(typeof input.planModelName === 'string' && input.planModelName
+      ? { planModelName: input.planModelName }
+      : {}),
   };
 }
 

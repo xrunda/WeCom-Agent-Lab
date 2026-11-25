@@ -10,6 +10,9 @@
  * 真实短信供应商未接入前 smsMode=unconfigured，真实登录阻塞（#229 待决项）；
  * smsMode=mock 仅限开发/测试，验证码固定 000000（契约 api §15）。
  */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import { idFactory } from '../../src/p1/ids.ts';
@@ -46,6 +49,10 @@ import type { H5HttpRequest, H5HttpResponse } from './http.ts';
 import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
 import type { ManifestoConfig } from './routes/profile.ts';
 import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
+import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
+import type { PlanSessionControllerLike } from './plan-session.ts';
+import { LlmPlanGenerator } from '../../src/p1/patient-h5-plan-ai.ts';
+import type { PlanChatPort } from '../../src/p1/patient-h5-plan-ai.ts';
 
 interface AnyTableLike {
   entries(): IterableIterator<[string, unknown]>;
@@ -54,7 +61,7 @@ interface AnyTableLike {
 
 export const name = 'zhiban-patient-h5';
 
-export const inject = ['storageDomain', 'webServer'];
+export const inject = ['storageDomain', 'webServer', 'tools', 'sessionController'];
 
 export interface DshPatientH5Context {
   logger?: {
@@ -76,6 +83,16 @@ export interface DshPatientH5Context {
       handler: (req: H5HttpRequest, res: H5HttpResponse) => unknown;
     }): unknown;
   };
+  /** 宿主工具注册表（方案生成必须经工具回传，见 P1-M0-dsh-validation §1.2） */
+  tools?: {
+    register(tool: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+      execute: (args: unknown, exec: { agent?: { id?: string } }) => Promise<unknown>;
+    }): unknown;
+  };
+  sessionController?: PlanSessionControllerLike;
 }
 
 /** 患者档案只读视图（来自 zhiban-patient） */
@@ -289,10 +306,27 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       planTable && calendarTable
         ? new DomainPlanBackend(planTable, calendarTable, config.tenantId)
         : new MemoryPlanBackend();
+    let chatPort: PlanChatPort | undefined;
+    if (ctx.sessionController && ctx.tools) {
+      const sessionPort = new DshPlanSessionPort({
+        sessionController: ctx.sessionController,
+        workspaceRoot: config.planWorkspaceRoot ?? join(tmpdir(), 'zhiban-plan'),
+        ...(config.planAgentPreset ? { agentPreset: config.planAgentPreset } : {}),
+        log,
+      });
+      ctx.tools.register(buildPlanTool(sessionPort));
+      chatPort = sessionPort;
+      log('方案生成已接入模型（submit_health_plan 工具已注册）');
+    } else {
+      log('未提供 sessionController / tools：方案生成保持未接入，只能由团队人工起草');
+    }
+
     const plan = new PlanService({
       tenantId: config.tenantId,
       backend: planBackend,
-      generator: UNCONFIGURED_GENERATOR,
+      generator: chatPort
+        ? new LlmPlanGenerator({ port: chatPort, modelName: config.planModelName })
+        : UNCONFIGURED_GENERATOR,
       profile,
       ids: idFactory(Date.now),
       onAudit: (event) => ctx.emit('h5.audit', event),
