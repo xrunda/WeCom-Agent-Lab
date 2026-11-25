@@ -106,6 +106,7 @@ import {
 import { parseEventTypes, SseHub } from './sse.ts';
 import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
 import type { KnowledgeApi } from './routes/h-knowledge.ts';
+import { registerPatientH5InvitationRoutes } from './routes/ph5-invitations.ts';
 import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
 import type { GuardRulesApi } from './routes/h-risk-rules.ts';
 import { registerScriptRoutes } from './routes/h-scripts.ts';
@@ -1373,6 +1374,20 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
     const careReadApi = (): CareApiLike | undefined => ctx.get<CareApiLike>('zhibanCare');
     const knowledgeReadApi = (): KnowledgeApi | undefined =>
       ctx.get<KnowledgeApi>('zhibanKnowledge');
+
+    // PH5-02（#231）患者 H5：邀请/绑定/隐私由 zhiban-patient-h5 执行，
+    // 控制台只做权限与审计；响应不含邀请 code 与完整手机号。
+    registerPatientH5InvitationRoutes({
+      router,
+      getH5: () => ctx.get('zhibanPatientH5'),
+      tenantActor,
+      patientExists: (patientId) => Boolean(patientReadApi()?.getPatientAdmin?.(patientId)),
+      audit: (actor, action, targetId, detail) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'patient_h5', targetId, detail),
+        );
+      },
+    });
 
     // #118 知识库：CRUD 由 zhiban-knowledge 执行，控制台只做权限与审计。
     registerKnowledgeRoutes({
