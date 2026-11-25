@@ -161,7 +161,7 @@ content_article（租户级，与患者无外键；经引用关联到计划/日�
 | `updatedAt` | number | 否 | |
 
 - **单次**：`pending → used` 后任何重放返回同一终态错误，不二次签发会话。
-- 无服务权限（患者 `status != serving`、租户停用）时兑换失败，状态不变，错误码见 api §1.6。
+- 无服务权限（患者 `status != serving`、租户停用）时兑换失败，状态不变，错误码见 api §1.5。
 
 ### 3.3 patient_h5_session —— 患者会话（与员工会话隔离）
 
@@ -300,7 +300,7 @@ fieldKey 枚举（v1）：
 | 字段 | 说明 |
 |---|---|
 | `status` | `pending` / `approved` / `rejected` / `returned`（退回修改） |
-| `reviewerAccountId` | 账号 id——**必须具备 `h5.plan_review` 能力**，见 §6 |
+| `reviewerAccountId` | 账号 id——**必须具备 `h5.plan.review` 能力**，见 §6 |
 | `reviewerName` | 展示名 |
 | `reviewedAt` | |
 | `note` | 审核意见（≤500 字，不含患者正文） |
@@ -477,7 +477,7 @@ H5 端记录的统一实体。与 `meal_log`（群消息识别）**并存不合�
 | `seasonTerm` | string | 是 | 节气线索（如「霜降」）；**阅读线索，不据此自动统一安排** |
 | `status` | enum | 否 | `draft` → `reviewing` → `published` → `retired`，见 §4.6 |
 | `version` | number | 否 | 版本号；编辑产生新版本，引用方记录引用版本 |
-| `reviewedBy` / `reviewedAt` | string / number | 是 | 审核账号与时间（须具备 `h5.content_review`） |
+| `reviewedBy` / `reviewedAt` | string / number | 是 | 审核账号与时间（须具备 `h5.content.review`） |
 | `publishedAt` / `retiredAt` | number | 是 | |
 | `ingredientSafety` | object | 是 | ingredients 类必填：`{ usage, conditions, cautions }`（日常食用方式、适用条件、注意事项） |
 | `sandbox` | boolean | 否 | |
@@ -746,11 +746,14 @@ draft ──提交审核──> reviewing ──通过──> published ──�
 - 关键索引/唯一约束：
 
 ```sql
-CREATE UNIQUE INDEX uq_h5_binding ON h5_bindings(tenant_id, patient_id) WHERE deleted_at IS NULL AND status='bound';
+-- h5_binding 无 deletedAt 列（解绑用 status=unbound 表达，见 §3.1）
+CREATE UNIQUE INDEX uq_h5_binding ON h5_bindings(tenant_id, patient_id) WHERE status='bound';
 CREATE UNIQUE INDEX uq_pinv_code ON patient_invitations(tenant_id, code);
 CREATE UNIQUE INDEX uq_h5_session_token ON patient_h5_sessions(token_hash);
 CREATE UNIQUE INDEX uq_hpl_patient_version ON health_plans(tenant_id, patient_id, version);
-CREATE UNIQUE INDEX uq_rec_idem ON patient_records(tenant_id, patient_id, idempotency_key);
+-- 幂等键只保证 24h 窗口内不重复建记录（§1.4）；唯一索引必须带时间窗，
+-- 否则 24h 后复用同一 key 会被数据库拒绝（与 §1.4「超窗按新请求处理」冲突）
+CREATE UNIQUE INDEX uq_rec_idem ON patient_records(tenant_id, patient_id, idempotency_key, occurred_date);
 CREATE INDEX idx_cal_patient_date ON calendar_items(tenant_id, patient_id, scheduled_date);
 CREATE INDEX idx_rec_patient_date ON patient_records(tenant_id, patient_id, occurred_date);
 CREATE INDEX idx_fup_status ON followup_requests(tenant_id, status, sla_due_at);
@@ -782,7 +785,7 @@ CREATE INDEX idx_h5_audit_at ON h5_audits(tenant_id, at DESC);
 
 现有 P1 目录（`src/c2/**`、`plugins/zhiban-{wecom,patient,memory,care,guard,knowledge,console,advisor}/**`、`console/**`）对 PH5 各包**只读**（console 的 `routes/ph5-*.ts`、`index.ts` 装配追加、患者详情页的邀请区块组件目录除外）。
 
-
+## 8. 与现有系统的兼容清单（验收映射）
 
 | 现状 | 兼容方式 |
 |---|---|

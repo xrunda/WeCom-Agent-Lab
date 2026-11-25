@@ -48,7 +48,6 @@
 | `PHONE_MISMATCH` | 422 | 手机号与预绑定不一致 |
 | `VERIFY_CODE_INVALID` | 422 | 验证码错误或已过期 |
 | `SMS_UNAVAILABLE` | 503 | 短信资源未配置/不可用——真实登录阻塞，不得用演示账号顶替 |
-| `SESSION_REVOKED` | 401 | 会话已被撤销（区别于过期，前端引导重新认证） |
 | `CONSENT_REQUIRED` | 403 | 需要相应分项授权（`details[0].scope` 给出缺的 scope） |
 | `SERVICE_PAUSED` | 403 | 患者服务已暂停（只读降级由 `GET /me` 表达，写接口拒绝） |
 | `PLAN_NOT_AVAILABLE` | 404 | 无已发布计划（配合 `GET /me` 的状态展示） |
@@ -127,7 +126,8 @@
 { "patientId": "pat_...", "issuedAt": 1762646400000, "expiresAt": 1763251200000, "lastSeenAt": 1762732800000 }
 ```
 
-`401 UNAUTHENTICATED`（含 `SESSION_REVOKED` 区分字段 `error.details[0].reason`）。
+`401 UNAUTHORIZED`。会话被撤销、过期或从未登录都返回同一个码；需要区分时读
+`error.details[0].reason`（`revoked` / `expired` / `missing`），前端据此决定是否提示「请重新验证身份」。
 
 ### 2.4 `POST /zhiban/h5/auth/login`（再次登录：手机号 + 验证码）
 
@@ -181,8 +181,10 @@
 
 - `action`：`grant` / `withdraw`。
 - 撤回效果按数据模型 §5 取消传播表**即时**执行（未发出提醒取消、识别停止等）；写 `h5_audit(h5.consent.grant|withdraw)`。
-- `service_basic` 撤回 → 当前会话同步撤销，响应 `204` 后所有接口 401。
-- 响应 `200`：更新后的 scope 项。
+- 响应统一 `200`：`{ scope, status, version }`（更新后的 scope 项）。
+- `service_basic` 撤回时**同样返回 `200`**，另带 `Set-Cookie: zb_h5_session=; Max-Age=0`；
+  此请求之后该会话的所有接口返回 `401`。前端以响应体为准、以 `Set-Cookie` 判定是否回到登录态，
+  不依赖 204。
 - 幂等：重复同向决定返回当前状态（200），不重复执行传播。
 
 ### 3.3 `GET /zhiban/h5/privacy/summary`
@@ -287,7 +289,9 @@
 
 ### 5.1 `GET /zhiban/h5/plan/current`
 
-角色：患者会话。**只返回已发布版本**（A04：未审核对患者不可见）。
+角色：患者会话。**只返回已对患者可见的版本**（A04：未审核、`data_pending`、`generating`、`reviewing`、
+`rejected` 一律不可见）。可见状态为 `published`、`suspended`（返回计划 + 暂停说明，前端展示暂停态）、
+`ended`（最后有效版本，只读）——`suspended` 不能返回 404，否则患者看不到暂停说明（数据模型 §4.2/§5）。
 
 - 无已发布计划：`404 PLAN_NOT_AVAILABLE`（前端配合 `GET /me` 的 status 展示「准备中」）。
 - 响应 `200`：
@@ -352,7 +356,7 @@
 ```
 
 - `progress` 只统计**当天已发布计划**的行动（自由记录不进分母，H03/A06）。
-- `nextItem` 为空且 `pending>0`：全部完成 → `allDone: true`，温和回顾文案（前端），不催办。
+- `pending==0` 且当天有已发布事项：全部完成 → `allDone: true`，温和回顾文案（前端），不催办。`nextItem` 为空但 `pending>0` 表示数据异常，前端按「有未完成事项」展示，不显示完成态。
 - 无计划时 `404 PLAN_NOT_AVAILABLE`（前端按 `/me` 状态展示准备中）。
 
 ### 6.2 `GET /zhiban/h5/calendar?from=&to=&date=`
@@ -388,7 +392,9 @@
 { "kind": "missed", "reason": "聚餐了", "occurredAt": null, "recordId": null }
 ```
 
-- `kind`：`done` / `missed` / `needs_help`。
+- `kind`：`patient_confirmed`（患者明确确认，对应数据模型 `feedback.kind`）/ `missed` / `needs_help`。
+  **不要**传 `done`：数据模型 §3.7 的 `feedback.kind` 枚举是 `patient_confirmed` / `record_matched` / `missed` / `needs_help`；
+  `record_matched` 由服务端在关联记录满足要求时回填，客户端不可直接提交。
 - `done`：患者明确确认；可带 `recordId`（关联已保存记录）。
 - `needs_help`：自动生成 followup（kind=need_help），响应 `201` 附 `{ "followupId": "fup_..." }`。
 - 校验（`409 ITEM_NOT_MODIFIABLE`）：事项 `scheduledDate > 今天`（禁止提前完成）；`status=cancelled`（被取消事项不再可反馈，A05）；计划 `suspended`（展示说明但写被拒）。
