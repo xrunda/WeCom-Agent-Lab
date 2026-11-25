@@ -25,6 +25,7 @@ export type H5ErrorCode =
   | 'SMS_UNAVAILABLE'
   | 'RATE_LIMITED'
   | 'SERVICE_PAUSED'
+  | 'CONSENT_REQUIRED'
   | 'INTERNAL';
 
 const ERROR_STATUS: Record<H5ErrorCode, number> = {
@@ -40,6 +41,7 @@ const ERROR_STATUS: Record<H5ErrorCode, number> = {
   SMS_UNAVAILABLE: 503,
   RATE_LIMITED: 429,
   SERVICE_PAUSED: 403,
+  CONSENT_REQUIRED: 403,
   INTERNAL: 500,
 };
 

@@ -30,11 +30,20 @@ import type {
   PrivacyRequestRecord,
   PrivacyRequestStatus,
 } from '../../src/p1/patient-h5.ts';
+import { MemoryProfileBackend, ProfileService } from '../../src/p1/patient-h5-profile.ts';
+import type { ProfileBackend } from '../../src/p1/patient-h5-profile.ts';
 import { parsePatientH5Config } from './config.ts';
 import type { PatientH5Config } from './config.ts';
 import { DomainPatientH5Backend, patientH5Domain } from './domain.ts';
 import { registerPatientH5Http } from './http.ts';
 import type { H5HttpRequest, H5HttpResponse } from './http.ts';
+import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
+import type { ManifestoConfig } from './routes/profile.ts';
+
+interface AnyTableLike {
+  entries(): IterableIterator<[string, unknown]>;
+  put(key: string, value: unknown): Promise<void>;
+}
 
 export const name = 'zhiban-patient-h5';
 
@@ -139,9 +148,11 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
 
   ctx.effect(async () => {
     let backend: PatientH5Backend;
+    let profileTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
+      profileTable = domain.table('patient_profile_entries') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -206,11 +217,28 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       log('警告：cookieSecure=false，会话 Cookie 允许明文传输；仅限本地开发，生产必须为 true');
     }
 
+
+    // PH5-03（#232）：轻量建档域路由 + 食养主张（公开）
+    // 域存储不可用时退回内存实现（进程内有效，仅限开发/测试）
+    const profileBackend: ProfileBackend = profileTable
+      ? new DomainProfileBackend(profileTable, config.tenantId)
+      : new MemoryProfileBackend();
+    const profile = new ProfileService({
+      backend: profileBackend,
+      tenantId: config.tenantId,
+      ids: idFactory(Date.now),
+    });
+    const extensions = createProfileRoutes({ profile, manifesto: config.manifesto });
     registerPatientH5Http(ctx.webServer, {
       service,
       allowedOrigins: config.allowedOrigins,
       cookieSecure: config.cookieSecure,
       log,
+      extensions,
+      composeMe: (view) => ({
+        status: profile.meStatus(view.session.patientId, view.patient.status),
+        profile: profile.status(view.session.patientId),
+      }),
     });
 
     log('患者端 H5 接口已注册：/zhiban/h5');

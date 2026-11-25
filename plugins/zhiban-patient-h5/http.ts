@@ -46,7 +46,34 @@ export interface PatientH5HttpOptions {
   cookieSecure?: boolean;
   now?: () => number;
   log?: (line: string) => void;
+  /**
+   * 域路由扩展（PH5-03 起，契约 §7.1 路径归属的装配点）：
+   * 每个扩展处理自己的路径，返回 true 表示已响应。
+   * 内置路由未命中时依次调用；错误统一按 §1.5 格式输出。
+   */
+  extensions?: H5RouteExtension[];
+  /** /me 状态组合钩子（PH5-03 建档、PH5-04 计划注入状态） */
+  composeMe?: (view: SessionView) => {
+    status: string;
+    profile: { completeness: number; safetyMissing: boolean; conflicts: unknown[] };
+  };
 }
+
+/** 域路由扩展的上下文：内置鉴权/响应工具复用，扩展不重造轮子 */
+export interface H5RouteContext {
+  method: string;
+  path: string;
+  query: URLSearchParams;
+  requestId: string;
+  service: PatientH5Service;
+  readJson(): Promise<Record<string, unknown>>;
+  requireSession(): Promise<SessionView>;
+  checkOrigin(): void;
+  ok(status: number, body: unknown, extra?: Record<string, string | number>): void;
+  fail(error: H5Error): void;
+}
+
+export type H5RouteExtension = (req: H5HttpRequest, res: H5HttpResponse, ctx: H5RouteContext) => Promise<boolean>;
 
 const MAX_BODY = 16 * 1024;
 const SESSION_RATE_LIMIT = 60;
@@ -182,7 +209,10 @@ export function registerPatientH5Http(
     },
   });
 
-  async function requireSession(req: H5HttpRequest): Promise<SessionView> {
+  async function requireSession(
+    req: H5HttpRequest,
+    sessionOptions: { requireServiceBasic?: boolean } = {},
+  ): Promise<SessionView> {
     const token = cookieValue(req, H5_SESSION_COOKIE);
     const resolved = await options.service.resolveSession(token);
     if (!resolved) {
@@ -191,6 +221,15 @@ export function registerPatientH5Http(
     const retryAfter = limiter.retryAfterSeconds(resolved.session.id, now());
     if (retryAfter > 0) {
       throw new H5Error('RATE_LIMITED', '请求过频，请稍后再试');
+    }
+    // 契约 §6.2：个人数据需要 service_basic 授权；授权页与隐私入口本身不设此门
+    if (sessionOptions.requireServiceBasic !== false) {
+      const status = options.service.consentStatus(resolved.session.patientId, 'service_basic');
+      if (status !== 'granted') {
+        throw new H5Error('CONSENT_REQUIRED', '需要先开启「进入个人服务」授权', [
+          { field: 'scope', issue: 'service_basic' },
+        ]);
+      }
     }
     return resolved;
   }
@@ -325,7 +364,7 @@ export function registerPatientH5Http(
 
     if (path === '/auth/session' && method === 'GET') {
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         ok(200, {
           patientId: view.session.patientId,
           issuedAt: view.session.issuedAt,
@@ -342,9 +381,13 @@ export function registerPatientH5Http(
     if (path === '/me' && method === 'GET') {
       try {
         const view = await requireSession(req);
-        ok(200, {
+        const composed = options.composeMe?.(view) ?? {
           status: options.service.meStatus(view.patient),
           profile: { completeness: 0, safetyMissing: false, conflicts: [] },
+        };
+        ok(200, {
+          status: composed.status,
+          profile: composed.profile,
           plan: null,
           team: view.patient.advisorId ? { advisorId: view.patient.advisorId } : null,
           reminderEnabled: options.service.consentStatus(view.session.patientId, 'reminder') === 'granted',
@@ -360,7 +403,7 @@ export function registerPatientH5Http(
 
     if (path === '/consents' && method === 'GET') {
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         ok(200, options.service.consentOverview(view.session.patientId));
       } catch (error) {
         if (error instanceof H5Error) fail(error);
@@ -372,7 +415,7 @@ export function registerPatientH5Http(
     if (path === '/consents/decide' && method === 'POST') {
       checkOrigin(req);
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         const body = await readJson(req);
         const scope = String(body.scope ?? '') as ConsentScope;
         const action = body.action === 'grant' || body.action === 'withdraw' ? body.action : null;
@@ -404,7 +447,7 @@ export function registerPatientH5Http(
 
     if (path === '/privacy/summary' && method === 'GET') {
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         ok(200, options.service.privacySummary(view.session.patientId));
       } catch (error) {
         if (error instanceof H5Error) fail(error);
@@ -416,7 +459,7 @@ export function registerPatientH5Http(
     if (path === '/privacy/requests' && method === 'POST') {
       checkOrigin(req);
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         const body = await readJson(req);
         const idempotencyKey = headerValue(req, 'idempotency-key') ?? undefined;
         const record = await options.service.createPrivacyRequest({
@@ -445,7 +488,7 @@ export function registerPatientH5Http(
     if (path === '/events' && method === 'POST') {
       checkOrigin(req);
       try {
-        const view = await requireSession(req);
+        const view = await requireSession(req, { requireServiceBasic: false });
         const body = await readJson(req);
         await options.service.recordEvent(
           view.session.patientId,
@@ -459,6 +502,35 @@ export function registerPatientH5Http(
         else throw error;
       }
       return;
+    }
+
+    // ---------- 域路由扩展（PH5-03 起：profile / plan / calendar / ...） ----------
+    if (options.extensions?.length) {
+      const routeCtx: H5RouteContext = {
+        method,
+        path,
+        query: url.searchParams,
+        requestId,
+        service: options.service,
+        readJson: () => readJson(req),
+        requireSession: () => requireSession(req),
+        checkOrigin: () => checkOrigin(req),
+        ok: (status, body, extra) => ok(status, body, extra),
+        fail: (error) => fail(error),
+      };
+      for (const extension of options.extensions) {
+        let handled = false;
+        try {
+          handled = await extension(req, res, routeCtx);
+        } catch (error) {
+          if (error instanceof H5Error) {
+            fail(error);
+            return;
+          }
+          throw error;
+        }
+        if (handled) return;
+      }
     }
 
     // 未匹配路由
