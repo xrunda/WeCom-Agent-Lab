@@ -26,30 +26,64 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
 });
 
-describe('TodayPage（占位骨架）', () => {
-  it('无计划时显示准备中与建档入口', () => {
+describe('TodayPage（H03 结构）', () => {
+  it('有数据时显示陪伴天数、今日安排与下一件小事', async () => {
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        date: '2026-11-25',
+        greeting: '早上好',
+        nextItem: {
+          id: 'cal_1',
+          title: '午餐时光',
+          purpose: '按时吃饭',
+          scheduledAt: Date.now(),
+          status: 'pending',
+          feedbackKind: 'record_meal',
+          overdue: false,
+        },
+        progress: { done: 1, missed: 0, needsHelp: 0, pending: 3, total: 4 },
+        quickRecord: { meal: true, review: true },
+        relatedArticles: [
+          { id: 'a1', title: '早餐怎样吃', summary: '搭配思路', category: 'classics_life', publishedAt: 0 },
+        ],
+        allDone: false,
+        companionDays: 5,
+      }),
+    );
     render(
       <TodayPage
-        me={{ status: 'plan_generating', reminderEnabled: false, serverTime: 0 }}
-        onStartOnboarding={() => undefined}
-        onOpenNurture={() => undefined}
+        statusHint={null}
+        needOnboarding={false}
+        onStartOnboarding={vi.fn()}
+        onOpenCalendar={vi.fn()}
+        onOpenNurture={vi.fn()}
+        onUnauthorized={vi.fn()}
       />,
     );
-    expect(screen.getByText('正在为你准备计划')).toBeInTheDocument();
-    expect(screen.getByText('今日进度')).toBeInTheDocument();
-    expect(screen.getByText('快捷记录')).toBeInTheDocument();
-    expect(screen.getByText('相关食养')).toBeInTheDocument();
-    expect(screen.getByText('你的团队')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/陪伴你的第/)).toBeInTheDocument();
+    });
+    expect(screen.getByText('下一件小事')).toBeInTheDocument();
+    expect(screen.getByText('今天的健康节奏')).toBeInTheDocument();
+    expect(screen.getByText('拍照记餐')).toBeInTheDocument();
+    expect(screen.getByText('专业团队一直在这里')).toBeInTheDocument();
   });
 
-  it('资料未完善时主行动是建档（刷新/返回不串状态的验收基础）', () => {
+  it('未完成建档时显示状态提示与建档入口', () => {
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockRejectedValue(new Error('no data'));
     render(
       <TodayPage
-        me={{ status: 'profile_incomplete', reminderEnabled: false, serverTime: 0 }}
-        onStartOnboarding={() => undefined}
-        onOpenNurture={() => undefined}
+        statusHint={{ title: '先完成建档', text: '回答几个小问题。' }}
+        needOnboarding
+        onStartOnboarding={vi.fn()}
+        onOpenCalendar={vi.fn()}
+        onOpenNurture={vi.fn()}
+        onUnauthorized={vi.fn()}
       />,
     );
+    expect(screen.getByText('先完成建档')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开始建档' })).toBeInTheDocument();
   });
 });
@@ -67,7 +101,7 @@ describe('NurturePage（H01 食养主张）', () => {
         ],
       }),
     );
-    render(<NurturePage />);
+    render(<NurturePage intro />);
     await waitFor(() => {
       expect(screen.getByText('五谷为养，五果为助')).toBeInTheDocument();
     });
@@ -165,15 +199,28 @@ describe('回归：review 修复项', () => {
   it('MePage 挂载只请求一次 /me（不再无限轮询）', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockReset();
-    const responses = Array.from({ length: 30 }, () =>
-      jsonResponse(200, {
-        status: 'plan_active',
-        reminderEnabled: true,
-        serverTime: 0,
-        profile: { completeness: 1, safetyMissing: false, conflicts: [] },
-      }),
+    const meBody = {
+      status: 'plan_active',
+      reminderEnabled: true,
+      serverTime: 0,
+      companionDays: 5,
+      profile: { completeness: 1, safetyMissing: false, conflicts: [] },
+    };
+    const todayBody = {
+      date: '2026-11-25',
+      greeting: '早上好',
+      nextItem: null,
+      progress: { done: 0, missed: 0, needsHelp: 0, pending: 0, total: 0 },
+      quickRecord: { meal: false, review: false },
+      relatedArticles: [],
+      allDone: false,
+      companionDays: 5,
+    };
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      Promise.resolve(
+        String(input).endsWith('/today') ? jsonResponse(200, todayBody) : jsonResponse(200, meBody),
+      ),
     );
-    fetchMock.mockImplementation(() => Promise.resolve(responses.shift()!));
     render(<App />);
     await waitFor(() => {
       expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
@@ -194,9 +241,9 @@ describe('回归：review 修复项', () => {
     const onSkip = vi.fn();
     render(<NurturePage intro onSkip={onSkip} onStart={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '先跳过' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /先跳过/ })).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole('button', { name: '先跳过' }));
+    await userEvent.click(screen.getByRole('button', { name: /先跳过/ }));
     expect(onSkip).toHaveBeenCalled();
   });
 

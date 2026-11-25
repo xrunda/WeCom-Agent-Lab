@@ -38,6 +38,13 @@ export function newIdempotencyKey(): string {
   return `h5_${random}`;
 }
 
+/**
+ * 演示模式：VITE_API_MODE=demo 时用本地虚构数据（视觉走查/路演）。
+ * 真实接口照常走 fetch；测试环境变量为空，始终走 fetch。
+ */
+export const isDemoMode = (): boolean =>
+  (import.meta.env as Record<string, string | undefined>).VITE_API_MODE === 'demo';
+
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH';
   body?: unknown;
@@ -105,9 +112,17 @@ export interface MeResponse {
   status: string;
   reminderEnabled: boolean;
   serverTime: number;
+  /** 陪伴天数（契约 api §4.1）；PH5-10 前真实接口为 null */
+  companionDays?: number | null;
+  profile?: { completeness: number; safetyMissing: boolean; conflicts: unknown[] };
+  plan?: { planId: string; version: number; status: string; endDate: string } | null;
 }
 
-export function fetchMe(): Promise<MeResponse> {
+export async function fetchMe(): Promise<MeResponse> {
+  if (isDemoMode()) {
+    const { demoMe } = await import('./mock/demo-api.ts');
+    return demoMe();
+  }
   return apiRequest<MeResponse>('/me');
 }
 
@@ -243,4 +258,102 @@ export function submitProfileAnswers(input: {
 
 export function confirmProfileEntries(entryIds: string[]): Promise<unknown> {
   return apiRequest('/profile/confirm', { method: 'POST', body: { entryIds } });
+}
+
+// ---------- 今天与日历（H03 / H05，契约 api §6） ----------
+
+export type ItemStatus = 'pending' | 'done' | 'missed' | 'needs_help' | 'cancelled';
+
+export interface CalendarItemView {
+  id: string;
+  title: string;
+  purpose: string;
+  method?: string;
+  scheduledAt: number;
+  status: ItemStatus;
+  feedbackKind: 'checkin' | 'record_meal' | 'record_review';
+  overdue: boolean;
+  cancelReason?: string | null;
+}
+
+export interface TodayView {
+  date: string;
+  greeting: string;
+  nextItem: CalendarItemView | null;
+  progress: { done: number; missed: number; needsHelp: number; pending: number; total: number };
+  quickRecord: { meal: boolean; review: boolean };
+  relatedArticles: ArticleView[];
+  allDone: boolean;
+  companionDays: number | null;
+}
+
+export interface DayView {
+  date: string;
+  items: CalendarItemView[];
+}
+
+export interface CalendarView {
+  days: DayView[];
+  from: number;
+  to: number;
+  dailyTip?: { title: string; text: string } | null;
+}
+
+export async function fetchToday(): Promise<TodayView> {
+  if (isDemoMode()) {
+    const { demoToday } = await import('./mock/demo-api.ts');
+    return demoToday();
+  }
+  return apiRequest<TodayView>('/today');
+}
+
+export async function fetchCalendar(): Promise<CalendarView> {
+  if (isDemoMode()) {
+    const { demoCalendar } = await import('./mock/demo-api.ts');
+    return demoCalendar();
+  }
+  return apiRequest<CalendarView>('/calendar');
+}
+
+// ---------- 内容（H05/H08 关联） ----------
+
+export interface ArticleView {
+  id: string;
+  title: string;
+  summary: string;
+  category: 'classics_life' | 'ingredients' | 'seasonal_living';
+  publishedAt: number;
+}
+
+export async function fetchArticles(): Promise<{ items: ArticleView[] }> {
+  if (isDemoMode()) {
+    const { demoArticles } = await import('./mock/demo-api.ts');
+    return demoArticles();
+  }
+  return apiRequest<{ items: ArticleView[] }>('/articles');
+}
+
+// ---------- 计划（H04） ----------
+
+export interface PlanView {
+  id: string;
+  version: number;
+  status: string;
+  stageGoal: string;
+  startDate: string;
+  endDate: string;
+  foodTherapyRationale: string;
+  focusPoints: string[];
+  rationale: { basedOn: string[] };
+  review: { reviewerName: string; reviewedAt: number };
+  publishedAt: number;
+  acknowledgedAt: number | null;
+}
+
+export async function fetchCurrentPlan(): Promise<PlanView> {
+  if (isDemoMode()) {
+    const { demoPlan } = await import('./mock/demo-api.ts');
+    return demoPlan();
+  }
+  return apiRequest<PlanView>('/plan/current');
 }
