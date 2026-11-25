@@ -63,7 +63,7 @@ describe('CalendarPage 反馈', () => {
       jsonResponse(200, calendarBody([item({ status: 'done', canFeedback: false })])),
     );
 
-    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} />);
+    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} onOpenTeam={vi.fn()} />);
     await waitFor(() => screen.getByText('午餐时光'));
     await userEvent.click(screen.getByText('午餐时光'));
 
@@ -90,7 +90,7 @@ describe('CalendarPage 反馈', () => {
       jsonResponse(200, calendarBody([item({ status: 'needs_help', canFeedback: false })])),
     );
 
-    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} />);
+    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} onOpenTeam={vi.fn()} />);
     await waitFor(() => screen.getByText('午餐时光'));
     await userEvent.click(screen.getByText('午餐时光'));
     await userEvent.click(await screen.findByRole('button', { name: '需要帮助' }));
@@ -104,7 +104,7 @@ describe('CalendarPage 反馈', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, calendarBody([item({ canFeedback: false, scheduledDate: '2099-01-01' })])),
     );
-    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} />);
+    render(<CalendarPage onUnauthorized={vi.fn()} onBackToNurture={vi.fn()} onOpenTeam={vi.fn()} />);
     await waitFor(() => screen.getByText('午餐时光'));
     await userEvent.click(screen.getByText('午餐时光'));
 

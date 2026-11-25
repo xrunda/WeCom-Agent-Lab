@@ -37,7 +37,7 @@ export const DEMO_PLAN = {
   status: 'published',
   stageGoal: '把三餐吃规律，晚餐清淡一点',
   startDate: localDate(-9),
-  endDate: localDate(18),
+  endDate: localDate(11),
   foodTherapyRationale: '结合你平时偏油的口味，先从「三餐有节、晚餐清淡」开始，不急着一把改完。',
   focusPoints: ['早餐增加一种蔬菜', '三餐按时', '晚餐少油不过饱'],
   actions: [

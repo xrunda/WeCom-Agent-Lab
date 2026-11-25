@@ -1,14 +1,17 @@
 /**
- * 专业团队（H10，契约 api §8）。
+ * 专业团队（H10，契约 api §8），按设计稿 ui-10 还原。
  *
- * 首期不做实时问诊：提交后进入团队队列，答复沿现有会话人工送达。
+ * 首期不做实时问诊：留言进入团队队列，答复沿现有会话送达。
  * 页面不承诺唤起指定微信会话，也不把「已收到」显示成「已处理」。
+ * 语音与附件按 PRD 隐藏（增强项，无后端）。
  */
 import { useEffect, useState } from 'react';
 
 import { ApiError, fetchTeam, fetchTeamRequests, submitTeamRequest } from '../api.ts';
 import type { FollowupView, TeamInfo } from '../api.ts';
+import { ASSETS } from '../assets.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon } from '../components/Icon.tsx';
 
 const STATUS_TEXT: Record<string, { label: string; className: string }> = {
   pending: { label: '待接收', className: 'chip chip--pending' },
@@ -76,31 +79,45 @@ export function TeamPage({ onBack, onUnauthorized }: Props) {
   return (
     <div className="page page-team">
       <button type="button" className="link-btn plan-back" onClick={onBack}>
-        ‹ 返回
+        ‹ 我的专业团队
       </button>
 
       <header className="team-head">
-        <h1>我的专业团队</h1>
+        <h1>有人，与你一起照顾健康</h1>
         <p className="muted">日常问题与计划反馈，都可以告诉我们。</p>
       </header>
 
       {team && (
-        <section className="card team-info">
-          <div className="team-info__row">
-            <AssetSlot id="A03" ratio="1 / 1" radius={999} label="顾问头像" className="team-info__avatar" />
-            <div>
-              <p className="team-info__name">{team.advisorName}</p>
-              <p className="muted">健康顾问 · 日常服务协调</p>
+        <>
+          <section className="team-advisor">
+            <div className="team-advisor__body">
+              <AssetSlot id="A03" ratio="1 / 1" radius={999} src={ASSETS.avatar} label="顾问头像" className="team-advisor__avatar" />
+              <div>
+                <p className="team-advisor__role">健康顾问</p>
+                <p className="team-advisor__name">{team.advisorName}</p>
+                <span className="tag-pill tag-pill--warm">日常服务协调</span>
+              </div>
             </div>
-          </div>
-          {team.members.map((member) => (
-            <div className="team-info__member" key={member.name}>
-              <span>{member.name}</span>
-              <span className="muted">{member.role}</span>
+            <AssetSlot id="P02" ratio="4 / 3" radius={0} src={ASSETS.mealHero} label="顾问配图" className="team-advisor__asset" />
+          </section>
+
+          <section className="team-group">
+            <div className="team-group__avatars" aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </div>
-          ))}
-          <p className="muted">服务时间：{team.serviceHours}</p>
-        </section>
+            <div className="team-group__body">
+              <p className="team-group__name">
+                营养指导团队
+                <span className="team-group__badge">示例团队</span>
+              </p>
+              <p className="muted">食养计划与饮食指导</p>
+            </div>
+            <Icon name="chevron" size={16} className="team-group__arrow" />
+          </section>
+          <p className="team-hours">服务时间：{team.serviceHours}</p>
+        </>
       )}
 
       {hasRisk && (
@@ -109,31 +126,39 @@ export function TeamPage({ onBack, onUnauthorized }: Props) {
         </div>
       )}
 
-      <section className="card">
-        <h2>这次想聊些什么</h2>
-        <div className="sheet__row">
-          {(team?.categories ?? []).map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`btn btn-inline ${category === item.key ? 'btn-primary' : 'btn-secondary'}`}
-              aria-pressed={category === item.key}
-              onClick={() => setCategory(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
+      <section className="team-form">
+        <h2>
+          这次想聊些什么？
+          <span className="team-form__accent" aria-hidden="true" />
+        </h2>
+        <div className="team-cats">
+          {(team?.categories ?? []).map((item) => {
+            const active = category === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={`team-cat ${active ? 'active' : ''}`}
+                aria-pressed={active}
+                onClick={() => setCategory(item.key)}
+              >
+                {item.label}
+                {active && <Icon name="check" size={16} className="team-cat__check" />}
+              </button>
+            );
+          })}
         </div>
-        <div className="field" style={{ marginTop: 10 }}>
-          <label htmlFor="team-message">说说你遇到的情况</label>
+
+        <div className="team-input">
           <textarea
-            id="team-message"
             rows={3}
             value={message}
             onChange={(event) => setMessage(event.target.value)}
-            placeholder="不需要填很详细，说清大概情况就行"
+            placeholder="说说你遇到的情况…"
+            aria-label="说说你遇到的情况"
           />
         </div>
+
         {error && (
           <div className="notice notice-error" role="alert">
             {error}
@@ -144,10 +169,22 @@ export function TeamPage({ onBack, onUnauthorized }: Props) {
             {notice}
           </div>
         )}
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void submit()}>
+
+        <div className="team-note">
+          <Icon name="leaf" size={22} className="team-note__icon" />
+          <div>
+            <p className="team-note__title">关于回复</p>
+            <p className="muted">留言将交由服务团队跟进，具体回复以团队服务安排为准。</p>
+          </div>
+        </div>
+
+        <button type="button" className="btn btn-primary team-submit" disabled={busy} onClick={() => void submit()}>
           {busy ? '正在提交…' : '提交给专业团队'}
         </button>
-        <p className="muted">留言会进入团队待办；「已收到」只是系统回执，有人接手后会显示「跟进中」。</p>
+        <button type="button" className="btn btn-secondary team-back" onClick={onBack}>
+          返回微信联系顾问
+        </button>
+        <p className="team-disclaimer">如有紧急身体不适，请及时就医。</p>
       </section>
 
       <section className="section">
@@ -169,12 +206,7 @@ export function TeamPage({ onBack, onUnauthorized }: Props) {
                 </div>
                 <p className="followup-item__message">{item.message}</p>
                 {item.status !== 'resolved' && (
-                  <p className="muted">
-                    答复会通过服务会话送达，请在微信里查看。
-                  </p>
-                )}
-                {item.status === 'resolved' && item.claimedAt && (
-                  <p className="muted">已由团队处理。</p>
+                  <p className="muted">答复会通过服务会话送达，请在微信里查看。</p>
                 )}
               </li>
             );

@@ -27,3 +27,6 @@ eval/advisor/last-report.md
 
 # 患者端 H5 构建产物（PH5-02 引入 dist 时误提交，移出跟踪）
 patient-h5/dist/
+
+# 截图自查产物（npm run shots）
+screenshots/

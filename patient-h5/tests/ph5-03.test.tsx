@@ -29,8 +29,12 @@ afterEach(() => {
 describe('TodayPage（H03 结构）', () => {
   it('有数据时显示陪伴天数、今日安排与下一件小事', async () => {
     vi.mocked(fetch).mockReset();
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(200, {
+    // 今天页会同时请求 /me（取姓名）与 /today，按路径分别返回
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) =>
+      Promise.resolve(
+        String(input).endsWith('/me')
+          ? jsonResponse(200, { status: 'plan_active', displayName: null, reminderEnabled: true, serverTime: 0 })
+          : jsonResponse(200, {
         date: '2026-11-25',
         greeting: '早上好',
         nextItem: {
@@ -50,6 +54,7 @@ describe('TodayPage（H03 结构）', () => {
         allDone: false,
         companionDays: 5,
       }),
+      ),
     );
     render(
       <TodayPage

@@ -36,6 +36,8 @@ export interface DayView {
 export interface TodayView {
   date: string;
   nextItem: CalendarItemView | null;
+  /** 当天全部事项（按时间升序），今日页时间轴用 */
+  items: CalendarItemView[];
   progress: { done: number; missed: number; needsHelp: number; pending: number; total: number };
   quickRecord: { meal: boolean; review: boolean };
   allDone: boolean;
@@ -138,6 +140,10 @@ export class CalendarService {
     return {
       date: today,
       nextItem: next ? this.view(next, today) : null,
+      items: items
+        .filter((item) => item.status !== 'cancelled')
+        .sort((a, b) => a.scheduledAt - b.scheduledAt)
+        .map((item) => this.view(item, today)),
       progress,
       quickRecord: { meal: true, review: true },
       allDone: progress.total > 0 && progress.pending === 0,

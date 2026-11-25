@@ -9,14 +9,30 @@ export function AssetSlot({
   ratio = '16 / 9',
   radius = 12,
   label,
+  src,
   className = '',
 }: {
   id: string;
   ratio?: string;
   radius?: number;
   label?: string;
+  /** 已就位的素材地址；缺省时显示占位块 */
+  src?: string;
   className?: string;
 }) {
+  if (src) {
+    return (
+      <img
+        className={`asset-slot asset-media ${className}`}
+        data-asset={id}
+        src={src}
+        alt={label ?? ''}
+        style={{ aspectRatio: ratio, borderRadius: radius }}
+        loading="lazy"
+        decoding="async"
+      />
+    );
+  }
   return (
     <div
       className={`asset-slot ${className}`}

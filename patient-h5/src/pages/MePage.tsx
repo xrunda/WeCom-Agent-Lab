@@ -11,6 +11,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { fetchMeStats, type MeResponse, type ProfileCenterStats } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon, type IconName } from '../components/Icon.tsx';
+import { ASSETS } from '../assets.ts';
 
 const STATUS_TEXT: Record<string, string> = {
   profile_incomplete: '资料待完善',
@@ -77,25 +79,25 @@ export function MePage({
     {
       key: 'profile',
       label: '我的健康档案',
-      icon: 'file',
+      icon: 'doc' as IconName,
       ready: true,
       onClick: onStartOnboarding,
     },
-    { key: 'records', label: '我的健康记录', icon: 'bowl', ready: true, onClick: onOpenRecords },
-    { key: 'team', label: '我的专业团队', icon: 'team', ready: false, onClick: undefined },
+    { key: 'records', label: '我的健康记录', icon: 'bowl' as IconName, ready: true, onClick: onOpenRecords },
+    { key: 'team', label: '我的专业团队', icon: 'team' as IconName, ready: false, onClick: undefined },
   ] as const;
 
   return (
     <div className="page page-me">
       <header className="me-head">
         <h1>我的健康生活</h1>
-        <AssetSlot id="I03" ratio="2 / 1" radius={0} label="枝叶装饰" className="me-head__deco" />
+
       </header>
 
       <section className="me-profile">
-        <AssetSlot id="A01" ratio="1 / 1" radius={999} label="头像" className="me-avatar" />
+        <AssetSlot id="A01" ratio="1 / 1" radius={999} src={ASSETS.avatar} label="头像" className="me-avatar" />
         <div className="me-profile__body">
-          <p className="me-profile__name">我的资料</p>
+          <p className="me-profile__name">{me?.displayName ?? '我的资料'}</p>
           <p className="me-profile__meta">
             {companionDays !== null ? (
               <>
@@ -114,10 +116,12 @@ export function MePage({
       <section className="me-plan-card">
         <div className="me-plan-card__body">
           <h2>我的健康计划</h2>
-          <span className="me-plan-card__pill">{statusText}</span>
+          <span className="me-plan-card__pill">
+            {me?.plan?.endDate ? `食养陪伴中 · ${statusText}` : statusText}
+          </span>
           <p className="me-plan-card__stage">{planSummary?.stage ?? '计划发布后显示本阶段重点'}</p>
         </div>
-        <AssetSlot id="I05" ratio="1 / 1" radius={0} label="稻穗装饰" className="me-plan-card__deco" />
+
         <button
           type="button"
           className="btn btn-primary btn-inline me-plan-card__cta"
@@ -129,7 +133,7 @@ export function MePage({
 
       <section className="me-stats">
         <div className="me-stat">
-          <AssetSlot id="P04" ratio="5 / 4" radius={10} label="餐食配图" className="me-stat__asset" />
+          <AssetSlot id="P04" ratio="5 / 4" radius={10} src={ASSETS.mealHero} label="餐食配图" className="me-stat__asset" />
           <div className="me-stat__body">
             <span className="me-stat__label">已记录餐食</span>
             <span className="me-stat__value">
@@ -139,7 +143,7 @@ export function MePage({
           </div>
         </div>
         <div className="me-stat">
-          <AssetSlot id="P05" ratio="5 / 4" radius={10} label="茶饮配图" className="me-stat__asset" />
+          <AssetSlot id="P05" ratio="5 / 4" radius={10} src={ASSETS.mealSquare} label="茶饮配图" className="me-stat__asset" />
           <div className="me-stat__body">
             <span className="me-stat__label">已完成回顾</span>
             <span className="me-stat__value">
@@ -159,10 +163,10 @@ export function MePage({
             disabled={!entry.ready}
             onClick={entry.onClick}
           >
-            <span className={`me-menu__icon me-menu__icon--${entry.icon}`} aria-hidden="true" />
+            <Icon name={entry.icon} size={22} className="me-menu__icon" />
             <span className="me-menu__label">{entry.label}</span>
             {entry.ready ? (
-              <span className="me-menu__arrow" aria-hidden="true">›</span>
+              <Icon name="chevron" size={16} className="me-menu__arrow" />
             ) : (
               <span className="me-menu__soon">即将开放</span>
             )}
@@ -172,19 +176,19 @@ export function MePage({
 
       <nav className="me-menu" aria-label="设置">
         <button type="button" className="me-menu__row" onClick={onOpenPrefs}>
-          <span className="me-menu__icon me-menu__icon--bell" aria-hidden="true" />
+          <Icon name="bell" size={22} className="me-menu__icon" />
           <span className="me-menu__label">提醒与偏好</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
         <button type="button" className="me-menu__row" onClick={onOpenPrivacy}>
-          <span className="me-menu__icon me-menu__icon--shield" aria-hidden="true" />
+          <Icon name="shield" size={22} className="me-menu__icon" />
           <span className="me-menu__label">隐私与授权</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
         <button type="button" className="me-menu__row" onClick={onOpenConsents}>
-          <span className="me-menu__icon me-menu__icon--shield" aria-hidden="true" />
+          <Icon name="shield" size={22} className="me-menu__icon" />
           <span className="me-menu__label">授权管理</span>
-          <span className="me-menu__arrow" aria-hidden="true">›</span>
+          <Icon name="chevron" size={16} className="me-menu__arrow" />
         </button>
       </nav>
 

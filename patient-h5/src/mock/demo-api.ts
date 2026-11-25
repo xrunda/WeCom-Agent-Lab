@@ -56,6 +56,7 @@ function articleView(article: (typeof DEMO_ARTICLES)[number]): ArticleView {
 export function demoMe(): Promise<MeResponse> {
   return Promise.resolve({
     status: 'plan_active',
+    displayName: '林女士',
     reminderEnabled: true,
     serverTime: Date.now(),
     companionDays: DEMO_COMPANION_DAYS,
@@ -80,6 +81,7 @@ export function demoToday(): Promise<TodayView> {
     date: new Date().toISOString().slice(0, 10),
     greeting: greeting(),
     nextItem: next,
+    items,
     progress: { done, missed, needsHelp, pending, total: items.length },
     quickRecord: { meal: true, review: true },
     relatedArticles: [articleView(DEMO_ARTICLES[0]!), articleView(DEMO_ARTICLES[1]!)],

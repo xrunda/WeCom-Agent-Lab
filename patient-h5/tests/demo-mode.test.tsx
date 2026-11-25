@@ -91,6 +91,7 @@ describe('演示模式', () => {
       expect(screen.getByText('专业团队已审核')).toBeInTheDocument();
     });
     expect(screen.getByText(/第 2 版/)).toBeInTheDocument();
-    expect(screen.queryByText(/28\s*天/)).not.toBeInTheDocument();
+    // 周期由方案起止日期算出（demo 方案为 21 天），不是写死的 28 天
+    expect(screen.getByLabelText('食养陪伴周期 21 天')).toBeInTheDocument();
   });
 });

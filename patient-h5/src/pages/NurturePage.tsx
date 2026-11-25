@@ -12,6 +12,8 @@ import { useEffect, useState } from 'react';
 import { ApiError, fetchArticles, fetchManifesto } from '../api.ts';
 import type { ArticleView, Manifesto } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { Icon } from '../components/Icon.tsx';
+import { ASSETS } from '../assets.ts';
 
 const CATEGORY_LABEL: Record<string, string> = {
   classics_life: '经典与生活',
@@ -125,12 +127,12 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
     <div className="page page-nurture">
       <header className="nurture-head">
         <div className="nurture-brand">
-          <span className="nurture-brand__leaf" aria-hidden="true" />
+          <Icon name="leaf" size={18} />
           知伴健康
         </div>
         <h1 className="nurture-title">食养</h1>
         <p className="nurture-sub">在日常生活里，读懂照顾自己的智慧。</p>
-        <AssetSlot id="I02" ratio="3 / 1" radius={0} label="枝叶装饰" className="nurture-deco" />
+
       </header>
 
       <nav className="nurture-tabs" aria-label="内容分类">
@@ -149,7 +151,14 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
 
       {featured ? (
         <article className="featured-card">
-          <AssetSlot id="P06" ratio="16 / 10" radius={0} label="文章封面" className="featured-card__asset" />
+          <AssetSlot
+            id="P06"
+            ratio="16 / 10"
+            radius={0}
+            src={ASSETS.mealSquare}
+            label="文章封面"
+            className="featured-card__asset"
+          />
           <div className="featured-card__body">
             <span className="tag-pill tag-pill--warm">{CATEGORY_LABEL[featured.category]}</span>
             <h2>{featured.title}</h2>
@@ -164,12 +173,12 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
 
       {planRelated && (
         <button type="button" className="plan-link-card">
-          <span className="plan-link-card__icon" aria-hidden="true" />
+          <Icon name="bowl" size={30} className="plan-link-card__icon" />
           <span className="plan-link-card__body">
             <span className="plan-link-card__label">与你的计划有关</span>
             <span className="plan-link-card__title">{planRelated.title}</span>
           </span>
-          <span className="plan-link-card__arrow" aria-hidden="true">→</span>
+          <Icon name="chevron" size={18} className="plan-link-card__arrow" />
         </button>
       )}
 
@@ -182,7 +191,14 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
         {rest.length === 0 && <li className="muted article-list__empty">更多内容整理中。</li>}
         {rest.map((item) => (
           <li className="article-row" key={item.id}>
-            <AssetSlot id="P07" ratio="1 / 1" radius={10} label="文章缩略图" className="article-row__thumb" />
+            <AssetSlot
+              id="P07"
+              ratio="1 / 1"
+              radius={10}
+              src={ASSETS.mealHero}
+              label="文章缩略图"
+              className="article-row__thumb"
+            />
             <div className="article-row__body">
               <span className="tag-pill">{CATEGORY_LABEL[item.category]}</span>
               <p className="article-row__title">{item.title}</p>
