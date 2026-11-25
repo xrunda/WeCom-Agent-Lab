@@ -9,6 +9,8 @@ import type { PrivacySummary } from '../api.ts';
 
 interface Props {
   onUnauthorized: () => void;
+  /** 返回主应用；不提供时页面底部不渲染返回按钮 */
+  onDone?: () => void;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -37,7 +39,7 @@ const STATUS_LABEL: Record<string, { text: string; tag: string }> = {
   rejected: { text: '未通过', tag: 'tag' },
 };
 
-export function PrivacyPage({ onUnauthorized }: Props) {
+export function PrivacyPage({ onUnauthorized, onDone }: Props) {
   const [summary, setSummary] = useState<PrivacySummary | null>(null);
   const [detail, setDetail] = useState('');
   const [kind, setKind] = useState<'export' | 'correction' | 'deletion'>('export');
@@ -169,6 +171,14 @@ export function PrivacyPage({ onUnauthorized }: Props) {
           })
         )}
       </div>
+
+      {onDone && (
+        <div className="card">
+          <button type="button" className="btn btn-secondary" onClick={onDone}>
+            返回
+          </button>
+        </div>
+      )}
     </div>
   );
 }

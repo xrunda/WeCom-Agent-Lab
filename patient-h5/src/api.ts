@@ -231,10 +231,13 @@ export function fetchProfile(): Promise<{ items: ProfileEntryView[]; status: Pro
 export function submitProfileAnswers(input: {
   step: 'basics' | 'routine' | 'food' | 'safety' | 'guidance';
   answers: Partial<Record<ProfileFieldKey, Record<string, unknown>>>;
+  /** 同一步骤重试时复用，服务端据此去重（契约 api §4.3） */
+  idempotencyKey?: string;
 }): Promise<{ entries: ProfileEntryView[]; status: ProfileStatusView }> {
+  const { idempotencyKey, ...body } = input;
   return apiRequest<{ entries: ProfileEntryView[]; status: ProfileStatusView }>(
     '/profile/answers',
-    { method: 'PUT', body: input },
+    { method: 'PUT', body, ...(idempotencyKey ? { idempotencyKey } : {}) },
   );
 }
 

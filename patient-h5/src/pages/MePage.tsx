@@ -1,7 +1,7 @@
 /**
  * 「我的」页（PH5-03 扩展）：状态 + 建档入口 + 授权/隐私入口 + 登出。
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import type { MeResponse } from '../api.ts';
 
@@ -31,11 +31,12 @@ export function MePage({
   onOpenPrivacy,
   onChanged,
 }: Props) {
+  // 只在挂载时刷新一次；依赖 onChanged 会因父组件重渲染不断触发（曾造成 /me 无限轮询）
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
   useEffect(() => {
-    // 父组件传入的刷新回调（me 变化时由 App 拉取）
-    onChanged();
-    // onChanged 为稳定回调（useCallback），只跑一次
-  }, [onChanged]);
+    onChangedRef.current();
+  }, []);
 
   const statusText = me ? (STATUS_TEXT[me.status] ?? me.status) : '…';
   const profilePending = me?.status === 'profile_incomplete' || me?.status === 'data_pending';

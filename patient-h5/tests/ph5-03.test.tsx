@@ -160,3 +160,67 @@ describe('App 状态覆盖（未登录/已登录建档）', () => {
     });
   });
 });
+
+describe('回归：review 修复项', () => {
+  it('MePage 挂载只请求一次 /me（不再无限轮询）', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockReset();
+    const responses = Array.from({ length: 30 }, () =>
+      jsonResponse(200, {
+        status: 'plan_active',
+        reminderEnabled: true,
+        serverTime: 0,
+        profile: { completeness: 1, safetyMissing: false, conflicts: [] },
+      }),
+    );
+    fetchMock.mockImplementation(() => Promise.resolve(responses.shift()!));
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /我的/ }));
+    await waitFor(() => {
+      expect(screen.getByText('计划执行中')).toBeInTheDocument();
+    });
+    // 等两轮渲染
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const meCalls = fetchMock.mock.calls.filter(([url]) => url === '/zhiban/h5/me');
+    expect(meCalls.length).toBeLessThanOrEqual(3);
+  });
+
+  it('主张页加载失败时仍能跳过（不卡死首次用户）', async () => {
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(500, { error: { code: 'INTERNAL', message: 'x' } }));
+    const onSkip = vi.fn();
+    render(<NurturePage intro onSkip={onSkip} onStart={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '先跳过' })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: '先跳过' }));
+    expect(onSkip).toHaveBeenCalled();
+  });
+
+  it('作息步只提交实际填写的组（不覆盖已存三餐时间）', async () => {
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, { items: [], status: { completeness: 0 } }))
+      .mockResolvedValueOnce(jsonResponse(200, { entries: [{ id: 'ppe_1' }], status: {} }));
+    render(<OnboardingWizard onUnauthorized={vi.fn()} onDone={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: '改善睡眠' }));
+    await userEvent.click(screen.getByRole('button', { name: '下一步' }));
+    await waitFor(() => screen.getByLabelText('早餐时间'));
+    // 只填入睡时间，不填三餐
+    await userEvent.type(screen.getByLabelText('通常入睡'), '23:00');
+    await userEvent.click(screen.getByRole('button', { name: '下一步' }));
+    await waitFor(() => {
+      const routine = vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => url === '/zhiban/h5/profile/answers')
+        .map(([, init]) => JSON.parse(String((init as RequestInit)?.body)))
+        .find((body) => body.step === 'routine');
+      expect(routine).toBeDefined();
+      expect(routine.answers).toEqual({ sleep_time: { bedtime: '23:00' } });
+      expect(routine.answers.meal_times).toBeUndefined();
+    });
+  });
+});

@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import { ApiError, fetchManifesto, reportEvent } from '../api.ts';
+import { ApiError, fetchManifesto } from '../api.ts';
 import type { Manifesto } from '../api.ts';
 
 const KIND_LABEL: Record<string, string> = {
@@ -41,11 +41,23 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
   }, [onUnauthorized]);
 
   if (error) {
+    // 主张页不是必经环节：加载失败也要保留「跳过/继续」，否则首次用户被卡死
     return (
       <div className="page">
         <div className="notice notice-error" role="alert">
           {error}
         </div>
+        {intro ? (
+          <div className="card">
+            <p className="muted">食养主张暂时加载不出来，不影响后面的使用。</p>
+            <button type="button" className="btn btn-primary" onClick={onStart}>
+              继续
+            </button>
+            <button type="button" className="btn btn-ghost" style={{ marginTop: 8 }} onClick={onSkip}>
+              先跳过
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -92,10 +104,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => {
-                void reportEvent('h5.session_start');
-                onStart?.();
-              }}
+              onClick={() => onStart?.()}
             >
               开始了解我的方案
             </button>

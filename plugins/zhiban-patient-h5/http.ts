@@ -65,6 +65,8 @@ export interface H5RouteContext {
   path: string;
   query: URLSearchParams;
   requestId: string;
+  /** Idempotency-Key 请求头（可选）；域路由自行决定是否使用 */
+  idempotencyKey?: string;
   service: PatientH5Service;
   readJson(): Promise<Record<string, unknown>>;
   requireSession(): Promise<SessionView>;
@@ -511,6 +513,9 @@ export function registerPatientH5Http(
         path,
         query: url.searchParams,
         requestId,
+        ...(headerValue(req, 'idempotency-key')
+          ? { idempotencyKey: headerValue(req, 'idempotency-key')! }
+          : {}),
         service: options.service,
         readJson: () => readJson(req),
         requireSession: () => requireSession(req),

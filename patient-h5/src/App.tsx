@@ -7,7 +7,7 @@
  * 邀请 code 处理（契约 api §1.7，A01）：从 ?code= 读取后立即清理 URL，
  * 只存内存，不写 localStorage。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, fetchMe, logout, reportEvent } from './api.ts';
 import type { MeResponse, ProfileStatusView } from './api.ts';
@@ -49,6 +49,8 @@ export function App() {
     setStage('login');
   }, []);
 
+  const refreshMeRef = useRef<() => Promise<string | null>>(async () => null);
+
   // 启动：抽邀请码 → 探测会话 → 决定进入授权、建档还是主应用
   useEffect(() => {
     const code = extractInviteCode();
@@ -57,9 +59,10 @@ export function App() {
       .then((value) => {
         setMe(value);
         // 回访用户：会话有效且已授权，按建档状态分流
+        // 回访用户：未完成建档的先看主张页（可跳过），再进建档
         setStage(
           value.status === 'profile_incomplete' || value.status === 'data_pending'
-            ? 'onboarding'
+            ? 'manifesto'
             : 'app',
         );
       })
@@ -71,6 +74,11 @@ export function App() {
         }
         setStage('login');
       });
+  }, []);
+
+  /** 供子组件使用的稳定引用：避免行内箭头函数导致 effect 反复触发（曾造成 /me 无限轮询） */
+  const refreshMeStable = useCallback((): void => {
+    void refreshMeRef.current();
   }, []);
 
   const refreshMe = useCallback(async (): Promise<string | null> => {
@@ -87,16 +95,19 @@ export function App() {
     }
   }, []);
 
+  refreshMeRef.current = refreshMe;
+
   const onLoggedIn = (usedInvite: boolean): void => {
     if (usedInvite) setInviteCode(null);
-    void reportEvent('h5.session_start');
+    // 会话开始事件由服务端在兑换/登录时记录，前端不重复上报
+    setMe(null); // 新登录：丢弃上一个患者的残留状态
     setStage('consents');
   };
 
   const onOnboardingDone = async (_status: ProfileStatusView): Promise<void> => {
     void reportEvent('h5.profile_step_complete', { itemId: 'wizard_done' });
     const next = await refreshMe();
-    setStage(next === 'login' ? 'login' : 'manifesto');
+    setStage(next === 'login' ? 'login' : 'app');
   };
 
   if (stage === 'boot') {
@@ -119,27 +130,35 @@ export function App() {
       <ConsentsPage
         onUnauthorized={toLogin}
         onDone={() => {
-          const status = me?.status;
-          if (!status || status === 'profile_incomplete' || status === 'data_pending') {
-            setStage('onboarding');
-          } else {
-            setStage('app');
-          }
+          // 必须重新拉 /me：启动 403 路径下 me 为 null，靠旧值会误判为需建档
+          void (async () => {
+            const status = await refreshMe();
+            if (status === 'login') return;
+            if (status === 'profile_incomplete' || status === 'data_pending' || status === null) {
+              setStage('manifesto');
+            } else {
+              setStage('app');
+            }
+          })();
         }}
       />
     );
   }
 
   if (stage === 'privacy') {
-    return <PrivacyPage onUnauthorized={toLogin} />;
+    return <PrivacyPage onUnauthorized={toLogin} onDone={() => setStage('app')} />;
   }
 
   if (stage === 'manifesto') {
+    // PRD §4：主张页在建档之前，可跳过；跳过不等于完成建档
+    const nextStage = (): void => {
+      setStage(me?.status === 'profile_incomplete' || me?.status === 'data_pending' ? 'onboarding' : 'app');
+    };
     return (
       <NurturePage
         intro
-        onStart={() => setStage('app')}
-        onSkip={() => setStage('app')}
+        onStart={nextStage}
+        onSkip={nextStage}
         onUnauthorized={toLogin}
       />
     );
@@ -175,12 +194,13 @@ export function App() {
             } catch {
               // 会话已失效也走本地清理
             }
+            setMe(null);
             setStage('login');
           }}
           onStartOnboarding={() => setStage('onboarding')}
           onOpenConsents={() => setStage('consents')}
           onOpenPrivacy={() => setStage('privacy')}
-          onChanged={() => void refreshMe()}
+          onChanged={refreshMeStable}
         />
       )}
       <nav className="tabbar" aria-label="主导航">

@@ -373,3 +373,61 @@ test('POST /profile/confirm：确认既有条目', async () => {
   assert.equal(confirm.status, 200);
   assert.equal(confirm.body.items[0].status, 'confirmed');
 });
+
+test('专业确认在场时重复提交只更新同一条患者条目（不再无限追加草稿）', async () => {
+  const { profileBackend, profile } = setupService();
+  await profileBackend.putProfileEntry({
+    id: 'ppe_pro_2',
+    tenantId: TENANT,
+    patientId: 'pat_a',
+    fieldKey: 'existing_guidance',
+    value: { items: ['低嘌呤饮食（门诊医嘱）'] },
+    valueText: '低嘌呤饮食（门诊医嘱）',
+    source: 'professional',
+    status: 'confirmed',
+    confirmedBy: 'acc_pro',
+    confirmedAt: NOW,
+    updatedAt: NOW,
+    revisions: [],
+  });
+  await answer(profile, 'guidance', { existing_guidance: { items: ['少吃海鲜'] } });
+  await answer(profile, 'guidance', { existing_guidance: { items: ['少吃海鲜和内脏'] } });
+  const entries = profile.list('pat_a').filter((item) => item.fieldKey === 'existing_guidance');
+  assert.equal(entries.length, 2, 'professional 1 条 + patient 1 条');
+  const patientEntry = entries.find((item) => item.source === 'patient');
+  assert.equal(patientEntry?.valueText, '少吃海鲜和内脏', '第二次提交更新同一条');
+  assert.equal(patientEntry?.revisions.length, 1, '旧值进修订历史，未新增条目');
+});
+
+test('meal_times / sleep_time 空对象被拒绝（防止覆盖已有值）', () => {
+  assert.ok(validateFieldValue('meal_times', {}).length > 0);
+  assert.ok(validateFieldValue('sleep_time', {}).length > 0);
+  assert.equal(validateFieldValue('meal_times', { breakfast: '07:00' }).length, 0);
+});
+
+test('PUT /profile/answers 幂等：同 key 重放返回首次结果', async () => {
+  const booted = bootHttp();
+  const cookie = await sessionCookie(booted);
+  const body = {
+    step: 'basics',
+    answers: { goal: { items: ['改善睡眠'] } },
+  };
+  const first = await call(booted.route, {
+    method: 'PUT',
+    url: '/zhiban/h5/profile/answers',
+    headers: { cookie, 'idempotency-key': 'step-basics-1' },
+    body,
+  });
+  assert.equal(first.status, 200);
+  const replay = await call(booted.route, {
+    method: 'PUT',
+    url: '/zhiban/h5/profile/answers',
+    headers: { cookie, 'idempotency-key': 'step-basics-1' },
+    body,
+  });
+  assert.equal(replay.status, 200);
+  assert.deepEqual(replay.body.entries, first.body.entries);
+  // 只落了一条
+  const list = await call(booted.route, { url: '/zhiban/h5/profile', headers: { cookie } });
+  assert.equal(list.body.items.filter((i: { fieldKey: string }) => i.fieldKey === 'goal').length, 1);
+});

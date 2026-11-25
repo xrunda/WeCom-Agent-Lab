@@ -12,6 +12,7 @@ import {
   ApiError,
   confirmProfileEntries,
   fetchProfile,
+  newIdempotencyKey,
   submitProfileAnswers,
   type ProfileEntryView,
   type ProfileFieldKey,
@@ -77,6 +78,14 @@ export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
   }, [onUnauthorized]);
 
   const step = STEPS[stepIndex]!;
+  // 同一步骤的幂等键稳定（弱网重试不会重复写 revisions）；进入步骤时生成一次
+  const [stepKey] = useState(() => `${step.key}_${newIdempotencyKey()}`);
+
+  const refreshStatus = async (): Promise<ProfileStatusView> => {
+    const result = await fetchProfile();
+    setExisting(result.items);
+    return result.status;
+  };
   const progress = Math.round(((stepIndex + (submitting ? 1 : 0)) / STEPS.length) * 100);
 
   const relevantExisting = useMemo(
@@ -94,7 +103,12 @@ export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
     [existing, step.key],
   );
 
+  const hasConfirmedExisting = (): boolean =>
+    relevantExisting.some((item) => confirmedIds.includes(item.id));
+
   const canSubmit = (): boolean => {
+    // 本步已有条目被勾选确认时，可以不新增内容直接继续
+    if (hasConfirmedExisting()) return true;
     switch (STEP_KIND[step.key]) {
       case 'check':
         return step.key === 'basics' ? goals.length > 0 : guidance.trim().length > 0;
@@ -111,18 +125,22 @@ export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
     switch (step.key) {
       case 'basics':
         return { goal: { items: goals } };
-      case 'routine':
-        return {
-          meal_times: {
-            ...(breakfast ? { breakfast } : {}),
-            ...(lunch ? { lunch } : {}),
-            ...(dinner ? { dinner } : {}),
-          },
-          sleep_time: {
-            ...(bedtime ? { bedtime } : {}),
-            ...(waketime ? { waketime } : {}),
-          },
+      case 'routine': {
+        // 只提交有输入的组：空对象会把已存的三餐/作息覆盖成「已填但为空」
+        const answers: Record<string, Record<string, unknown>> = {};
+        const mealTimes = {
+          ...(breakfast ? { breakfast } : {}),
+          ...(lunch ? { lunch } : {}),
+          ...(dinner ? { dinner } : {}),
         };
+        if (Object.keys(mealTimes).length > 0) answers.meal_times = mealTimes;
+        const sleepTime = {
+          ...(bedtime ? { bedtime } : {}),
+          ...(waketime ? { waketime } : {}),
+        };
+        if (Object.keys(sleepTime).length > 0) answers.sleep_time = sleepTime;
+        return answers;
+      }
       case 'food':
         return { food_preference: { likes, dislikes } };
       case 'safety':
@@ -145,12 +163,29 @@ export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
     setError(null);
     setSubmitting(true);
     try {
-      if (confirmedIds.length > 0) {
+      const confirmed = confirmedIds.length > 0;
+      if (confirmed) {
         await confirmProfileEntries(confirmedIds).catch(() => undefined);
+      }
+      const answers = buildAnswers();
+      // 只勾选确认、没有新增内容：不再提交空答案（服务端会按「本步未提交任何字段」拒绝）
+      if (Object.keys(answers).length === 0) {
+        if (!confirmed) {
+          setError('本步还没有填写内容');
+          return;
+        }
+        const status = await refreshStatus();
+        if (stepIndex === STEPS.length - 1) {
+          onDone(status);
+        } else {
+          setStepIndex((index) => index + 1);
+        }
+        return;
       }
       const result = await submitProfileAnswers({
         step: step.key,
-        answers: buildAnswers(),
+        answers,
+        idempotencyKey: stepKey,
       });
       if (stepIndex === STEPS.length - 1) {
         onDone(result.status);

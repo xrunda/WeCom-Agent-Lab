@@ -149,10 +149,12 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
   ctx.effect(async () => {
     let backend: PatientH5Backend;
     let profileTable: AnyTableLike | undefined;
+    let idempotencyTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
       profileTable = domain.table('patient_profile_entries') as unknown as AnyTableLike;
+      idempotencyTable = domain.table('idempotency_records') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -221,7 +223,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     // PH5-03（#232）：轻量建档域路由 + 食养主张（公开）
     // 域存储不可用时退回内存实现（进程内有效，仅限开发/测试）
     const profileBackend: ProfileBackend = profileTable
-      ? new DomainProfileBackend(profileTable, config.tenantId)
+      ? new DomainProfileBackend(profileTable, config.tenantId, idempotencyTable)
       : new MemoryProfileBackend();
     const profile = new ProfileService({
       backend: profileBackend,

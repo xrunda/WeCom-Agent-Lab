@@ -5,6 +5,7 @@
  * 挂在骨架 http.ts 的 extensions 装配点上，不改骨架路由。
  */
 import { H5Error } from '../../../src/p1/patient-h5.ts';
+import type { IdempotencyRecord } from '../../../src/p1/patient-h5.ts';
 import { ProfileValidationError } from '../../../src/p1/patient-h5-profile.ts';
 import type {
   ProfileEntry,
@@ -22,11 +23,34 @@ interface AnyTable {
 /** 域表适配器：patient_profile_entries（表已在骨架域中声明） */
 export class DomainProfileBackend {
   private readonly table: AnyTable;
+  private readonly idempotencyTable?: AnyTable;
   private readonly tenantId: string;
 
-  constructor(table: AnyTable, tenantId: string) {
+  constructor(table: AnyTable, tenantId: string, idempotencyTable?: AnyTable) {
     this.table = table;
     this.tenantId = tenantId;
+    this.idempotencyTable = idempotencyTable;
+  }
+
+  private idemKey(patientId: string, key: string): string {
+    return `${this.tenantId}\u0000${patientId}\u0000${key}`;
+  }
+
+  async loadIdempotency(patientId: string, key: string, now: number): Promise<unknown> {
+    if (!this.idempotencyTable) return undefined;
+    const hit = [...this.idempotencyTable.entries()].find(
+      ([id, value]) => {
+        if (id !== this.idemKey(patientId, key)) return false;
+        const record = value as { at: number };
+        return now - record.at <= 24 * 60 * 60 * 1000;
+      },
+    );
+    return hit ? (hit[1] as { response?: unknown }).response : undefined;
+  }
+
+  async putIdempotency(record: IdempotencyRecord): Promise<void> {
+    if (!this.idempotencyTable) return;
+    await this.idempotencyTable.put(this.idemKey(record.patientId, record.key), record);
   }
 
   loadProfileEntries(): ProfileEntry[] {
@@ -147,6 +171,7 @@ export function createProfileRoutes(options: {
         step: step as ProfileStep,
         answers: answers as Partial<Record<ProfileFieldKey, Record<string, unknown>>>,
         decidedVia: view.session.id,
+        ...(ctx.idempotencyKey ? { idempotencyKey: `${ctx.idempotencyKey}:${step}` } : {}),
       });
       ctx.ok(200, {
         entries: result.entries,
