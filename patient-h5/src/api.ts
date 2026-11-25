@@ -270,10 +270,14 @@ export interface CalendarItemView {
   purpose: string;
   method?: string;
   scheduledAt: number;
+  /** 本地日期 YYYY-MM-DD（判断能否提前完成用） */
+  scheduledDate?: string;
   status: ItemStatus;
   feedbackKind: 'checkin' | 'record_meal' | 'record_review';
   overdue: boolean;
   cancelReason?: string | null;
+  /** 今天及以前、未取消、未完成时才可反馈（未来事项不可提前完成） */
+  canFeedback?: boolean;
 }
 
 export interface TodayView {
@@ -305,6 +309,21 @@ export async function fetchToday(): Promise<TodayView> {
     return demoToday();
   }
   return apiRequest<TodayView>('/today');
+}
+
+export async function submitItemFeedback(input: {
+  itemId: string;
+  kind: 'patient_confirmed' | 'missed' | 'needs_help';
+  reason?: string;
+}): Promise<CalendarItemView> {
+  if (isDemoMode()) {
+    const { demoFeedback } = await import('./mock/demo-api.ts');
+    return demoFeedback(input);
+  }
+  return apiRequest<CalendarItemView>(`/calendar/items/${input.itemId}/feedback`, {
+    method: 'POST',
+    body: { kind: input.kind, ...(input.reason ? { reason: input.reason } : {}) },
+  });
 }
 
 export async function fetchCalendar(): Promise<CalendarView> {
@@ -386,4 +405,138 @@ export async function fetchCurrentPlan(): Promise<PlanView> {
   // 契约 api §5.1 响应为 { plan: {...} }，这里解包成视图
   const body = await apiRequest<{ plan: PlanView }>('/plan/current');
   return body.plan;
+}
+
+// ---------- 记录（H06 / H07，契约 api §7） ----------
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export interface FoodCandidate {
+  name: string;
+  confidence: number;
+}
+
+export interface RecordView {
+  id: string;
+  kind: 'meal' | 'evening_review' | 'note';
+  occurredAt: number;
+  occurredDate: string;
+  submittedAt: number;
+  content: Record<string, unknown>;
+  recognition?: { status: string; candidates: FoodCandidate[] };
+  mediaIds: string[];
+  duplication?: { status: string; suspectedIds: string[] };
+}
+
+export async function createMealRecord(input: {
+  occurredAt: number;
+  mealType: MealType;
+  confirmedFoods?: Array<{ name: string; portion?: string }>;
+  patientNotes?: string;
+  linkedCalendarItemId?: string;
+  idempotencyKey?: string;
+}): Promise<RecordView> {
+  if (isDemoMode()) {
+    const { demoCreateRecord } = await import('./mock/demo-api.ts');
+    return demoCreateRecord({
+      kind: 'meal',
+      occurredAt: input.occurredAt,
+      meal: {
+        mealType: input.mealType,
+        confirmedFoods: input.confirmedFoods ?? [],
+        ...(input.patientNotes ? { patientNotes: input.patientNotes } : {}),
+      },
+    });
+  }
+  return apiRequest<RecordView>('/records', {
+    method: 'POST',
+    body: {
+      kind: 'meal',
+      occurredAt: input.occurredAt,
+      meal: {
+        mealType: input.mealType,
+        confirmedFoods: input.confirmedFoods ?? [],
+        ...(input.patientNotes ? { patientNotes: input.patientNotes } : {}),
+      },
+      ...(input.linkedCalendarItemId
+        ? { linkedCalendarItemIds: [input.linkedCalendarItemId] }
+        : {}),
+      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    },
+  });
+}
+
+export async function createEveningReview(input: {
+  occurredAt: number;
+  overall?: string;
+  mood?: string;
+  sleep?: string;
+  bowel?: string;
+  discomfort?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}): Promise<RecordView> {
+  if (isDemoMode()) {
+    const { demoCreateRecord } = await import('./mock/demo-api.ts');
+    return demoCreateRecord({
+      kind: 'evening_review',
+      occurredAt: input.occurredAt,
+      review: {
+        ...(input.overall ? { overall: input.overall } : {}),
+        ...(input.mood ? { mood: input.mood } : {}),
+        ...(input.sleep ? { sleep: input.sleep } : {}),
+        ...(input.bowel ? { bowel: input.bowel } : {}),
+        ...(input.discomfort ? { discomfort: input.discomfort } : {}),
+        ...(input.notes ? { notes: input.notes } : {}),
+      },
+    });
+  }
+  const { occurredAt, idempotencyKey, ...review } = input;
+  return apiRequest<RecordView>('/records', {
+    method: 'POST',
+    body: {
+      kind: 'evening_review',
+      occurredAt,
+      review,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    },
+  });
+}
+
+export async function uploadRecordPhoto(input: {
+  recordId: string;
+  file: Blob;
+}): Promise<{ mediaId: string; recognition: { status: string; candidates: FoodCandidate[] } }> {
+  if (isDemoMode()) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return {
+      mediaId: 'med_demo',
+      recognition: { status: 'skipped', candidates: [] },
+    };
+  }
+  const form = new FormData();
+  form.append('photo', input.file, 'photo.jpg');
+  const response = await fetch(`/zhiban/h5/records/${input.recordId}/photo`, {
+    method: 'POST',
+    body: form,
+    credentials: 'same-origin',
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new ApiError(response.status, body?.error ?? { code: 'INTERNAL', message: '上传失败' });
+  }
+  return (await response.json()) as { mediaId: string; recognition: { status: string; candidates: FoodCandidate[] } };
+}
+
+export async function confirmRecordFoods(
+  recordId: string,
+  confirmedFoods: Array<{ name: string; portion?: string }>,
+): Promise<RecordView> {
+  if (isDemoMode()) {
+    return { id: recordId, kind: 'meal', occurredAt: Date.now(), occurredDate: '', submittedAt: Date.now(), content: {}, mediaIds: [] };
+  }
+  return apiRequest<RecordView>(`/records/${recordId}/confirm`, {
+    method: 'POST',
+    body: { confirmedFoods },
+  });
 }
