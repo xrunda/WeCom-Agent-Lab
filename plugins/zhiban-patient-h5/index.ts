@@ -54,6 +54,11 @@ import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './rou
 import { createFollowupRoutes } from './routes/followup.ts';
 import { FollowupService, MemoryFollowupBackend } from '../../src/p1/patient-h5-followup.ts';
 import { MemoryReminderBackend, ReminderService } from '../../src/p1/patient-h5-reminder.ts';
+import { createProfileCenterRoutes } from './routes/profile-center.ts';
+import {
+  MemoryReminderPrefsStore,
+  ProfileCenterService,
+} from '../../src/p1/patient-h5-profile-center.ts';
 import { MemoryRecordBackend, RecordService, UNCONFIGURED_RECOGNITION } from '../../src/p1/patient-h5-record.ts';
 import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
@@ -108,6 +113,8 @@ interface PatientViewLike {
   displayName: string;
   status: string;
   advisorId?: string;
+  /** 服务开始时间（P1 patient.accompaniedSince）；没有时用绑定时间兜底 */
+  accompaniedSince?: number;
 }
 
 interface PatientApiLike {
@@ -214,6 +221,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       displayName: patient.displayName,
       status: patient.status,
       ...(patient.advisorId ? { advisorId: patient.advisorId } : {}),
+      ...(patient.accompaniedSince ? { accompaniedSince: patient.accompaniedSince } : {}),
     };
   };
 
@@ -461,6 +469,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     });
     const mediaStore = new MemoryMediaStore();
 
+    const prefsStore = new MemoryReminderPrefsStore();
     const reminderBackend = reminderTable
       ? {
           load: () =>
@@ -476,6 +485,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       ids: idFactory(Date.now),
       loadItems: (patientId) => plan.listCalendarItems(patientId),
       loadPlanStatus: (patientId) => plan.currentForPatient(patientId)?.status,
+      prefsOf: (patientId) => prefsStore.load(patientId),
       onAudit: (event) => ctx.emit('h5.reminder.audit', event),
     });
 
@@ -496,7 +506,21 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       markFailed: (id: string, errorCode: string) => reminders.markFailed(id, errorCode),
     });
 
+    const center = new ProfileCenterService({
+      profile,
+      records: recordService,
+      followups,
+      prefsStore,
+      // 陪伴天数以服务开始时间为准；没有服务开始时间时退回绑定时间
+      startedAtOf: (patientId) =>
+        patientView(patientId)?.accompaniedSince ?? service.getBinding(patientId)?.boundAt ?? null,
+    });
+
     const extensions = [
+      ...createProfileCenterRoutes({
+        center,
+        tenantReminderDefaults: { dailyLimit: 2, quietHours: { start: '21:00', end: '08:00' } },
+      }),
       ...createFollowupRoutes({
         followups,
         team: () => ({

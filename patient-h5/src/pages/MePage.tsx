@@ -7,9 +7,9 @@
  * 刻意隐藏「阶段回顾」：PRD §3.1 把它列为增强项，未实现不放无效入口。
  * 未实现的入口标「即将开放」而不是假装能点（PRD §3.1 不放无效按钮）。
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { MeResponse } from '../api.ts';
+import { fetchMeStats, type MeResponse, type ProfileCenterStats } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 
 const STATUS_TEXT: Record<string, string> = {
@@ -30,11 +30,14 @@ interface MeStats {
 
 interface Props {
   me: MeResponse | null;
-  stats?: MeStats;
+  /** 演示模式下的固定统计；真实模式忽略，改用 /me/stats */
+  fallbackStats?: MeStats;
   planSummary?: { name: string; stage: string } | null;
   onLogout: () => void;
   onStartOnboarding: () => void;
   onOpenPlan: () => void;
+  onOpenRecords: () => void;
+  onOpenPrefs: () => void;
   onOpenConsents: () => void;
   onOpenPrivacy: () => void;
   onChanged: () => void;
@@ -42,16 +45,24 @@ interface Props {
 
 export function MePage({
   me,
-  stats,
+  fallbackStats,
   planSummary,
   onLogout,
   onStartOnboarding,
   onOpenPlan,
+  onOpenRecords,
+  onOpenPrefs,
   onOpenConsents,
   onOpenPrivacy,
   onChanged,
 }: Props) {
   // 只在挂载时刷新一次；依赖 onChanged 会因父组件重渲染不断触发
+  const [realStats, setRealStats] = useState<ProfileCenterStats | null>(null);
+
+  useEffect(() => {
+    fetchMeStats().then(setRealStats).catch(() => undefined);
+  }, []);
+
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
   useEffect(() => {
@@ -60,7 +71,7 @@ export function MePage({
 
   const statusText = me ? (STATUS_TEXT[me.status] ?? me.status) : '…';
   const profilePending = me?.status === 'profile_incomplete' || me?.status === 'data_pending';
-  const companionDays = me?.companionDays ?? null;
+  const companionDays = realStats?.companionDays ?? me?.companionDays ?? null;
 
   const entries = [
     {
@@ -70,7 +81,7 @@ export function MePage({
       ready: true,
       onClick: onStartOnboarding,
     },
-    { key: 'records', label: '我的健康记录', icon: 'bowl', ready: false, onClick: undefined },
+    { key: 'records', label: '我的健康记录', icon: 'bowl', ready: true, onClick: onOpenRecords },
     { key: 'team', label: '我的专业团队', icon: 'team', ready: false, onClick: undefined },
   ] as const;
 
@@ -122,8 +133,8 @@ export function MePage({
           <div className="me-stat__body">
             <span className="me-stat__label">已记录餐食</span>
             <span className="me-stat__value">
-              {stats?.meals ?? '—'}
-              <small>{stats?.meals !== undefined ? '餐' : ''}</small>
+              {realStats?.mealRecords ?? fallbackStats?.meals ?? '—'}
+              <small>{realStats?.mealRecords !== undefined || fallbackStats?.meals !== undefined ? '餐' : ''}</small>
             </span>
           </div>
         </div>
@@ -132,8 +143,8 @@ export function MePage({
           <div className="me-stat__body">
             <span className="me-stat__label">已完成回顾</span>
             <span className="me-stat__value">
-              {stats?.reviews ?? '—'}
-              <small>{stats?.reviews !== undefined ? '天' : ''}</small>
+              {realStats?.reviewDays ?? fallbackStats?.reviews ?? '—'}
+              <small>{realStats?.reviewDays !== undefined || fallbackStats?.reviews !== undefined ? '天' : ''}</small>
             </span>
           </div>
         </div>
@@ -160,7 +171,7 @@ export function MePage({
       </nav>
 
       <nav className="me-menu" aria-label="设置">
-        <button type="button" className="me-menu__row" onClick={onStartOnboarding}>
+        <button type="button" className="me-menu__row" onClick={onOpenPrefs}>
           <span className="me-menu__icon me-menu__icon--bell" aria-hidden="true" />
           <span className="me-menu__label">提醒与偏好</span>
           <span className="me-menu__arrow" aria-hidden="true">›</span>

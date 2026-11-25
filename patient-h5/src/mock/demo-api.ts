@@ -177,6 +177,49 @@ export function demoFollowups(): import('../api.ts').FollowupView[] {
   return [...demoFollowupList];
 }
 
+export function demoStats(): import('../api.ts').ProfileCenterStats {
+  return { companionDays: DEMO_COMPANION_DAYS, mealRecords: 12, reviewDays: 4, basis: { startedAt: null, mealWindowDays: 0 } };
+}
+
+export function demoHistory(date?: string): import('../api.ts').RecordHistoryItem[] {
+  if (date && date !== new Date().toISOString().slice(0, 10)) return [];
+  return [
+    {
+      id: 'rec_h1',
+      kind: 'meal',
+      occurredAt: Date.now() - 3 * 60 * 60 * 1000,
+      occurredDate: new Date().toISOString().slice(0, 10),
+      content: { mealType: 'breakfast', confirmedFoods: [{ name: '小米粥' }, { name: '鸡蛋' }] },
+    },
+    {
+      id: 'rec_h2',
+      kind: 'evening_review',
+      occurredAt: Date.now() - 14 * 60 * 60 * 1000,
+      occurredDate: new Date().toISOString().slice(0, 10),
+      content: { sleep: 'light', notes: '睡得还行' },
+    },
+  ];
+}
+
+let demoPrefsState: import('../api.ts').ReminderPrefs = {
+  enabled: true,
+  dailyLimit: 2,
+  quietHours: { start: '21:00', end: '08:00' },
+  gentleInquiry: true,
+  tenantDefaults: { dailyLimit: 2, quietHours: { start: '21:00', end: '08:00' } },
+};
+
+export function demoPrefs(): import('../api.ts').ReminderPrefs {
+  return demoPrefsState;
+}
+
+export function demoUpdatePrefs(
+  patch: Partial<import('../api.ts').ReminderPrefs>,
+): import('../api.ts').ReminderPrefs {
+  demoPrefsState = { ...demoPrefsState, ...patch };
+  return demoPrefsState;
+}
+
 export function demoPlan(): Promise<PlanView> {
   return Promise.resolve({
     id: DEMO_PLAN.id,
