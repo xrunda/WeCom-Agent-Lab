@@ -147,7 +147,8 @@ export function TodayPage({
                   className="btn btn-primary btn-inline next-card__cta"
                   onClick={onOpenCalendar}
                 >
-                  去日历反馈
+                  <span className="next-card__cta-icon" aria-hidden="true" />
+                  {next.feedbackKind === 'record_review' ? '记录感受' : '记录这一餐'}
                 </button>
               </div>
             </section>
@@ -264,9 +265,9 @@ function defaultMealType(): 'breakfast' | 'lunch' | 'dinner' | 'snack' {
   return 'snack';
 }
 
-/** 时间轴行：今日事项（完整清单在日历页） */
+/** 时间轴行：今日全部事项（按时间升序，与设计稿一致） */
 function TimelineRows({ today }: { today: TodayView }) {
-  const list: CalendarItemView[] = today.nextItem ? [today.nextItem] : [];
+  const list: CalendarItemView[] = today.items ?? (today.nextItem ? [today.nextItem] : []);
   return (
     <>
       {list.map((item) => (
@@ -282,11 +283,6 @@ function TimelineRows({ today }: { today: TodayView }) {
           </span>
         </li>
       ))}
-      {today.progress.total > list.length && (
-        <li className="timeline__more muted">
-          还有 {today.progress.total - list.length} 项，见完整日历
-        </li>
-      )}
     </>
   );
 }

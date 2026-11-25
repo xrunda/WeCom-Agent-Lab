@@ -95,7 +95,7 @@ export function MePage({
       <section className="me-profile">
         <AssetSlot id="A01" ratio="1 / 1" radius={999} label="头像" className="me-avatar" />
         <div className="me-profile__body">
-          <p className="me-profile__name">我的资料</p>
+          <p className="me-profile__name">{me?.displayName ?? '我的资料'}</p>
           <p className="me-profile__meta">
             {companionDays !== null ? (
               <>

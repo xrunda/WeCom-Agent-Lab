@@ -56,6 +56,7 @@ function articleView(article: (typeof DEMO_ARTICLES)[number]): ArticleView {
 export function demoMe(): Promise<MeResponse> {
   return Promise.resolve({
     status: 'plan_active',
+    displayName: '林女士（虚构）',
     reminderEnabled: true,
     serverTime: Date.now(),
     companionDays: DEMO_COMPANION_DAYS,

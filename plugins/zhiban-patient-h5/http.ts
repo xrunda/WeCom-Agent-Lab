@@ -409,6 +409,7 @@ export function registerPatientH5Http(
         };
         ok(200, {
           status: composed.status,
+          displayName: view.patient.displayName ?? null,
           profile: composed.profile,
           plan: null,
           team: view.patient.advisorId ? { advisorId: view.patient.advisorId } : null,

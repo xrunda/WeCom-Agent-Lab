@@ -17,17 +17,7 @@
   --gutter: 16px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #171d1a;
-    --surface: #202824;
-    --ink: #e8e6df;
-    --ink-soft: #a5b1ab;
-    --primary: #9dc3b2;
-    --primary-ink: #17221d;
-    --line: #37413c;
-  }
-}
+/* 设计稿是米白底单一主题：不跟随系统深色，避免出现没人设计过的暗色版本 */
 
 * {
   box-sizing: border-box;
@@ -1839,4 +1829,44 @@ body {
   margin: 0 0 4px;
   font-size: 15px;
   line-height: 1.5;
+}
+
+/* 下一件小事：按钮内相机图标（设计稿 H03） */
+.next-card__cta {
+  gap: 6px;
+}
+
+.next-card__cta-icon {
+  width: 18px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.next-card__cta-icon::after {
+  content: '';
+  position: absolute;
+  inset: 3px 5px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+/* 设计稿的米白纸感：给卡片一点暖色底，避免纯白死板 */
+:root {
+  --surface: #fdfbf6;
+  --line: #e8e1d4;
+}
+
+.card,
+.hero-card,
+.article-card,
+.team-card,
+.tip-card,
+.followup-item,
+.me-menu,
+.article-row,
+.featured-card {
+  box-shadow: 0 1px 2px rgba(43, 51, 48, 0.04);
 }

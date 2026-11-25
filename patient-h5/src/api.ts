@@ -110,6 +110,8 @@ export function logout(): Promise<void> {
 
 export interface MeResponse {
   status: string;
+  /** 本人显示名（患者看自己） */
+  displayName?: string | null;
   reminderEnabled: boolean;
   serverTime: number;
   /** 陪伴天数（契约 api §4.1）；PH5-10 前真实接口为 null */
@@ -284,6 +286,7 @@ export interface TodayView {
   date: string;
   greeting: string;
   nextItem: CalendarItemView | null;
+  items?: CalendarItemView[];
   progress: { done: number; missed: number; needsHelp: number; pending: number; total: number };
   quickRecord: { meal: boolean; review: boolean };
   relatedArticles: ArticleView[];
