@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, fetchToday } from '../api.ts';
 import type { CalendarItemView, TodayView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { RecordSheet } from '../components/RecordSheet.tsx';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -56,6 +57,8 @@ export function TodayPage({
 }: Props) {
   const [today, setToday] = useState<TodayView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'meal' | 'review' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetchToday()
@@ -170,7 +173,12 @@ export function TodayPage({
           </section>
 
           <section className="quick-row">
-            <button type="button" className="quick-card" disabled={!today.quickRecord.meal}>
+            <button
+              type="button"
+              className="quick-card"
+              disabled={!today.quickRecord.meal}
+              onClick={() => setSheet('meal')}
+            >
               <span className="quick-card__icon" aria-hidden="true" />
               <span className="quick-card__title">拍照记餐</span>
               <span className="quick-card__hint">记录三餐，更了解自己。</span>
@@ -179,6 +187,7 @@ export function TodayPage({
               type="button"
               className="quick-card quick-card--warm"
               disabled={!today.quickRecord.review}
+              onClick={() => setSheet('review')}
             >
               <span className="quick-card__icon quick-card__icon--warm" aria-hidden="true" />
               <span className="quick-card__title">说说身体感受</span>
@@ -218,9 +227,39 @@ export function TodayPage({
         </>
       )}
 
+      {notice && (
+        <div className="notice notice-ok" role="status">
+          {notice}
+        </div>
+      )}
+
+      {sheet && (
+        <RecordSheet
+          mode={sheet}
+          defaultMealType={defaultMealType()}
+          {...(today?.nextItem && today.nextItem.feedbackKind !== 'checkin'
+            ? { linkedCalendarItemId: today.nextItem.id }
+            : {})}
+          onClose={() => setSheet(null)}
+          onSaved={(message) => {
+            setNotice(message);
+            void fetchToday().then(setToday).catch(() => undefined);
+          }}
+        />
+      )}
+
       <div className="footer-space" />
     </div>
   );
+}
+
+/** 按当前时间猜一个餐次，患者可改 */
+function defaultMealType(): 'breakfast' | 'lunch' | 'dinner' | 'snack' {
+  const hour = new Date().getHours();
+  if (hour < 10) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour < 21) return 'dinner';
+  return 'snack';
 }
 
 /** 时间轴行：今日事项（完整清单在日历页） */

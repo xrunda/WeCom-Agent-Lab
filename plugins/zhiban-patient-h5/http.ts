@@ -69,6 +69,8 @@ export interface H5RouteContext {
   idempotencyKey?: string;
   service: PatientH5Service;
   readJson(): Promise<Record<string, unknown>>;
+  /** 读取原始请求体（图片上传用）；超过上限抛 VALIDATION_FAILED */
+  readRawBody(maxBytes?: number): Promise<Buffer>;
   requireSession(): Promise<SessionView>;
   checkOrigin(): void;
   ok(status: number, body: unknown, extra?: Record<string, string | number>): void;
@@ -95,6 +97,24 @@ function sendJson(
     ...extra,
   });
   res.end(payload);
+}
+
+function readRaw(req: H5HttpRequest, maxBytes: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        req.destroy?.(new Error('BODY_TOO_LARGE'));
+        reject(new H5Error('VALIDATION_FAILED', '上传内容过大'));
+        return;
+      }
+      chunks.push(Buffer.from(chunk));
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', (error: Error) => reject(error));
+  });
 }
 
 function readBody(req: H5HttpRequest): Promise<string> {
@@ -518,6 +538,7 @@ export function registerPatientH5Http(
           : {}),
         service: options.service,
         readJson: () => readJson(req),
+        readRawBody: (maxBytes) => readRaw(req, maxBytes ?? MAX_BODY),
         requireSession: () => requireSession(req),
         checkOrigin: () => checkOrigin(req),
         ok: (status, body, extra) => ok(status, body, extra),

@@ -239,6 +239,26 @@ export class CalendarService {
     return this.view(record, today);
   }
 
+  /**
+   * 记录满足事项要求时回填完成（A06）。
+   * 只接受 pending 且 feedbackKind 匹配的事项；已反馈/已取消一律不动。
+   */
+  async matchRecord(input: {
+    patientId: string;
+    itemId: string;
+    recordId: string;
+    at: number;
+  }): Promise<boolean> {
+    const record = this.findItem(input.patientId, input.itemId);
+    if (!record) return false;
+    if (record.status !== 'pending') return false;
+    if (record.feedbackKind === 'none') return false;
+    record.status = 'done';
+    record.feedback = { kind: 'record_matched', submittedAt: input.at };
+    await this.backend.putCalendarItem(record);
+    return true;
+  }
+
   // ---------- 内部 ----------
 
   private itemsOn(patientId: string, date: string): CalendarItemRecord[] {

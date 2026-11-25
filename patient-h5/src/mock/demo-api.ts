@@ -129,6 +129,28 @@ export function demoArticles(): Promise<{ items: ArticleView[] }> {
   return Promise.resolve({ items: DEMO_ARTICLES.map(articleView) });
 }
 
+let demoRecordSeq = 0;
+
+export async function demoCreateRecord(input: {
+  kind: 'meal' | 'evening_review';
+  occurredAt: number;
+  meal?: Record<string, unknown>;
+  review?: Record<string, unknown>;
+}): Promise<import('../api.ts').RecordView> {
+  demoRecordSeq += 1;
+  return {
+    id: `rec_demo_${demoRecordSeq}`,
+    kind: input.kind,
+    occurredAt: input.occurredAt,
+    occurredDate: new Date(input.occurredAt).toISOString().slice(0, 10),
+    submittedAt: Date.now(),
+    content: (input.kind === 'meal' ? input.meal : input.review) ?? {},
+    recognition: input.kind === 'meal' ? { status: 'skipped', candidates: [] } : undefined,
+    mediaIds: [],
+    duplication: { status: 'none', suspectedIds: [] },
+  };
+}
+
 export function demoPlan(): Promise<PlanView> {
   return Promise.resolve({
     id: DEMO_PLAN.id,
