@@ -24,3 +24,6 @@ docs/Images
 
 # 顾问 Agent 评测报告（离线生成物）
 eval/advisor/last-report.md
+
+# 患者端 H5 构建产物（PH5-02 引入 dist 时误提交，移出跟踪）
+patient-h5/dist/
