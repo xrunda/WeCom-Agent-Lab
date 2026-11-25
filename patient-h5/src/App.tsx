@@ -224,7 +224,11 @@ export function App() {
         />
       )}
       {tab === 'calendar' && (
-        <CalendarPage onUnauthorized={toLogin} onBackToNurture={() => setTab('nurture')} />
+        <CalendarPage
+          onUnauthorized={toLogin}
+          onBackToNurture={() => setTab('nurture')}
+          onOpenTeam={() => setStage('team')}
+        />
       )}
       {tab === 'nurture' && <NurturePage onUnauthorized={toLogin} />}
       {tab === 'me' && (
