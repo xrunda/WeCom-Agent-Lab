@@ -109,6 +109,7 @@ import type { KnowledgeApi } from './routes/h-knowledge.ts';
 import { registerPatientH5InvitationRoutes } from './routes/ph5-invitations.ts';
 import { registerPatientH5PlanRoutes } from './routes/ph5-plan.ts';
 import { registerPatientH5FollowupRoutes } from './routes/ph5-followup.ts';
+import { registerPatientH5ReminderRoutes } from './routes/ph5-reminder.ts';
 import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
 import type { GuardRulesApi } from './routes/h-risk-rules.ts';
 import { registerScriptRoutes } from './routes/h-scripts.ts';
@@ -1438,6 +1439,19 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
           auditRecord(config.tenantId, actor, action, 'followup_request', followupId, {
             patientId,
           }),
+        );
+      },
+    });
+
+    // PH5-09（#238）提醒任务：只查看与取消，发送仍走现有草稿链。
+    registerPatientH5ReminderRoutes({
+      router,
+      getReminder: () => ctx.get('zhibanPatientH5Reminder'),
+      tenantActor,
+      patientExists: (patientId) => Boolean(patientReadApi()?.getPatientAdmin?.(patientId)),
+      audit: (actor, action, detail) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'reminder_task', String(detail.reminderId ?? detail.patientId ?? ''), detail),
         );
       },
     });
