@@ -299,6 +299,18 @@ export class ProfileService {
     return confirmed;
   }
 
+  /** 患者申请纠错：只标「待确认」，内容与来源不动（后台处理前保留原事实） */
+  async markDisputed(patientId: string, entryId: string): Promise<ProfileEntry> {
+    const entry = this.list(patientId).find((item) => item.id === entryId);
+    if (!entry) {
+      throw new ProfileValidationError([{ field: 'goal', issue: '条目不存在' }]);
+    }
+    if (entry.status === 'disputed') return entry;
+    const updated: ProfileEntry = { ...entry, status: 'disputed', updatedAt: this.now() };
+    await this.backend.putProfileEntry(updated);
+    return updated;
+  }
+
   /** 档案状态：完成度 + 安全缺失/冲突（A03：缺失或冲突阻止进入可执行建议） */
   status(patientId: string): ProfileStatus {
     const entries = this.list(patientId);

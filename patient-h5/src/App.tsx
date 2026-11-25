@@ -18,11 +18,13 @@ import { MePage } from './pages/MePage.tsx';
 import { NurturePage } from './pages/NurturePage.tsx';
 import { PlanPage } from './pages/PlanPage.tsx';
 import { TeamPage } from './pages/TeamPage.tsx';
+import { RecordsPage } from './pages/RecordsPage.tsx';
+import { PrefsPage } from './pages/PrefsPage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { OnboardingWizard } from './pages/OnboardingWizard.tsx';
 import { TodayPage } from './pages/TodayPage.tsx';
 
-type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'team' | 'app';
+type Stage = 'boot' | 'login' | 'consents' | 'manifesto' | 'onboarding' | 'privacy' | 'plan' | 'team' | 'records' | 'prefs' | 'app';
 type Tab = 'today' | 'calendar' | 'nurture' | 'me';
 
 /** 从地址栏提取一次性邀请码并立即清理 URL（不进入历史与分享链接） */
@@ -151,6 +153,14 @@ export function App() {
     return <PrivacyPage onUnauthorized={toLogin} onDone={() => setStage('app')} />;
   }
 
+  if (stage === 'records') {
+    return <RecordsPage onBack={() => setStage('app')} onUnauthorized={toLogin} />;
+  }
+
+  if (stage === 'prefs') {
+    return <PrefsPage onBack={() => setStage('app')} onUnauthorized={toLogin} />;
+  }
+
   if (stage === 'team') {
     return <TeamPage onBack={() => setStage('app')} onUnauthorized={toLogin} />;
   }
@@ -219,7 +229,7 @@ export function App() {
       {tab === 'me' && (
         <MePage
           me={me}
-          stats={demoStatsFor(me)}
+          fallbackStats={demoStatsFor(me)}
           planSummary={demoPlanSummaryFor(me)}
           onLogout={async () => {
             try {
@@ -232,6 +242,8 @@ export function App() {
           }}
           onStartOnboarding={() => setStage('onboarding')}
           onOpenPlan={() => setStage('plan')}
+          onOpenRecords={() => setStage('records')}
+          onOpenPrefs={() => setStage('prefs')}
           onOpenConsents={() => setStage('consents')}
           onOpenPrivacy={() => setStage('privacy')}
           onChanged={refreshMeStable}
