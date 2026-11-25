@@ -113,9 +113,6 @@ export function PlanPage({ onBack, onOpenCalendar, onUnauthorized }: Props) {
                 <div className="plan-stage__body">
                   <Icon name={index === 0 ? 'bowl' : 'moon'} size={22} />
                   <p className="plan-stage__title">{point}</p>
-                  <p className="plan-stage__hint">
-                    {index === 0 ? '三餐有节，营养更均衡。' : '规律作息，精神更充沛。'}
-                  </p>
                 </div>
                 <AssetSlot
                   id={index === 0 ? 'P04' : 'P05'}
@@ -157,7 +154,7 @@ export function PlanPage({ onBack, onOpenCalendar, onUnauthorized }: Props) {
             <div className="section-head">
               <h2>
                 <span className="accent-bar" aria-hidden="true" />
-                本周，先做好{plan.actions.length}件事
+                本周，先做好 {plan.actions.length} 件事
               </h2>
             </div>
             <ol className="plan-actions">

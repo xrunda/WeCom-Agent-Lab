@@ -91,7 +91,7 @@ export function MePage({
     <div className="page page-me">
       <header className="me-head">
         <h1>我的健康生活</h1>
-        <AssetSlot id="I03" ratio="2 / 1" radius={0} label="枝叶装饰" className="me-head__deco" />
+
       </header>
 
       <section className="me-profile">
@@ -116,10 +116,12 @@ export function MePage({
       <section className="me-plan-card">
         <div className="me-plan-card__body">
           <h2>我的健康计划</h2>
-          <span className="me-plan-card__pill">{statusText}</span>
+          <span className="me-plan-card__pill">
+            {me?.plan?.endDate ? `食养陪伴中 · ${statusText}` : statusText}
+          </span>
           <p className="me-plan-card__stage">{planSummary?.stage ?? '计划发布后显示本阶段重点'}</p>
         </div>
-        <AssetSlot id="I05" ratio="1 / 1" radius={0} label="稻穗装饰" className="me-plan-card__deco" />
+
         <button
           type="button"
           className="btn btn-primary btn-inline me-plan-card__cta"

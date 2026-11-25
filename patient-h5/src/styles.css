@@ -2204,3 +2204,156 @@ body {
 .plan-meta-line { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
 .team-hours { margin: -8px 2px 16px; font-size: 13px; color: var(--ink-soft); }
 .plan-sign { text-align: center; font-size: 12px; color: var(--ink-soft); margin: 4px 0 0; }
+
+/* ---------- 截图自查后的修正 ---------- */
+
+/* 英雄卡：左侧浅色渐变让文字可读（设计稿是左文右图） */
+.hero-card__body {
+  background:
+    linear-gradient(90deg, rgba(253, 251, 246, 0.97) 0%, rgba(253, 251, 246, 0.9) 46%, rgba(253, 251, 246, 0) 78%),
+    linear-gradient(to top, rgba(253, 251, 246, 0.9) 0%, rgba(253, 251, 246, 0) 42%);
+}
+
+/* 快捷记录：缩小图标与内边距，避免文字被挤断 */
+.quick-card {
+  padding: 12px 10px;
+  gap: 8px;
+  min-height: 96px;
+}
+
+.quick-card__icon { width: 24px; height: 24px; }
+.quick-card__title { font-size: 15px; }
+.quick-card__hint { font-size: 12px; line-height: 1.45; }
+.quick-card__arrow { width: 14px; }
+
+/* ---------- 逐页截图后的修正（第二轮） ---------- */
+
+/* 时间轴：中间是可点区域，状态胶囊独立一列，避免挤到下一行 */
+.timeline__row {
+  grid-template-columns: 22px 58px 1fr auto;
+  align-items: start;
+}
+
+.timeline__row .chip {
+  margin-top: 6px;
+}
+
+/* 计划：标题与已审核胶囊同一行 */
+.plan-head__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-head h1 { font-size: 24px; white-space: nowrap; }
+.plan-badge { flex-shrink: 0; font-size: 12px; padding: 3px 10px; }
+
+/* 周进度：阶段名过长时省略，不挤压天数 */
+.plan-week__stage {
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+/* 阶段卡：给文字留出宽度 */
+.plan-stage__asset { width: 40%; }
+.plan-stage__title { font-size: 16px; line-height: 1.35; }
+.plan-stage__hint { font-size: 12px; }
+
+/* 食养思路引用字号收敛，避免占满整屏 */
+.plan-quote { font-size: 20px; line-height: 1.55; }
+
+/* 留言空态不要列表圆点 */
+.followup-list li { list-style: none; }
+
+/* ---------- 截图自查后的修正（第三轮） ---------- */
+
+/* 记录面板：固定覆盖视口，明确高度，避免只露出一角 */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(20, 28, 24, 0.45);
+  z-index: 60;
+}
+
+/* 快捷记录：再收一点，减少难看的折行 */
+.quick-card { padding: 12px 10px; gap: 6px; }
+.quick-card__icon { width: 22px; height: 22px; }
+.quick-card__hint { font-size: 11.5px; }
+
+/* 我的：计划卡按钮放右下（设计稿位置） */
+.me-plan-card { position: relative; min-height: 150px; }
+.me-plan-card__cta {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  margin-top: 0;
+}
+
+/* 我的：计划卡右上不再留空槽，文字区放宽 */
+.me-plan-card__body { max-width: 100%; }
+
+/* ---------- 记录面板（补齐：换视觉层时被整段删掉过） ---------- */
+.sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 30px rgba(31, 58, 46, 0.12);
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+.sheet h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-family: var(--serif);
+  font-weight: 700;
+}
+
+.sheet__method {
+  margin: 4px 0;
+  font-size: 15px;
+  background: #eef3ea;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.sheet__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.sheet__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sheet__group {
+  margin: 4px 0;
+}
+
+.sheet__photo {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.sheet__candidates {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}

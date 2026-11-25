@@ -132,7 +132,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
         </div>
         <h1 className="nurture-title">食养</h1>
         <p className="nurture-sub">在日常生活里，读懂照顾自己的智慧。</p>
-        <AssetSlot id="I02" ratio="3 / 1" radius={0} label="枝叶装饰" className="nurture-deco" />
+
       </header>
 
       <nav className="nurture-tabs" aria-label="内容分类">

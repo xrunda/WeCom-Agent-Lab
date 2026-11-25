@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import { ApiError, fetchToday } from '../api.ts';
+import { ApiError, fetchMe, fetchToday } from '../api.ts';
 import type { CalendarItemView, TodayView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
@@ -63,8 +63,12 @@ export function TodayPage({
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'meal' | 'review' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [patientName, setPatientName] = useState<string | null>(null);
 
   useEffect(() => {
+    fetchMe()
+      .then((me) => setPatientName(me.displayName ?? null))
+      .catch(() => undefined);
     fetchToday()
       .then(setToday)
       .catch((err: unknown) => {
@@ -88,6 +92,7 @@ export function TodayPage({
           {text} · {weekday}
         </div>
         <h1 className="today-greeting">
+          {patientName ? `${patientName}，` : ''}
           {greeting}
           <span className="today-greeting__dot">。</span>
         </h1>
