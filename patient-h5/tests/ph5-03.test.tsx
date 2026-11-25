@@ -58,6 +58,7 @@ describe('TodayPage（H03 结构）', () => {
         onStartOnboarding={vi.fn()}
         onOpenCalendar={vi.fn()}
         onOpenNurture={vi.fn()}
+        onOpenTeam={vi.fn()}
         onUnauthorized={vi.fn()}
       />,
     );
@@ -80,6 +81,7 @@ describe('TodayPage（H03 结构）', () => {
         onStartOnboarding={vi.fn()}
         onOpenCalendar={vi.fn()}
         onOpenNurture={vi.fn()}
+        onOpenTeam={vi.fn()}
         onUnauthorized={vi.fn()}
       />,
     );

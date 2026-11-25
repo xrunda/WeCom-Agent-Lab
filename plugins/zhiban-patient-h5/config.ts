@@ -35,6 +35,10 @@ export interface PatientH5Config {
   planAgentPreset?: string;
   /** 只用于审计回显的模型名，不做路由 */
   planModelName?: string;
+  /** 跟进超时升级的主管账号；未配置时只标 overdue，不假装已升级 */
+  supervisorAccountId?: string;
+  /** 对外公示的服务时间（必须是真实排班，不能写成「7×24」） */
+  serviceHours?: string;
 }
 
 interface RawConfig {
@@ -54,6 +58,8 @@ interface RawConfig {
   planWorkspaceRoot?: unknown;
   planAgentPreset?: unknown;
   planModelName?: unknown;
+  supervisorAccountId?: unknown;
+  serviceHours?: unknown;
 }
 
 const DEFAULTS = {
@@ -134,6 +140,12 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
       : {}),
     ...(typeof input.planModelName === 'string' && input.planModelName
       ? { planModelName: input.planModelName }
+      : {}),
+    ...(typeof input.supervisorAccountId === 'string' && input.supervisorAccountId
+      ? { supervisorAccountId: input.supervisorAccountId }
+      : {}),
+    ...(typeof input.serviceHours === 'string' && input.serviceHours
+      ? { serviceHours: input.serviceHours.slice(0, 60) }
       : {}),
   };
 }

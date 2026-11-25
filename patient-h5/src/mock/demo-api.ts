@@ -151,6 +151,32 @@ export async function demoCreateRecord(input: {
   };
 }
 
+const demoFollowupList: import('../api.ts').FollowupView[] = [];
+
+export async function demoCreateFollowup(input: {
+  category: string;
+  message: string;
+}): Promise<{ id: string; status: string; acknowledged: boolean }> {
+  const id = `fup_demo_${demoFollowupList.length + 1}`;
+  demoFollowupList.unshift({
+    id,
+    kind: 'question',
+    message: input.message,
+    riskLevel: 'low',
+    status: 'pending',
+    assigneeName: null,
+    claimedAt: null,
+    resolvedAt: null,
+    createdAt: Date.now(),
+    overdue: false,
+  });
+  return { id, status: 'pending', acknowledged: true };
+}
+
+export function demoFollowups(): import('../api.ts').FollowupView[] {
+  return [...demoFollowupList];
+}
+
 export function demoPlan(): Promise<PlanView> {
   return Promise.resolve({
     id: DEMO_PLAN.id,

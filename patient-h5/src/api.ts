@@ -540,3 +540,65 @@ export async function confirmRecordFoods(
     body: { confirmedFoods },
   });
 }
+
+// ---------- 专业团队（H10，契约 api §8） ----------
+
+export interface TeamInfo {
+  advisorName: string;
+  members: Array<{ name: string; role: string }>;
+  serviceHours: string;
+  categories: Array<{ key: string; label: string }>;
+}
+
+export interface FollowupView {
+  id: string;
+  kind: string;
+  message: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  status: 'pending' | 'claimed' | 'resolved';
+  assigneeName: string | null;
+  claimedAt: number | null;
+  resolvedAt: number | null;
+  createdAt: number;
+  overdue: boolean;
+}
+
+export async function fetchTeam(): Promise<TeamInfo> {
+  if (isDemoMode()) {
+    return {
+      advisorName: '李顾问（虚构）',
+      members: [{ name: '陈营养师（虚构）', role: '专业审核' }],
+      serviceHours: '工作日 09:00–18:00',
+      categories: [
+        { key: 'plan', label: '计划问题' },
+        { key: 'record', label: '记录问题' },
+        { key: 'body', label: '身体感受' },
+        { key: 'other', label: '其他' },
+      ],
+    };
+  }
+  return apiRequest<TeamInfo>('/team');
+}
+
+export async function submitTeamRequest(input: {
+  category: string;
+  message: string;
+  linkedPlanId?: string;
+}): Promise<{ id: string; status: string; acknowledged: boolean }> {
+  if (isDemoMode()) {
+    const { demoCreateFollowup } = await import('./mock/demo-api.ts');
+    return demoCreateFollowup(input);
+  }
+  return apiRequest<{ id: string; status: string; acknowledged: boolean }>('/team/requests', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function fetchTeamRequests(): Promise<{ items: FollowupView[] }> {
+  if (isDemoMode()) {
+    const { demoFollowups } = await import('./mock/demo-api.ts');
+    return { items: demoFollowups() };
+  }
+  return apiRequest<{ items: FollowupView[] }>('/team/requests');
+}
