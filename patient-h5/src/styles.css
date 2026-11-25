@@ -1608,3 +1608,17 @@ body {
   border-radius: 3px;
   background: var(--accent);
 }
+
+/* 已就位素材：铺满容器、保持比例 */
+.asset-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hero-card__asset.asset-media,
+.featured-card__asset.asset-media {
+  position: absolute;
+  inset: 0;
+}

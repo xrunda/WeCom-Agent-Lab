@@ -12,6 +12,7 @@ import { ApiError, fetchToday } from '../api.ts';
 import type { CalendarItemView, TodayView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
+import { ASSETS } from '../assets.ts';
 import { RecordSheet } from '../components/RecordSheet.tsx';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
@@ -118,6 +119,7 @@ export function TodayPage({
               id="P02"
               ratio="4 / 3"
               radius={0}
+              src={ASSETS.mealHero}
               label="今日餐食配图"
               className="hero-card__asset"
             />
@@ -220,6 +222,7 @@ export function TodayPage({
                 id="P03"
                 ratio="1 / 1"
                 radius={10}
+                src={ASSETS.mealSquare}
                 label="文章缩略图"
                 className="article-card__asset"
               />

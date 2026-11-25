@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchMeStats, type MeResponse, type ProfileCenterStats } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
+import { ASSETS } from '../assets.ts';
 
 const STATUS_TEXT: Record<string, string> = {
   profile_incomplete: '资料待完善',
@@ -94,7 +95,7 @@ export function MePage({
       </header>
 
       <section className="me-profile">
-        <AssetSlot id="A01" ratio="1 / 1" radius={999} label="头像" className="me-avatar" />
+        <AssetSlot id="A01" ratio="1 / 1" radius={999} src={ASSETS.avatar} label="头像" className="me-avatar" />
         <div className="me-profile__body">
           <p className="me-profile__name">{me?.displayName ?? '我的资料'}</p>
           <p className="me-profile__meta">
@@ -130,7 +131,7 @@ export function MePage({
 
       <section className="me-stats">
         <div className="me-stat">
-          <AssetSlot id="P04" ratio="5 / 4" radius={10} label="餐食配图" className="me-stat__asset" />
+          <AssetSlot id="P04" ratio="5 / 4" radius={10} src={ASSETS.mealHero} label="餐食配图" className="me-stat__asset" />
           <div className="me-stat__body">
             <span className="me-stat__label">已记录餐食</span>
             <span className="me-stat__value">
@@ -140,7 +141,7 @@ export function MePage({
           </div>
         </div>
         <div className="me-stat">
-          <AssetSlot id="P05" ratio="5 / 4" radius={10} label="茶饮配图" className="me-stat__asset" />
+          <AssetSlot id="P05" ratio="5 / 4" radius={10} src={ASSETS.mealSquare} label="茶饮配图" className="me-stat__asset" />
           <div className="me-stat__body">
             <span className="me-stat__label">已完成回顾</span>
             <span className="me-stat__value">

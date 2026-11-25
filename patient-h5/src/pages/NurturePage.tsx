@@ -13,6 +13,7 @@ import { ApiError, fetchArticles, fetchManifesto } from '../api.ts';
 import type { ArticleView, Manifesto } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
+import { ASSETS } from '../assets.ts';
 
 const CATEGORY_LABEL: Record<string, string> = {
   classics_life: '经典与生活',
@@ -150,7 +151,14 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
 
       {featured ? (
         <article className="featured-card">
-          <AssetSlot id="P06" ratio="16 / 10" radius={0} label="文章封面" className="featured-card__asset" />
+          <AssetSlot
+            id="P06"
+            ratio="16 / 10"
+            radius={0}
+            src={ASSETS.mealSquare}
+            label="文章封面"
+            className="featured-card__asset"
+          />
           <div className="featured-card__body">
             <span className="tag-pill tag-pill--warm">{CATEGORY_LABEL[featured.category]}</span>
             <h2>{featured.title}</h2>
@@ -183,7 +191,14 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized }: Props) {
         {rest.length === 0 && <li className="muted article-list__empty">更多内容整理中。</li>}
         {rest.map((item) => (
           <li className="article-row" key={item.id}>
-            <AssetSlot id="P07" ratio="1 / 1" radius={10} label="文章缩略图" className="article-row__thumb" />
+            <AssetSlot
+              id="P07"
+              ratio="1 / 1"
+              radius={10}
+              src={ASSETS.mealHero}
+              label="文章缩略图"
+              className="article-row__thumb"
+            />
             <div className="article-row__body">
               <span className="tag-pill">{CATEGORY_LABEL[item.category]}</span>
               <p className="article-row__title">{item.title}</p>

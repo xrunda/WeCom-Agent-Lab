@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, fetchCalendar, submitItemFeedback } from '../api.ts';
 import type { CalendarItemView, CalendarView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { ASSETS } from '../assets.ts';
 
 const WEEK_LABEL = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -165,7 +166,7 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
               </span>
             </span>
             {item.feedbackKind === 'record_meal' && item.status === 'done' && (
-              <AssetSlot id="D01" ratio="4 / 3" radius={8} label="餐食记录缩略图" className="timeline__thumb" />
+              <AssetSlot id="D01" ratio="4 / 3" radius={8} src={ASSETS.mealSquare} label="餐食记录缩略图" className="timeline__thumb" />
             )}
           </li>
         ))}
@@ -181,7 +182,7 @@ export function CalendarPage({ onUnauthorized, onBackToNurture }: Props) {
               了解这条安排的食养思路 →
             </button>
           </div>
-          <AssetSlot id="I01" ratio="1 / 1" radius={10} label="植物插画" className="tip-card__asset" />
+          <AssetSlot id="I01" ratio="1 / 1" radius={10} src={ASSETS.mealHero} label="植物插画" className="tip-card__asset" />
         </section>
       )}
 
