@@ -1609,18 +1609,29 @@ body {
   background: var(--accent);
 }
 
-/* 已就位素材：铺满容器、保持比例 */
+/* 已就位素材：只负责填充方式，尺寸仍由各自槽位类决定。
+   注意不要在这里写 width/height:100%——它会覆盖卡片的固定宽度，
+   把同一行里的文字挤成一列（曾导致整页文字竖排）。 */
 .asset-media {
   display: block;
-  width: 100%;
-  height: 100%;
   object-fit: cover;
 }
 
+/* 只有需要铺满整卡的场景才显式撑开 */
 .hero-card__asset.asset-media,
 .featured-card__asset.asset-media {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 圆头像：裁成圆形 */
+.me-avatar.asset-media,
+.plan-reviewer__avatar.asset-media,
+.team-advisor__avatar.asset-media {
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
 }
 
 /* ================= 日历（ui-03） ================= */
