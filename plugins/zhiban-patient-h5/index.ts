@@ -10,6 +10,9 @@
  * 真实短信供应商未接入前 smsMode=unconfigured，真实登录阻塞（#229 待决项）；
  * smsMode=mock 仅限开发/测试，验证码固定 000000（契约 api §15）。
  */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import { idFactory } from '../../src/p1/ids.ts';
@@ -32,6 +35,12 @@ import type {
 } from '../../src/p1/patient-h5.ts';
 import { MemoryProfileBackend, ProfileService } from '../../src/p1/patient-h5-profile.ts';
 import type { ProfileBackend } from '../../src/p1/patient-h5-profile.ts';
+import {
+  MemoryPlanBackend,
+  PlanService,
+  UNCONFIGURED_GENERATOR,
+} from '../../src/p1/patient-h5-plan.ts';
+import type { HealthPlanRecord } from '../../src/p1/patient-h5-plan.ts';
 import { parsePatientH5Config } from './config.ts';
 import type { PatientH5Config } from './config.ts';
 import { DomainPatientH5Backend, patientH5Domain } from './domain.ts';
@@ -39,6 +48,11 @@ import { registerPatientH5Http } from './http.ts';
 import type { H5HttpRequest, H5HttpResponse } from './http.ts';
 import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
 import type { ManifestoConfig } from './routes/profile.ts';
+import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
+import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
+import type { PlanSessionControllerLike } from './plan-session.ts';
+import { LlmPlanGenerator } from '../../src/p1/patient-h5-plan-ai.ts';
+import type { PlanChatPort } from '../../src/p1/patient-h5-plan-ai.ts';
 
 interface AnyTableLike {
   entries(): IterableIterator<[string, unknown]>;
@@ -47,7 +61,7 @@ interface AnyTableLike {
 
 export const name = 'zhiban-patient-h5';
 
-export const inject = ['storageDomain', 'webServer'];
+export const inject = ['storageDomain', 'webServer', 'tools', 'sessionController'];
 
 export interface DshPatientH5Context {
   logger?: {
@@ -69,6 +83,16 @@ export interface DshPatientH5Context {
       handler: (req: H5HttpRequest, res: H5HttpResponse) => unknown;
     }): unknown;
   };
+  /** 宿主工具注册表（方案生成必须经工具回传，见 P1-M0-dsh-validation §1.2） */
+  tools?: {
+    register(tool: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+      execute: (args: unknown, exec: { agent?: { id?: string } }) => Promise<unknown>;
+    }): unknown;
+  };
+  sessionController?: PlanSessionControllerLike;
 }
 
 /** 患者档案只读视图（来自 zhiban-patient） */
@@ -114,6 +138,46 @@ export interface PatientH5RuntimeApi {
   invitationLink(record: InvitationRecord): string;
 }
 
+/** 暴露给控制台团队端（契约 api §12.2） */
+export interface PatientH5PlanApi {
+  list(patientId: string): HealthPlanRecord[];
+  get(id: string): HealthPlanRecord | undefined;
+  generate(input: {
+    patientId: string;
+    startDate: string;
+    endDate: string;
+    actorId: string;
+  }): Promise<HealthPlanRecord>;
+  createManualDraft(input: {
+    patientId: string;
+    startDate: string;
+    endDate: string;
+    actorId: string;
+    stageGoal?: string;
+  }): Promise<HealthPlanRecord>;
+  update(input: {
+    planId: string;
+    actorId: string;
+    expectedVersion: number;
+    patch: Record<string, unknown>;
+  }): Promise<HealthPlanRecord>;
+  reject(input: {
+    planId: string;
+    actorId: string;
+    actorName: string;
+    note: string;
+  }): Promise<HealthPlanRecord>;
+  publish(input: {
+    planId: string;
+    actorId: string;
+    actorName: string;
+    note?: string;
+  }): Promise<HealthPlanRecord>;
+  suspend(input: { planId: string; actorId: string }): Promise<HealthPlanRecord>;
+  resume(input: { planId: string; actorId: string }): Promise<HealthPlanRecord>;
+  end(input: { planId: string; actorId: string }): Promise<HealthPlanRecord>;
+}
+
 const DEFAULT_H5_PUBLIC_BASE = 'https://h5.example.invalid';
 
 export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
@@ -150,11 +214,17 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     let backend: PatientH5Backend;
     let profileTable: AnyTableLike | undefined;
     let idempotencyTable: AnyTableLike | undefined;
+    let planTable: AnyTableLike | undefined;
+    let calendarTable: AnyTableLike | undefined;
+    let followupTable: AnyTableLike | undefined;
     try {
       const domain = await ctx.storageDomain.open(patientH5Domain);
       backend = new DomainPatientH5Backend(domain, config.tenantId);
       profileTable = domain.table('patient_profile_entries') as unknown as AnyTableLike;
       idempotencyTable = domain.table('idempotency_records') as unknown as AnyTableLike;
+      planTable = domain.table('health_plans') as unknown as AnyTableLike;
+      calendarTable = domain.table('calendar_items') as unknown as AnyTableLike;
+      followupTable = domain.table('followup_requests') as unknown as AnyTableLike;
     } catch (error) {
       // 存储域不可用（如测试环境）：退回内存后端，并告警
       ctx.logger?.warn?.(
@@ -230,17 +300,87 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       tenantId: config.tenantId,
       ids: idFactory(Date.now),
     });
-    const extensions = createProfileRoutes({ profile, manifesto: config.manifesto });
+    // PH5-04（#233）：方案生成与审核发布。模型未接入时生成进入 generate_failed，
+    // 由团队人工接管（不把模板伪装成个性化方案）。
+    const planBackend =
+      planTable && calendarTable
+        ? new DomainPlanBackend(planTable, calendarTable, config.tenantId)
+        : new MemoryPlanBackend();
+    let chatPort: PlanChatPort | undefined;
+    if (ctx.sessionController && ctx.tools) {
+      const sessionPort = new DshPlanSessionPort({
+        sessionController: ctx.sessionController,
+        workspaceRoot: config.planWorkspaceRoot ?? join(tmpdir(), 'zhiban-plan'),
+        ...(config.planAgentPreset ? { agentPreset: config.planAgentPreset } : {}),
+        log,
+      });
+      ctx.tools.register(buildPlanTool(sessionPort));
+      chatPort = sessionPort;
+      log('方案生成已接入模型（submit_health_plan 工具已注册）');
+    } else {
+      log('未提供 sessionController / tools：方案生成保持未接入，只能由团队人工起草');
+    }
+
+    const plan = new PlanService({
+      tenantId: config.tenantId,
+      backend: planBackend,
+      generator: chatPort
+        ? new LlmPlanGenerator({ port: chatPort, modelName: config.planModelName })
+        : UNCONFIGURED_GENERATOR,
+      profile,
+      ids: idFactory(Date.now),
+      onAudit: (event) => ctx.emit('h5.audit', event),
+      onPlanEvent: (event) => ctx.emit('h5.plan.event', event),
+    });
+    const adjust = {
+      put: (record: Record<string, unknown>) =>
+        followupTable
+          ? followupTable.put(String(record.id), record)
+          : Promise.resolve(),
+    };
+
+    ctx.provide('zhibanPatientH5Plan', {
+      list: (patientId: string) => plan.list(patientId),
+      get: (id: string) => plan.get(id),
+      generate: (input) => plan.generate(input),
+      createManualDraft: (input) => plan.createManualDraft(input),
+      update: (input) => plan.update(input as never),
+      reject: (input) => plan.reject(input),
+      publish: (input) => plan.publish(input),
+      suspend: (input) => plan.suspend(input),
+      resume: (input) => plan.resume(input),
+      end: (input) => plan.end(input),
+    } satisfies PatientH5PlanApi);
+
+    const extensions = [
+      ...createPlanRoutes({ plan, adjust, ids: idFactory(Date.now) }),
+      ...createProfileRoutes({ profile, manifesto: config.manifesto }),
+    ];
     registerPatientH5Http(ctx.webServer, {
       service,
       allowedOrigins: config.allowedOrigins,
       cookieSecure: config.cookieSecure,
       log,
       extensions,
-      composeMe: (view) => ({
-        status: profile.meStatus(view.session.patientId, view.patient.status),
-        profile: profile.status(view.session.patientId),
-      }),
+      composeMe: (view) => {
+        const patientId = view.session.patientId;
+        const current = plan.currentForPatient(patientId);
+        const latest = plan.list(patientId)[0];
+        const status =
+          current?.status === 'published'
+            ? 'plan_active'
+            : current?.status === 'suspended'
+              ? 'plan_suspended'
+              : latest?.status === 'data_pending'
+                ? 'data_pending'
+                : latest && ['reviewing', 'generating', 'generate_failed'].includes(latest.status)
+                  ? 'plan_generating'
+                  : profile.meStatus(patientId, view.patient.status);
+        return {
+          status,
+          profile: profile.status(patientId),
+        };
+      },
     });
 
     log('患者端 H5 接口已注册：/zhiban/h5');

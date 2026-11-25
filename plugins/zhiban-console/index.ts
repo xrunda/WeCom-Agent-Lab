@@ -107,6 +107,7 @@ import { parseEventTypes, SseHub } from './sse.ts';
 import { registerKnowledgeRoutes } from './routes/h-knowledge.ts';
 import type { KnowledgeApi } from './routes/h-knowledge.ts';
 import { registerPatientH5InvitationRoutes } from './routes/ph5-invitations.ts';
+import { registerPatientH5PlanRoutes } from './routes/ph5-plan.ts';
 import { registerRiskRuleRoutes } from './routes/h-risk-rules.ts';
 import type { GuardRulesApi } from './routes/h-risk-rules.ts';
 import { registerScriptRoutes } from './routes/h-scripts.ts';
@@ -1385,6 +1386,24 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
       audit: (actor, action, targetId, detail) => {
         store.appendAudit(
           auditRecord(config.tenantId, actor, action, 'patient_h5', targetId, detail),
+        );
+      },
+    });
+
+    // PH5-04（#233）方案审核：生成/编辑/发布由 zhiban-patient-h5 执行，
+    // 审核能力 h5.plan.review 必须显式授予（默认无人），控制台只做权限与审计。
+    registerPatientH5PlanRoutes({
+      router,
+      getPlan: () => ctx.get('zhibanPatientH5Plan'),
+      tenantActor,
+      patientExists: (patientId) => Boolean(patientReadApi()?.getPatientAdmin?.(patientId)),
+      audit: (actor, action, plan) => {
+        store.appendAudit(
+          auditRecord(config.tenantId, actor, action, 'health_plan', plan.id, {
+            patientId: plan.patientId,
+            version: plan.version,
+            status: plan.status,
+          }),
         );
       },
     });

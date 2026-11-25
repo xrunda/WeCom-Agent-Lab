@@ -5,12 +5,14 @@ import { inject as careInject } from '../plugins/zhiban-care/index.ts';
 import { inject as guardInject } from '../plugins/zhiban-guard/index.ts';
 import { inject as memoryInject } from '../plugins/zhiban-memory/index.ts';
 import { inject as patientInject } from '../plugins/zhiban-patient/index.ts';
+import { inject as patientH5Inject } from '../plugins/zhiban-patient-h5/index.ts';
 
 const TOOL_PLUGINS: Record<string, readonly string[]> = {
   'zhiban-care': careInject,
   'zhiban-guard': guardInject,
   'zhiban-memory': memoryInject,
   'zhiban-patient': patientInject,
+  'zhiban-patient-h5': patientH5Inject,
 };
 
 test('注册 ctx.tools 的插件必须声明 tools 注入', () => {

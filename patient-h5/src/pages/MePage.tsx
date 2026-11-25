@@ -34,6 +34,7 @@ interface Props {
   planSummary?: { name: string; stage: string } | null;
   onLogout: () => void;
   onStartOnboarding: () => void;
+  onOpenPlan: () => void;
   onOpenConsents: () => void;
   onOpenPrivacy: () => void;
   onChanged: () => void;
@@ -45,6 +46,7 @@ export function MePage({
   planSummary,
   onLogout,
   onStartOnboarding,
+  onOpenPlan,
   onOpenConsents,
   onOpenPrivacy,
   onChanged,
@@ -105,7 +107,11 @@ export function MePage({
           <p className="me-plan-card__stage">{planSummary?.stage ?? '计划发布后显示本阶段重点'}</p>
         </div>
         <AssetSlot id="I05" ratio="1 / 1" radius={0} label="稻穗装饰" className="me-plan-card__deco" />
-        <button type="button" className="btn btn-primary btn-inline me-plan-card__cta">
+        <button
+          type="button"
+          className="btn btn-primary btn-inline me-plan-card__cta"
+          onClick={onOpenPlan}
+        >
           查看计划 →
         </button>
       </section>

@@ -118,6 +118,8 @@ export function demoPlan(): Promise<PlanView> {
     foodTherapyRationale: DEMO_PLAN.foodTherapyRationale,
     focusPoints: DEMO_PLAN.focusPoints,
     rationale: DEMO_PLAN.rationale,
+    actions: DEMO_PLAN.actions,
+    feedbackRequirements: ['每晚回顾睡眠与整体感受'],
     review: DEMO_PLAN.review,
     publishedAt: DEMO_PLAN.publishedAt,
     acknowledgedAt: DEMO_PLAN.acknowledgedAt,

@@ -78,4 +78,19 @@ describe('演示模式', () => {
     expect(screen.queryByText('阶段回顾')).not.toBeInTheDocument();
     expect(screen.getByText('隐私与授权')).toBeInTheDocument();
   });
+
+  it('我的 → 查看计划 打开计划页，展示审核人与版本，且无固定 28 天', async () => {
+    render(<App />);
+    await waitFor(() => screen.getByRole('navigation', { name: '主导航' }));
+    await userEvent.click(
+      within(screen.getByRole('navigation', { name: '主导航' })).getByRole('button', { name: /我的/ }),
+    );
+    await waitFor(() => screen.getByText('我的健康计划'));
+    await userEvent.click(screen.getByRole('button', { name: /查看计划/ }));
+    await waitFor(() => {
+      expect(screen.getByText('专业团队已审核')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/第 2 版/)).toBeInTheDocument();
+    expect(screen.queryByText(/28\s*天/)).not.toBeInTheDocument();
+  });
 });
