@@ -1,10 +1,8 @@
 /**
- * 最小「我的」页（PH5-02）：状态 + 授权/隐私入口 + 登出。
- * PH5-03 建完整骨架后替换为四导航（今天/日历/食养/我的）。
+ * 「我的」页（PH5-03 扩展）：状态 + 建档入口 + 授权/隐私入口 + 登出。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { fetchMe } from '../api.ts';
 import type { MeResponse } from '../api.ts';
 
 const STATUS_TEXT: Record<string, string> = {
@@ -17,20 +15,31 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 interface Props {
+  me: MeResponse | null;
   onLogout: () => void;
-  onNavigate: (hash: string) => void;
+  onStartOnboarding: () => void;
+  onOpenConsents: () => void;
+  onOpenPrivacy: () => void;
+  onChanged: () => void;
 }
 
-export function MePage({ onLogout, onNavigate }: Props) {
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
-
+export function MePage({
+  me,
+  onLogout,
+  onStartOnboarding,
+  onOpenConsents,
+  onOpenPrivacy,
+  onChanged,
+}: Props) {
+  // 只在挂载时刷新一次；依赖 onChanged 会因父组件重渲染不断触发（曾造成 /me 无限轮询）
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
   useEffect(() => {
-    fetchMe()
-      .then(setMe)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : '加载失败'));
+    onChangedRef.current();
   }, []);
+
+  const statusText = me ? (STATUS_TEXT[me.status] ?? me.status) : '…';
+  const profilePending = me?.status === 'profile_incomplete' || me?.status === 'data_pending';
 
   return (
     <div className="page">
@@ -39,52 +48,43 @@ export function MePage({ onLogout, onNavigate }: Props) {
         <h1 style={{ fontSize: 20, margin: 0 }}>我的</h1>
       </div>
 
-      {error && (
-        <div className="notice notice-error" role="alert">
-          {error}
-        </div>
-      )}
-
       <div className="card">
         <div className="status-line">
           <span className="label">当前状态</span>
-          <span>{me ? (STATUS_TEXT[me.status] ?? me.status) : '…'}</span>
+          <span>{statusText}</span>
         </div>
         <div className="status-line">
           <span className="label">提醒</span>
           <span>{me?.reminderEnabled ? '已开启' : '已关闭'}</span>
         </div>
-        <p className="muted">完整功能（今天、日历、食养阅读）将在后续版本开放。</p>
+        {profilePending && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: 12 }}
+            onClick={onStartOnboarding}
+          >
+            {me?.status === 'data_pending' ? '去补充核对资料' : '继续完善资料'}
+          </button>
+        )}
       </div>
 
       <div className="card">
         <h2>账号与隐私</h2>
         <div className="row" style={{ marginBottom: 10 }}>
-          <button
-            type="button"
-            className="btn btn-secondary btn-inline grow"
-            onClick={() => onNavigate('#/consents')}
-          >
+          <button type="button" className="btn btn-secondary btn-inline grow" onClick={onOpenConsents}>
             授权管理
           </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-inline grow"
-            onClick={() => onNavigate('#/privacy')}
-          >
+          <button type="button" className="btn btn-secondary btn-inline grow" onClick={onOpenPrivacy}>
             隐私申请
           </button>
         </div>
         <button
           type="button"
           className="btn btn-ghost"
-          disabled={loggingOut}
-          onClick={() => {
-            setLoggingOut(true);
-            void onLogout();
-          }}
+          onClick={() => void onLogout()}
         >
-          {loggingOut ? '正在退出…' : '退出登录'}
+          退出登录
         </button>
         <p className="muted">退出后本机缓存会被清理，重新进入需重新验证。</p>
       </div>

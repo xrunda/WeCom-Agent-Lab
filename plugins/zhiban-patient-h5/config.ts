@@ -6,6 +6,8 @@
  * 真实登录阻塞（契约 api §2.1：不得回退到无验证码模式承载真实数据）。
  */
 
+import type { ManifestoConfig } from './routes/profile.ts';
+
 export type SmsMode = 'mock' | 'real' | 'unconfigured';
 export type PatientLoginMode = 'invite_then_phone' | 'invite_only';
 
@@ -25,6 +27,8 @@ export interface PatientH5Config {
   publicBaseUrl?: string;
   /** 会话 Cookie 是否带 Secure；生产置 true（默认按 publicBaseUrl 协议推断） */
   cookieSecure: boolean;
+  /** 食养主张（PH5-03）：固定服务文案，租户可覆盖；缺省用 DEFAULT_MANIFESTO */
+  manifesto?: ManifestoConfig;
 }
 
 interface RawConfig {
@@ -40,6 +44,7 @@ interface RawConfig {
   allowedOrigins?: unknown;
   publicBaseUrl?: unknown;
   cookieSecure?: unknown;
+  manifesto?: unknown;
 }
 
 const DEFAULTS = {
@@ -111,5 +116,32 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
       : [],
     ...(publicBaseUrl ? { publicBaseUrl } : {}),
     cookieSecure,
+    ...(parseManifesto(input.manifesto) ? { manifesto: parseManifesto(input.manifesto) } : {}),
+  };
+}
+
+/** 食养主张配置：结构合法才接受，否则用默认文案 */
+function parseManifesto(value: unknown): ManifestoConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.version !== 'number' ||
+    !Array.isArray(record.slogans) ||
+    !Array.isArray(record.sections)
+  ) {
+    return undefined;
+  }
+  const sections = record.sections.filter(
+    (item): item is ManifestoConfig['sections'][number] =>
+      Boolean(item) &&
+      typeof item === 'object' &&
+      typeof (item as Record<string, unknown>).kind === 'string' &&
+      typeof (item as Record<string, unknown>).text === 'string',
+  );
+  if (sections.length === 0) return undefined;
+  return {
+    version: record.version,
+    slogans: record.slogans.filter((item): item is string => typeof item === 'string'),
+    sections,
   };
 }

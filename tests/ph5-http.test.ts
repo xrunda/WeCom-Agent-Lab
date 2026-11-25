@@ -137,6 +137,13 @@ async function redeemAndCookie(booted: ReturnType<typeof boot>, phone = '1380000
   const setCookie = String(result.headers['Set-Cookie'] ?? '');
   const token = /zb_h5_session=([^;]+)/.exec(setCookie)?.[1];
   assert.ok(token, '响应下发会话 Cookie');
+  // 契约 §6.2：个人数据需要 service_basic；测试会话建立后补授权
+  await booted.service.decideConsent({
+    patientId: 'pat_a',
+    scope: 'service_basic',
+    action: 'grant',
+    decidedVia: 'test',
+  });
   return { token, setCookie };
 }
 
@@ -365,3 +372,50 @@ test('会话 Cookie 默认带 Secure；cookieSecure=false 时不带（仅本地�
   const plain = await redeemAndCookie(insecure);
   assert.ok(!String(plain.setCookie).includes('; Secure'), '明文站点不应带 Secure');
 });
+
+test('service_basic 未授权：/me 返回 403 CONSENT_REQUIRED，授权页可达', async () => {
+  const booted = boot();
+  const invitation = await booted.service.createInvitation({
+    patientId: 'pat_a',
+    advisorId: 'adv_1',
+    phone: '13800003421',
+    createdBy: 'acc_test',
+  });
+  await booted.service.requestVerifyCode({ invitationCode: invitation.code });
+  const result = await call(booted.route, {
+    method: 'POST',
+    url: '/zhiban/h5/auth/redeem',
+    body: { invitationCode: invitation.code, phone: '13800003421', code: '000000' },
+  });
+  const token = /zb_h5_session=([^;]+)/.exec(String(result.headers['Set-Cookie'] ?? ''))?.[1];
+  assert.ok(token);
+
+  // 未授权 service_basic：个人数据 403（契约 §6.2）
+  const me = await call(booted.route, {
+    url: '/zhiban/h5/me',
+    headers: { cookie: `zb_h5_session=${token}` },
+  });
+  assert.equal(me.status, 403);
+  assert.equal(me.body.error.code, 'CONSENT_REQUIRED');
+
+  // 授权页本身可达：用户可以开启服务
+  const consents = await call(booted.route, {
+    url: '/zhiban/h5/consents',
+    headers: { cookie: `zb_h5_session=${token}` },
+  });
+  assert.equal(consents.status, 200);
+
+  // 开启后 /me 恢复
+  await booted.service.decideConsent({
+    patientId: 'pat_a',
+    scope: 'service_basic',
+    action: 'grant',
+    decidedVia: 'test',
+  });
+  const meAfter = await call(booted.route, {
+    url: '/zhiban/h5/me',
+    headers: { cookie: `zb_h5_session=${token}` },
+  });
+  assert.equal(meAfter.status, 200);
+});
+

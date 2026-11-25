@@ -39,7 +39,7 @@ export function newIdempotencyKey(): string {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH';
   body?: unknown;
   idempotencyKey?: string;
 }
@@ -178,4 +178,69 @@ export function reportEvent(
 
 export function fetchServerTime(): Promise<{ serverTime: number; timezone: string }> {
   return apiRequest<{ serverTime: number; timezone: string }>('/server-time');
+}
+
+// ---------- 食养主张（公开，H01） ----------
+
+export interface ManifestoSection {
+  kind: 'classic_quote' | 'plain_explanation' | 'brand_copy';
+  text: string;
+  citation?: string;
+}
+
+export interface Manifesto {
+  version: number;
+  slogans: string[];
+  sections: ManifestoSection[];
+}
+
+export function fetchManifesto(): Promise<Manifesto> {
+  return apiRequest<Manifesto>('/manifesto');
+}
+
+// ---------- 轻量建档（H02，契约 api §4） ----------
+
+export type ProfileFieldKey =
+  | 'goal'
+  | 'meal_times'
+  | 'sleep_time'
+  | 'food_preference'
+  | 'allergy'
+  | 'existing_guidance';
+
+export interface ProfileEntryView {
+  id: string;
+  fieldKey: ProfileFieldKey;
+  value: Record<string, unknown>;
+  valueText: string;
+  source: 'patient' | 'advisor' | 'agent' | 'professional';
+  status: 'draft' | 'confirmed' | 'disputed';
+  updatedAt: number;
+}
+
+export interface ProfileStatusView {
+  completeness: number;
+  safetyMissing: boolean;
+  conflicts: Array<{ fieldKey: ProfileFieldKey; detail: string }>;
+}
+
+export function fetchProfile(): Promise<{ items: ProfileEntryView[]; status: ProfileStatusView }> {
+  return apiRequest<{ items: ProfileEntryView[]; status: ProfileStatusView }>('/profile');
+}
+
+export function submitProfileAnswers(input: {
+  step: 'basics' | 'routine' | 'food' | 'safety' | 'guidance';
+  answers: Partial<Record<ProfileFieldKey, Record<string, unknown>>>;
+  /** 同一步骤重试时复用，服务端据此去重（契约 api §4.3） */
+  idempotencyKey?: string;
+}): Promise<{ entries: ProfileEntryView[]; status: ProfileStatusView }> {
+  const { idempotencyKey, ...body } = input;
+  return apiRequest<{ entries: ProfileEntryView[]; status: ProfileStatusView }>(
+    '/profile/answers',
+    { method: 'PUT', body, ...(idempotencyKey ? { idempotencyKey } : {}) },
+  );
+}
+
+export function confirmProfileEntries(entryIds: string[]): Promise<unknown> {
+  return apiRequest('/profile/confirm', { method: 'POST', body: { entryIds } });
 }
