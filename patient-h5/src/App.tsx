@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { ApiError, fetchMe, logout, reportEvent } from './api.ts';
+import { ApiError, fetchMe, isDemoMode, logout, reportEvent } from './api.ts';
 import type { MeResponse, ProfileStatusView } from './api.ts';
 import { CalendarPage } from './pages/CalendarPage.tsx';
 import { ConsentsPage } from './pages/ConsentsPage.tsx';
@@ -176,18 +176,30 @@ export function App() {
   // ---------- 主应用：四导航 ----------
   return (
     <div>
+      {isDemoMode() && (
+        <div className="demo-banner" role="status">
+          演示数据 · 非真实患者信息
+        </div>
+      )}
       {tab === 'today' && (
         <TodayPage
-          me={me}
+          statusHint={statusHintFor(me)}
+          needOnboarding={me?.status === 'profile_incomplete' || me?.status === 'data_pending'}
           onStartOnboarding={() => setStage('onboarding')}
+          onOpenCalendar={() => setTab('calendar')}
           onOpenNurture={() => setTab('nurture')}
+          onUnauthorized={toLogin}
         />
       )}
-      {tab === 'calendar' && <CalendarPage me={me} />}
+      {tab === 'calendar' && (
+        <CalendarPage onUnauthorized={toLogin} onBackToNurture={() => setTab('nurture')} />
+      )}
       {tab === 'nurture' && <NurturePage onUnauthorized={toLogin} />}
       {tab === 'me' && (
         <MePage
           me={me}
+          stats={demoStatsFor(me)}
+          planSummary={demoPlanSummaryFor(me)}
           onLogout={async () => {
             try {
               await logout();
@@ -245,4 +257,40 @@ function TabButton({
       <span>{label}</span>
     </button>
   );
+}
+
+/** 计划未就绪时在首页顶部给出的说明（PRD H03「无计划显示准备中」） */
+function statusHintFor(me: MeResponse | null): { title: string; text: string } | null {
+  switch (me?.status) {
+    case 'profile_incomplete':
+      return { title: '先完成建档', text: '回答几个小问题，我们才能为你准备合适的计划。' };
+    case 'data_pending':
+      return { title: '资料待补充', text: '有需要核对的信息，补充完成后开始准备计划。' };
+    case 'plan_generating':
+      return {
+        title: '正在为你准备计划',
+        text: '资料已收到，团队正在准备你的健康计划；完成后这里会显示今天的行动。',
+      };
+    case 'plan_suspended':
+      return { title: '计划已暂停', text: '团队暂停了当前计划，如需了解请联系顾问。' };
+    case 'service_paused':
+      return { title: '服务已暂停', text: '当前服务暂停中，历史内容仍可查看。' };
+    default:
+      return null;
+  }
+}
+
+/**
+ * 演示模式的统计与计划摘要。
+ * 真实接口目前不返回这两项（PH5-10 前），返回 undefined 让页面显示占位「—」，
+ * 不用静态数字伪装真实统计（PRD §3.1）。
+ */
+function demoStatsFor(me: MeResponse | null): { meals?: number; reviews?: number } | undefined {
+  if (!isDemoMode() || !me) return undefined;
+  return { meals: 12, reviews: 4 };
+}
+
+function demoPlanSummaryFor(me: MeResponse | null): { name: string; stage: string } | null {
+  if (!isDemoMode() || !me) return null;
+  return { name: '食养陪伴', stage: '第 1 周 · 建立饮食节奏' };
 }

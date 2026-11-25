@@ -1,95 +1,247 @@
 /**
- * 今天首页（PH5-03 占位骨架；真实数据在 PH5-05 落地）。
- * 区块固定、缺数据显示占位（PRD §3 H03 / 展示结构稳定原则）。
+ * 今天首页（H03，契约 api §6.1）。
+ *
+ * 区块顺序按概念图：日期 → 问候 → 陪伴与今日安排 → 下一件小事 →
+ * 今天的节奏 → 快捷记录 → 相关食养 → 你的团队。
+ *
+ * 数据来自 /today；无计划时退回状态提示（PRD H03「无计划显示准备中」）。
  */
-import type { MeResponse } from '../api.ts';
+import { useEffect, useState } from 'react';
 
-const STATUS_BLOCK: Record<string, { title: string; text: string }> = {
-  plan_generating: {
-    title: '正在为你准备计划',
-    text: '资料已收到，团队正在准备你的健康计划；完成后这里会显示今天的行动。',
-  },
-  plan_active: { title: '今天', text: '今日行动将在计划发布后显示。' },
-  plan_suspended: { title: '计划已暂停', text: '团队暂停了当前计划，如需了解请联系顾问。' },
-  service_paused: { title: '服务已暂停', text: '当前服务暂停中，历史内容仍可查看。' },
-  data_pending: {
-    title: '资料待补充',
-    text: '有需要核对的信息，补充完成后开始准备计划。',
-  },
-  profile_incomplete: {
-    title: '先完成建档',
-    text: '回答几个小问题，我们才能为你准备合适的计划。',
-  },
+import { ApiError, fetchToday } from '../api.ts';
+import type { CalendarItemView, TodayView } from '../api.ts';
+import { AssetSlot } from '../components/AssetSlot.tsx';
+
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+const STATUS_TEXT: Record<string, string> = {
+  done: '已完成',
+  pending: '待进行',
+  missed: '没做到',
+  needs_help: '需要帮助',
+  cancelled: '已取消',
 };
 
-export function TodayPage({
-  me,
-  onStartOnboarding,
-  onOpenNurture,
-}: {
-  me: MeResponse | null;
+function formatTime(at: number): string {
+  const date = new Date(at);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function dateLine(): { text: string; weekday: string } {
+  const now = new Date();
+  return {
+    text: `${now.getMonth() + 1}月${now.getDate()}日`,
+    weekday: `星期${WEEKDAYS[now.getDay()]}`,
+  };
+}
+
+interface Props {
+  /** 无计划/准备中等状态的提示（来自 /me） */
+  statusHint: { title: string; text: string } | null;
+  /** 未完成建档时的主行动 */
+  needOnboarding: boolean;
   onStartOnboarding: () => void;
+  onOpenCalendar: () => void;
   onOpenNurture: () => void;
-}) {
-  const block = STATUS_BLOCK[me?.status ?? 'profile_incomplete'] ?? STATUS_BLOCK.profile_incomplete!;
-  const greeting = greetingOf(new Date());
+  onUnauthorized: () => void;
+}
+
+export function TodayPage({
+  statusHint,
+  needOnboarding,
+  onStartOnboarding,
+  onOpenCalendar,
+  onOpenNurture,
+  onUnauthorized,
+}: Props) {
+  const [today, setToday] = useState<TodayView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchToday()
+      .then(setToday)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) onUnauthorized();
+        else if (!(err instanceof ApiError && err.status === 403)) {
+          setError(err instanceof Error ? err.message : '加载失败');
+        }
+      });
+  }, [onUnauthorized]);
+
+  const { text, weekday } = dateLine();
+  const greeting = today?.greeting ?? '你好';
+  const progress = today?.progress;
+  const next = today?.nextItem;
 
   return (
-    <div className="page">
-      <div className="card">
-        <p className="muted" style={{ margin: 0 }}>
-          {greeting}
-        </p>
-        <h1 style={{ margin: '4px 0 8px' }}>{block.title}</h1>
-        <p className="muted">{block.text}</p>
-        {(me?.status === 'profile_incomplete' || me?.status === 'data_pending') && (
-          <button type="button" className="btn btn-primary" onClick={onStartOnboarding}>
-            {me?.status === 'data_pending' ? '去补充核对' : '开始建档'}
-          </button>
-        )}
-      </div>
-
-      <div className="card">
-        <h2>今日进度</h2>
-        <p className="muted">计划发布后，这里显示今天完成了几项行动。</p>
-      </div>
-
-      <div className="card">
-        <h2>快捷记录</h2>
-        <div className="row">
-          <button type="button" className="btn btn-secondary btn-inline grow" disabled>
-            记一餐
-          </button>
-          <button type="button" className="btn btn-secondary btn-inline grow" disabled>
-            晚间回顾
-          </button>
+    <div className="page page-today">
+      <header className="today-head">
+        <div className="today-date">
+          <span className="today-date__icon" aria-hidden="true" />
+          {text} · {weekday}
         </div>
-        <p className="muted">记录功能随计划开放。</p>
-      </div>
+        <h1 className="today-greeting">
+          {greeting}
+          <span className="today-greeting__dot">。</span>
+        </h1>
+        <p className="today-sub">把今天照顾好，健康慢慢来。</p>
+      </header>
 
-      <div className="card">
-        <h2>相关食养</h2>
-        <button type="button" className="btn btn-secondary btn-inline" onClick={onOpenNurture}>
-          看看食养主张
-        </button>
-        <p className="muted">与你的计划相关的文章将出现在这里。</p>
-      </div>
+      {error && (
+        <div className="notice notice-error" role="alert">
+          {error}
+        </div>
+      )}
 
-      <div className="card">
-        <h2>你的团队</h2>
-        <p className="muted">计划发布后，这里显示你的负责顾问与联系入口。</p>
-      </div>
+      {statusHint && (
+        <section className="card">
+          <h2>{statusHint.title}</h2>
+          <p className="muted">{statusHint.text}</p>
+          {needOnboarding && (
+            <button type="button" className="btn btn-primary" onClick={onStartOnboarding}>
+              开始建档
+            </button>
+          )}
+        </section>
+      )}
+
+      {today && (
+        <>
+          <section className="hero-card">
+            <div className="hero-card__body">
+              <p className="hero-card__label">
+                陪伴你的第 <b>{today.companionDays ?? '—'}</b> 天
+              </p>
+              <p className="hero-card__title">今日安排</p>
+              <p className="hero-card__meta">
+                已完成 <b>{progress?.done ?? 0}</b> 项，还有{' '}
+                <b>{progress?.pending ?? 0}</b> 项
+              </p>
+            </div>
+            <AssetSlot
+              id="P02"
+              ratio="4 / 3"
+              radius={12}
+              label="今日餐食配图"
+              className="hero-card__asset"
+            />
+          </section>
+
+          {next ? (
+            <section className="next-card">
+              <span className="next-card__badge">下一件小事</span>
+              <div className="next-card__main">
+                <div className="next-card__text">
+                  <p className="next-card__time">
+                    {formatTime(next.scheduledAt)} {next.title}
+                  </p>
+                  <p className="next-card__purpose">{next.purpose}</p>
+                </div>
+                <button type="button" className="btn btn-primary btn-inline next-card__cta">
+                  记录{next.feedbackKind === 'record_review' ? '感受' : '这一餐'}
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="card">
+              <h2>{today.allDone ? '今天都完成了' : '今天没有安排'}</h2>
+              <p className="muted">
+                {today.allDone
+                  ? '做到这些已经很好了，早点休息。'
+                  : '计划发布后，这里显示今天要做的事。'}
+              </p>
+            </section>
+          )}
+
+          <section className="section">
+            <div className="section-head">
+              <h2>今天的健康节奏</h2>
+              <button type="button" className="link-btn" onClick={onOpenCalendar}>
+                完整日历 →
+              </button>
+            </div>
+            <ol className="timeline">
+              <TimelineRows today={today} />
+            </ol>
+          </section>
+
+          <section className="quick-row">
+            <button type="button" className="quick-card" disabled={!today.quickRecord.meal}>
+              <span className="quick-card__icon" aria-hidden="true" />
+              <span className="quick-card__title">拍照记餐</span>
+              <span className="quick-card__hint">记录三餐，更了解自己。</span>
+            </button>
+            <button
+              type="button"
+              className="quick-card quick-card--warm"
+              disabled={!today.quickRecord.review}
+            >
+              <span className="quick-card__icon quick-card__icon--warm" aria-hidden="true" />
+              <span className="quick-card__title">说说身体感受</span>
+              <span className="quick-card__hint">今天的精神、胃口、睡眠等。</span>
+            </button>
+          </section>
+
+          {today.relatedArticles.length > 0 && (
+            <section className="article-card">
+              <div className="article-card__body">
+                <span className="tag-pill">与你的计划有关</span>
+                <h2>{today.relatedArticles[0]!.title}</h2>
+                <p className="muted">{today.relatedArticles[0]!.summary}</p>
+                <button type="button" className="link-btn" onClick={onOpenNurture}>
+                  食养阅读 →
+                </button>
+              </div>
+              <AssetSlot
+                id="P03"
+                ratio="1 / 1"
+                radius={10}
+                label="文章缩略图"
+                className="article-card__asset"
+              />
+            </section>
+          )}
+
+          <section className="team-card">
+            <div className="team-card__body">
+              <p className="team-card__title">专业团队一直在这里</p>
+              <p className="muted">有疑问、想沟通，随时联系。</p>
+            </div>
+            <button type="button" className="btn btn-secondary btn-inline">
+              联系团队
+            </button>
+          </section>
+        </>
+      )}
 
       <div className="footer-space" />
     </div>
   );
 }
 
-function greetingOf(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 5) return '夜深了';
-  if (hour < 11) return '早上好';
-  if (hour < 14) return '中午好';
-  if (hour < 18) return '下午好';
-  return '晚上好';
+/** 时间轴行：今日事项（完整清单在日历页） */
+function TimelineRows({ today }: { today: TodayView }) {
+  const list: CalendarItemView[] = today.nextItem ? [today.nextItem] : [];
+  return (
+    <>
+      {list.map((item) => (
+        <li className="timeline__row" key={item.id}>
+          <span className={`timeline__dot timeline__dot--${item.status}`} aria-hidden="true" />
+          <span className="timeline__time">{formatTime(item.scheduledAt)}</span>
+          <span className="timeline__body">
+            <span className="timeline__title">{item.title}</span>
+            <span className="timeline__purpose">{item.purpose}</span>
+          </span>
+          <span className={`chip chip--${item.status}`}>
+            {STATUS_TEXT[item.status] ?? item.status}
+          </span>
+        </li>
+      ))}
+      {today.progress.total > list.length && (
+        <li className="timeline__more muted">
+          还有 {today.progress.total - list.length} 项，见完整日历
+        </li>
+      )}
+    </>
+  );
 }
