@@ -13,6 +13,7 @@ import {
   redeemInvitation,
   requestVerifyCode,
 } from '../api.ts';
+import { normalizePhone } from '../utils/phone.ts';
 
 type Mode = 'form' | 'submitting';
 
@@ -45,10 +46,13 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
     }, 1000);
   };
 
+  /** 归一后的 11 位号码；带 +86 / 空格 / 短横线都能识别 */
+  const normalizedPhone = normalizePhone(phone);
+
   const sendCode = async (): Promise<void> => {
     setError(null);
     setInfo(null);
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
+    if (!normalizedPhone) {
       setError('请输入正确的手机号');
       return;
     }
@@ -58,7 +62,9 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
     }
     try {
       const result = await requestVerifyCode(
-        effectiveInviteCode ? { invitationCode: effectiveInviteCode } : { phone },
+        effectiveInviteCode
+          ? { invitationCode: effectiveInviteCode }
+          : { phone: normalizedPhone ?? phone },
       );
       setInfo(`验证码已发送至手机尾号 ${result.phoneTail}`);
       startCountdown();
@@ -76,10 +82,14 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
     setMode('submitting');
     try {
       if (effectiveInviteCode) {
-        await redeemInvitation({ invitationCode: effectiveInviteCode, phone, code });
+        await redeemInvitation({
+          invitationCode: effectiveInviteCode,
+          phone: normalizedPhone ?? phone,
+          code,
+        });
         onDone(true);
       } else {
-        await loginWithPhone({ phone, code });
+        await loginWithPhone({ phone: normalizedPhone ?? phone, code });
         onDone(false);
       }
     } catch (err) {
@@ -187,7 +197,7 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={mode === 'submitting' || code.length < 6 || phone.length < 11}
+            disabled={mode === 'submitting' || code.length < 6 || !normalizedPhone}
           >
             {mode === 'submitting' ? '正在验证…' : effectiveInviteCode ? '开通服务' : '登录'}
           </button>

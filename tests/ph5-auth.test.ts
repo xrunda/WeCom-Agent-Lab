@@ -19,6 +19,7 @@ import {
   H5Error,
   MemoryH5Backend,
   MOCK_VERIFY_CODE,
+  normalizePhone,
   PatientH5Service,
 } from '../src/p1/patient-h5.ts';
 import type { SmsPort } from '../src/p1/patient-h5.ts';
@@ -577,4 +578,40 @@ test('过期邀请在列表中派生为 expired，不再显示为待使用', asy
   // 视图层同样派生（撤销按钮据此隐藏）
   const view = service.invitationView(service.listInvitations('pat_a')[0]!);
   assert.equal(view.status, 'expired');
+});
+
+test('手机号归一：+86 / 86 / 0086 / 空格 / 短横线都认，非法返回 null', () => {
+  assert.equal(normalizePhone('13810524000'), '13810524000');
+  assert.equal(normalizePhone('+8613810524000'), '13810524000');
+  assert.equal(normalizePhone('+86 138 1052 4000'), '13810524000');
+  assert.equal(normalizePhone('8613810524000'), '13810524000');
+  assert.equal(normalizePhone('008613810524000'), '13810524000');
+  assert.equal(normalizePhone('138-1052-4000'), '13810524000');
+  assert.equal(normalizePhone('12810524000'), null, '1 后必须 3-9 开头');
+  assert.equal(normalizePhone('1381052400'), null, '位数不足');
+  assert.equal(normalizePhone('138105240001'), null, '位数超出');
+  assert.equal(normalizePhone(13810524000), null, '非字符串');
+});
+
+test('邀请按 +86 写法预留、按 11 位兑换也认（写法不同不算手机号不一致）', async () => {
+  const { service } = setup();
+  const invitation = await service.createInvitation({
+    patientId: 'pat_a',
+    advisorId: 'adv_1',
+    phone: '+8613810524000',
+    createdBy: 'acc_test',
+  });
+  assert.equal(invitation.phone, '13810524000', '入库统一归一');
+  assert.equal(invitation.phoneTail, '4000');
+  await service.requestVerifyCode({ invitationCode: invitation.code });
+  const result = await service.redeem({
+    invitationCode: invitation.code,
+    phone: '138 1052 4000',
+    code: MOCK_VERIFY_CODE,
+  });
+  assert.ok(result.sessionToken);
+  // 后续手机号登录同样接受 +86
+  await service.requestVerifyCode({ phone: '+8613810524000' });
+  const login = await service.login({ phone: '+8613810524000', code: MOCK_VERIFY_CODE });
+  assert.ok(login.sessionToken);
 });

@@ -403,6 +403,23 @@ export function isValidPhone(phone: unknown): phone is string {
   return typeof phone === 'string' && /^1[3-9]\d{9}$/.test(phone);
 }
 
+/**
+ * 手机号归一：容忍空格、短横线与 +86 / 0086 / 86 前缀，统一成 11 位。
+ *
+ * 老人家里帮忙的人在通讯录里复制出来的往往是 +8613810524000 这种写法，
+ * 直接拒掉会让人以为「号码填错了」而反复重试。存库一律用归一后的 11 位，
+ * 比对（邀请预留 vs 输入）也就不会因为写法不同而报「手机号不一致」。
+ * 不合法返回 null，由调用方抛 VALIDATION_FAILED。
+ */
+export function normalizePhone(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  let value = input.replace(/[\s\u2010-\u2015-]/g, '');
+  if (value.startsWith('+86')) value = value.slice(3);
+  else if (value.startsWith('0086')) value = value.slice(4);
+  else if (/^861[3-9]\d{9}$/.test(value)) value = value.slice(2);
+  return /^1[3-9]\d{9}$/.test(value) ? value : null;
+}
+
 /** 本地日期（Asia/Shanghai，契约 §1.2；v1 固定时区，待决项 §12.3） */
 export function localDateKey(at: number): string {
   try {
@@ -493,7 +510,8 @@ export class PatientH5Service {
     const patient = this.loadPatientRef(input.patientId);
     if (!patient) throw new H5Error('NOT_FOUND', '患者不存在');
     if (patient.status !== 'serving') throw new H5Error('SERVICE_PAUSED', '患者当前不在服务中');
-    if (!isValidPhone(input.phone)) {
+    const phone = normalizePhone(input.phone);
+    if (!phone) {
       throw new H5Error('VALIDATION_FAILED', '手机号格式不正确', [
         { field: 'phone', issue: 'invalid phone' },
       ]);
@@ -508,8 +526,8 @@ export class PatientH5Service {
       tenantId: this.tenantId,
       patientId: input.patientId,
       advisorId: input.advisorId,
-      phone: input.phone,
-      phoneTail: phoneTailOf(input.phone),
+      phone,
+      phoneTail: phoneTailOf(phone),
       code: newSessionToken(),
       status: 'pending',
       expiresAt: now + ttl,
@@ -601,9 +619,12 @@ export class PatientH5Service {
         throw new H5Error('INVITATION_EXPIRED', '邀请已过期，请联系顾问重新办理');
       }
       phone = invitation.phone;
-    } else if (isValidPhone(input.phone)) {
-      const binding = this.findBindingByPhone(input.phone);
-      if (binding) phone = binding.phone;
+    } else {
+      const normalized = normalizePhone(input.phone);
+      if (normalized) {
+        const binding = this.findBindingByPhone(normalized);
+        if (binding) phone = binding.phone;
+      }
     }
     if (!phone) throw new H5Error('VALIDATION_FAILED', '无法向该手机号发送验证码');
 
@@ -664,10 +685,11 @@ export class PatientH5Service {
       throw new H5Error('INVITATION_EXPIRED', '邀请已过期，请联系顾问重新办理');
     }
     this.failOnRateLimited(invitation.id);
-    if (!isValidPhone(input.phone)) {
+    const phone = normalizePhone(input.phone);
+    if (!phone) {
       throw new H5Error('VALIDATION_FAILED', '手机号格式不正确');
     }
-    if (input.phone !== invitation.phone) {
+    if (phone !== invitation.phone) {
       this.recordInvitationFailure(invitation.id);
       throw new H5Error('PHONE_MISMATCH', '手机号与邀请预留的不一致');
     }
@@ -721,10 +743,11 @@ export class PatientH5Service {
     if (this.patientLoginMode === 'invite_only') {
       throw new H5Error('FORBIDDEN', '当前配置仅支持邀请登录');
     }
-    if (!isValidPhone(input.phone)) {
+    const phone = normalizePhone(input.phone);
+    if (!phone) {
       throw new H5Error('VALIDATION_FAILED', '手机号格式不正确');
     }
-    const binding = this.findBindingByPhone(input.phone);
+    const binding = this.findBindingByPhone(phone);
     if (!binding || binding.status !== 'bound' || binding.tenantId !== this.tenantId) {
       // 不区分未绑定/不匹配（契约 api §2.4）
       throw new H5Error('UNAUTHORIZED', '手机号未开通，请使用邀请链接进入');
