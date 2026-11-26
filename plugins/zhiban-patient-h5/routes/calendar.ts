@@ -25,6 +25,8 @@ function toH5Error(error: unknown): never {
 export function createCalendarRoutes(options: {
   calendar: CalendarService;
   dailyTip?: { title: string; text: string };
+  /** 陪伴天数（服务开始时间起算）；没有开始时间时返回 null，前端显示占位而不是 0 */
+  companionDays?: (patientId: string) => number | null;
 }): H5RouteExtension[] {
   /** GET /today */
   const today: H5RouteExtension = async (_req, _res, ctx) => {
@@ -35,6 +37,7 @@ export function createCalendarRoutes(options: {
       ...result,
       greeting: greetingOf(new Date()),
       relatedArticles: [],
+      companionDays: options.companionDays?.(view.session.patientId) ?? null,
     });
     return true;
   };

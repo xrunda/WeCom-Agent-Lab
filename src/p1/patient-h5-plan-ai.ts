@@ -198,7 +198,11 @@ export function parsePlanDraft(args: unknown): PlanParseResult {
         violations.push(`actions[${index}] 必须是对象`);
         return;
       }
-      const title = stripTimePrefix(text(raw.title, 30));
+      // 先清洗再量长度：模型常把「21:00 」写进标题，带前缀计长会把合法的动作判成超长
+      const title = text(
+        stripTimePrefix(typeof raw.title === 'string' ? raw.title.trim() : ''),
+        30,
+      );
       const purpose = text(raw.purpose, 60);
       const method = text(raw.method, 120);
       const schedule = isRecord(raw.schedule) ? raw.schedule : null;

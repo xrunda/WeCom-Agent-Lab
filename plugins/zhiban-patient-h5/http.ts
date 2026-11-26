@@ -56,6 +56,8 @@ export interface PatientH5HttpOptions {
   composeMe?: (view: SessionView) => {
     status: string;
     profile: { completeness: number; safetyMissing: boolean; conflicts: unknown[] };
+    /** 陪伴天数；缺省时 /me 返回 null */
+    companionDays?: number | null;
   };
 }
 
@@ -414,7 +416,7 @@ export function registerPatientH5Http(
           plan: null,
           team: view.patient.advisorId ? { advisorId: view.patient.advisorId } : null,
           reminderEnabled: options.service.consentStatus(view.session.patientId, 'reminder') === 'granted',
-          companionDays: null,
+          companionDays: composed.companionDays ?? null,
           serverTime: now(),
         });
       } catch (error) {
