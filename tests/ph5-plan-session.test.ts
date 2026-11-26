@@ -93,3 +93,20 @@ test('工具在没有等待中的生成时不接受参数（防止误写）', as
   assert.equal(tool.name, 'submit_health_plan');
   assert.ok(JSON.stringify(tool.parameters).includes('feedbackKind'));
 });
+
+test('工具必须声明 output（DSH 0.2.1-rc.5 起缺失会在插件加载时静默失败）', async () => {
+  const { port } = await setup();
+  const tool = buildPlanTool(port);
+  // 宿主的 tools.register 会校验这三个字段；缺了整块插件都不注册
+  assert.equal(typeof tool.output, 'object');
+  assert.equal(typeof tool.output.render, 'function');
+  assert.deepEqual(Object.keys(tool.output.schema).sort(), [
+    'additionalProperties',
+    'properties',
+    'required',
+    'type',
+  ]);
+  // render 必须给出可读文本，而不是把原始 JSON 丢给顾问看
+  const rendered = tool.output.render(VALID, { accepted: true, message: '方案已提交，等待专业审核。' });
+  assert.deepEqual(rendered, [{ type: 'text', text: '方案已提交，等待专业审核。' }]);
+});

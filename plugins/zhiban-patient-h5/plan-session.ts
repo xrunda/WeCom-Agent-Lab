@@ -36,10 +36,19 @@ export interface PlanSessionControllerLike {
 }
 
 export interface ToolRegistrarLike {
+  /**
+   * DSH 0.2.1-rc.5 起 `tools.register` 强制要求 `output`：
+   * 缺了会在插件 effect 里抛 TypeError，而插件报错被宿主静默吞掉——
+   * 表现为整个插件不加载（路由 404、存储不建），journal 里一点痕迹都没有。
+   */
   register(tool: {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
+    output: {
+      schema: Record<string, unknown>;
+      render: (args: unknown, value: unknown) => Array<{ type: 'text'; text: string }>;
+    };
     execute: (args: unknown, exec: { agent?: { id?: string } }) => Promise<unknown>;
   }): unknown;
 }
@@ -167,10 +176,24 @@ export class DshPlanSessionPort implements PlanChatPort {
 }
 
 /** submit_health_plan 工具定义：参数 schema 即草稿结构 */
+export const PLAN_TOOL_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    accepted: { type: 'boolean' },
+    message: { type: 'string' },
+  },
+  required: ['accepted', 'message'],
+  additionalProperties: false,
+} as const;
+
 export function buildPlanTool(port: DshPlanSessionPort): {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  output: {
+    schema: Record<string, unknown>;
+    render: (args: unknown, value: unknown) => Array<{ type: 'text'; text: string }>;
+  };
   execute: (args: unknown, exec: { agent?: { id?: string } }) => Promise<unknown>;
 } {
   return {
@@ -225,6 +248,13 @@ export function buildPlanTool(port: DshPlanSessionPort): {
           maxItems: 3,
           description: '希望患者反馈什么',
         },
+      },
+    },
+    output: {
+      schema: PLAN_TOOL_OUTPUT_SCHEMA,
+      render: (_args, value) => {
+        const result = value as { message?: string } | undefined;
+        return [{ type: 'text', text: result?.message ?? '方案提交已受理。' }];
       },
     },
     execute: async (args, exec) => {
