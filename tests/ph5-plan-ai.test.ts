@@ -9,6 +9,7 @@ import {
   FORBIDDEN_MEDICAL_TERMS,
   LlmPlanGenerator,
   parsePlanDraft,
+  stripTimePrefix,
 } from '../src/p1/patient-h5-plan-ai.ts';
 import type { PlanChatPort } from '../src/p1/patient-h5-plan-ai.ts';
 
@@ -125,4 +126,29 @@ test('生成器：成功时带上模型名与提示词版本，便于追溯', as
   assert.equal(result.draft.model, 'deepseek-flash');
   assert.equal(result.draft.promptVersion, 'plan-v1');
   assert.equal(result.draft.actions.length, 1);
+});
+
+test('标题里的时间前缀被清洗：界面会单独渲染 schedule.time，重复就成「21:00 21:00 放下屏幕」', () => {
+  assert.equal(stripTimePrefix('21:00 放下屏幕'), '放下屏幕');
+  assert.equal(stripTimePrefix('21：00 放下屏幕'), '放下屏幕');
+  assert.equal(stripTimePrefix('每天 06:30 固定起床'), '固定起床');
+  assert.equal(stripTimePrefix('7点 半 定时起身'), '定时起身');
+  assert.equal(stripTimePrefix('三餐按点开饭'), '三餐按点开饭');
+  assert.equal(stripTimePrefix('21:00'), '21:00', '清洗后为空时保留原值，避免动作变无名');
+  // 解析草稿时也走同一清洗
+  const parsed = parsePlanDraft({
+    ...VALID,
+    actions: [{ ...VALID.actions[0], title: '21:00 放下屏幕' }],
+  });
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.equal(parsed.draft.actions[0]?.title, '放下屏幕');
+});
+
+test('提示词明确要求标题不写时间，时间只放在 schedule.time', () => {
+  const { userPrompt } = buildPlanPrompts({
+    startDate: '2026-12-01',
+    endDate: '2026-12-07',
+    profile: [{ fieldKey: 'goal', valueText: '改善睡眠' }],
+  });
+  assert.match(userPrompt, /title 不要写时间/);
 });

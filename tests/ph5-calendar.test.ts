@@ -118,6 +118,15 @@ test('今日聚合只统计当天事项；未反馈的昨日事项标 overdue �
   assert.equal(view.allDone, false);
 });
 
+test('当天事项都过点后，下一件取最晚的一条，而不是退回早上第一条', async () => {
+  const { calendar, clock } = await setup();
+  // 推到 22:00：07:30 与 20:30 都已过点
+  clock.advance(((22 - 9) * 60) * 60 * 1000);
+  const view = calendar.today('pat_a');
+  assert.equal(view.nextItem?.title, '晚间回顾', '最晚的一条仍是最相关的动作');
+  assert.equal(view.progress.pending, 2);
+});
+
 test('访问/查看不计完成：初始状态全是待进行', async () => {
   const { calendar } = await setup();
   const view = calendar.today('pat_a');

@@ -84,6 +84,7 @@ export function buildPlanPrompts(input: PlanPromptInput): { systemPrompt: string
     '- foodTherapyRationale：为什么这样安排，基于上面的个人情况。',
     '- focusPoints：2–4 条本阶段重点，短句。',
     '- actions：每条包含 title、purpose、method、schedule（kind=daily|weekly|oneoff，time=HH:mm）、feedbackKind（checkin|record_meal|record_review）。',
+    '- title 不要写时间，也不要写「每天」「21:00」这类前缀：时间由 schedule.time 单独给出，界面上会并排显示，重复会出现「21:00 21:00 放下屏幕」。',
     '- feedbackRequirements：希望患者反馈什么，1–3 条。',
     input.feedbackRequirementsHint ?? '',
   ]
@@ -91,6 +92,20 @@ export function buildPlanPrompts(input: PlanPromptInput): { systemPrompt: string
     .join('\n');
 
   return { systemPrompt, userPrompt };
+}
+
+/**
+ * 去掉标题里的时间前缀。模型常写「21:00 放下屏幕」「每天 06:30 固定起床」，
+ * 而界面会把 schedule.time 单独渲染在标题前面，直接展示就成了
+ * 「21:00 21:00 放下屏幕」。这里做一次确定性清洗，不依赖模型自觉。
+ */
+export function stripTimePrefix(title: string): string {
+  const cleaned = title
+    .replace(/^每天\s*/, '')
+    .replace(/^\d{1,2}[:：]\d{2}\s*/, '')
+    .replace(/^\d{1,2}\s*点\s*(半)?\s*/, '');
+  // 清洗后不要变成空标题，也不要只剩标点
+  return cleaned.replace(/^[、，,。.·\-—\s]+/, '').trim() || title;
 }
 
 // ---------- 草稿校验 ----------
@@ -183,7 +198,7 @@ export function parsePlanDraft(args: unknown): PlanParseResult {
         violations.push(`actions[${index}] 必须是对象`);
         return;
       }
-      const title = text(raw.title, 30);
+      const title = stripTimePrefix(text(raw.title, 30));
       const purpose = text(raw.purpose, 60);
       const method = text(raw.method, 120);
       const schedule = isRecord(raw.schedule) ? raw.schedule : null;
