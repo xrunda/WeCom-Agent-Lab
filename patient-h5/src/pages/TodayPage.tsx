@@ -1,7 +1,7 @@
 /**
  * 今天首页（H03，契约 api §6.1）。
  *
- * 区块顺序按概念图：日期 → 问候 → 陪伴与今日安排 → 下一件小事 →
+ * 区块顺序按概念图：日期 → 问候 → 陪伴与今日食养 → 下一件小事 →
  * 今天的节奏 → 快捷记录 → 相关食养 → 你的团队。
  *
  * 数据来自 /today；无计划时退回状态提示（PRD H03「无计划显示准备中」）。
@@ -133,7 +133,7 @@ export function TodayPage({
               <p className="hero-card__label">
                 陪伴你的第 <b>{today.companionDays ?? '—'}</b> 天
               </p>
-              <p className="hero-card__title">今日安排</p>
+              <p className="hero-card__title">今日食养</p>
               <p className="hero-card__meta">
                 已完成 <b>{progress?.done ?? 0}</b> 项，还有{' '}
                 <b>{progress?.pending ?? 0}</b> 项

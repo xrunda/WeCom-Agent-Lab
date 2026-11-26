@@ -43,7 +43,7 @@ describe('演示模式', () => {
     await waitFor(() => {
       expect(screen.getByText('我的健康日历')).toBeInTheDocument();
     });
-    await waitFor(() => expect(screen.getByText(/今日安排 1 \/ 4 已完成/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/今日食养 1 \/ 4 已完成/)).toBeInTheDocument());
     expect(screen.getByText('饮食有节，贵在日常')).toBeInTheDocument();
   });
 

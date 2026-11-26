@@ -2399,8 +2399,6 @@ dialog:modal {
 }
 
 .article-detail__foot {
-
-.article-detail__foot {
   text-align: center;
   margin: 14px 0;
 }
@@ -2414,4 +2412,51 @@ dialog:modal {
   font-size: 16px;
   min-height: 44px;
   padding: 0 4px;
+}
+
+/* 食养主张卡（阅读页顶部）：经典原文 + 出处，与文章区分开 */
+.nurture-creed {
+  background: #faf6ec;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.nurture-creed__pill {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--primary);
+  border: 1px solid rgba(31, 77, 58, 0.3);
+  border-radius: 999px;
+  padding: 1px 9px;
+  margin-bottom: 8px;
+}
+
+.nurture-creed__quote {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.55;
+  font-family: var(--serif);
+  color: var(--ink);
+}
+
+.nurture-creed__cite {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+/* 计划页：经典引用与依据的分层 */
+.plan-quote__cite {
+  margin: -4px 0 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+.plan-reason__basis {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
 }
