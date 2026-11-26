@@ -2460,3 +2460,267 @@ dialog:modal {
   font-size: 13px;
   color: var(--ink-soft);
 }
+
+/* ================= 一级页面统一页头 ================= */
+.tab-head {
+  padding: 8px 2px 14px;
+}
+
+.tab-head__eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.tab-head__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 700;
+  line-height: 1.28;
+  color: var(--ink);
+  font-size: 32px;
+}
+
+.tab-head--brand .tab-head__title {
+  font-size: 46px;
+  line-height: 1.08;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+}
+
+.tab-head__sub {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+/* 页头去掉品牌行后收紧上边距 */
+.tab-head { padding-top: calc(16px + env(safe-area-inset-top)); }
+/* ================= 月历、节气与备忘 ================= */
+
+.cal-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 2px 10px;
+}
+
+.cal-month__nav {
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: var(--ink-soft);
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.cal-month__toggle {
+  margin-left: auto;
+  border: 1px solid rgba(31, 77, 58, 0.35);
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 14px;
+  border-radius: 999px;
+  padding: 6px 14px;
+  min-height: 40px;
+  cursor: pointer;
+}
+
+/* 节气倒计时 */
+.term-next {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: #faf0e7;
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 0 2px 12px;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.term-next__label {
+  font-family: var(--serif);
+  font-weight: 700;
+}
+
+.term-next__days {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--accent);
+}
+
+.term-next__date {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* 周条：增加农历/节气小字 */
+.week-day {
+  min-height: 62px;
+  padding: 4px 0 6px;
+}
+
+.wd-lunar {
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.2;
+  max-width: 46px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-day.today .wd-lunar,
+.week-day.selected .wd-lunar {
+  color: var(--primary-ink);
+  opacity: 0.85;
+}
+
+/* 整月网格 */
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin: 0 0 12px;
+}
+
+.month-grid__weekday {
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 4px 0;
+}
+
+.day-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 56px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 4px 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.day-cell--outside { opacity: 0.35; }
+
+.day-cell__solar {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.day-cell__lunar {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  line-height: 1.1;
+  max-width: 46px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-cell--term .day-cell__lunar {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.day-cell--today .day-cell__solar {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.day-cell--selected {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.day-cell--selected .day-cell__solar,
+.day-cell--selected .day-cell__lunar {
+  color: var(--primary-ink);
+}
+
+.day-cell__memo {
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.day-cell--selected .day-cell__memo { background: #fff; }
+
+/* 备忘列表 */
+.memo-block {
+  margin: 0 0 14px;
+}
+
+.memo-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.memo-block__title {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--serif);
+}
+
+.memo-block__empty {
+  margin: 0;
+  font-size: 13px;
+}
+
+.memo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.memo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.memo-item__type {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--accent);
+  border: 1px solid rgba(180, 99, 58, 0.35);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.memo-item__title { flex: 1; min-width: 0; }
+
+.memo-item__remove {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}

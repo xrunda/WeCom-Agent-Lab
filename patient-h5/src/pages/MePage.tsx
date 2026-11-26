@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchMeStats, type MeResponse, type ProfileCenterStats } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
+import { TabHeader } from '../components/TabHeader.tsx';
 import { ASSETS } from '../assets.ts';
 
 const STATUS_TEXT: Record<string, string> = {
@@ -89,10 +90,7 @@ export function MePage({
 
   return (
     <div className="page page-me">
-      <header className="me-head">
-        <h1>我的健康生活</h1>
-
-      </header>
+      <TabHeader title="我的健康生活" subtitle="档案、记录与专人，都在这里。" />
 
       <section className="me-profile">
         <AssetSlot id="A01" ratio="1 / 1" radius={999} src={ASSETS.avatar} label="头像" className="me-avatar" />
