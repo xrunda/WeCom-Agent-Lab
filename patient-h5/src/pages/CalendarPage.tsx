@@ -233,7 +233,14 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
               了解这条安排的食养思路 →
             </button>
           </div>
-          <AssetSlot id="I01" ratio="1 / 1" radius={0} label="植物插画" className="tip-card__asset" />
+          <AssetSlot
+            id="I01"
+            ratio="1 / 1"
+            radius={12}
+            src={ASSETS.mealSquare}
+            label="食养配图"
+            className="tip-card__asset"
+          />
         </section>
       )}
 
