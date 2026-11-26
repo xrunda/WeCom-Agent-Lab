@@ -14,7 +14,12 @@ import {
 } from '../src/p1/console-auth.ts';
 import { ConsoleError } from '../src/p1/console-error.ts';
 import { ConsoleStore, MemoryConsoleBackend } from '../src/p1/console-store.ts';
-import { ConsoleAuthService, publicAccount } from '../plugins/zhiban-console/auth.ts';
+import {
+  ConsoleAuthService,
+  H5_CAPABILITIES,
+  parseH5Permissions,
+  publicAccount,
+} from '../plugins/zhiban-console/auth.ts';
 import { parseConsoleConfig } from '../plugins/zhiban-console/config.ts';
 import type { HttpRequestLike } from '../plugins/zhiban-console/http.ts';
 
@@ -246,4 +251,51 @@ test('平台账号不出现在租户账号列表，也不能被租户管理员�
     () => auth.updateAccount(actor, platform.id, { status: 'disabled' }),
     (error: unknown) => error instanceof ConsoleError && error.code === 'NOT_FOUND',
   );
+});
+
+test('患者端 H5 能力只能逐项授予：校验、去重、空数组收回、审计留痕', async () => {
+  const { auth, store } = await setup();
+  const login = await auth.login('admin', PASSWORD, '10.0.0.1');
+  const actor = { account: login.account, tenant: login.tenant, tokenHash: 'x' };
+  const created = await auth.createAccount(actor, {
+    username: 'reviewer.one',
+    displayName: '审核一号',
+    role: 'supervisor',
+    password: 'SuperPass123',
+  });
+  // 默认谁都没有，包括管理员
+  assert.equal(created.h5Permissions, undefined);
+  assert.equal(actor.account.h5Permissions, undefined, 'admin 不自动拥有 H5 能力');
+
+  const granted = auth.updateAccount(actor, created.id, {
+    h5Permissions: ['h5.content.review', 'h5.plan.review', 'h5.plan.review'],
+  });
+  assert.deepEqual(granted.h5Permissions, ['h5.content.review', 'h5.plan.review'], '去重并排序');
+  assert.deepEqual(store.getAccount(created.id)?.h5Permissions, ['h5.content.review', 'h5.plan.review']);
+
+  // 未知能力拒绝，且不落库
+  assert.throws(
+    () => auth.updateAccount(actor, created.id, { h5Permissions: ['h5.plan.publish'] }),
+    (error: unknown) => error instanceof ConsoleError && error.code === 'VALIDATION_FAILED',
+  );
+  assert.throws(
+    () => auth.updateAccount(actor, created.id, { h5Permissions: 'h5.plan.review' }),
+    (error: unknown) => error instanceof ConsoleError && error.code === 'VALIDATION_FAILED',
+  );
+  assert.deepEqual(store.getAccount(created.id)?.h5Permissions, ['h5.content.review', 'h5.plan.review']);
+
+  // 空数组 = 全部收回，字段直接消失（不留空数组进存储）
+  const revoked = auth.updateAccount(actor, created.id, { h5Permissions: [] });
+  assert.equal(revoked.h5Permissions, undefined);
+  assert.equal('h5Permissions' in (store.getAccount(created.id) ?? {}), false);
+
+  // 审计带上授权明细，便于回溯“谁在什么时候开了什么”
+  const audit = store.listAudits().filter((item) => item.action === 'account.update');
+  assert.ok(audit.some((item) => Array.isArray(item.detail?.h5Permissions)));
+});
+
+test('parseH5Permissions 只接受已登记的能力名', () => {
+  assert.deepEqual(parseH5Permissions([]), []);
+  assert.deepEqual(parseH5Permissions([...H5_CAPABILITIES]), [...H5_CAPABILITIES].sort());
+  assert.throws(() => parseH5Permissions(['h5.nope']), ConsoleError);
 });

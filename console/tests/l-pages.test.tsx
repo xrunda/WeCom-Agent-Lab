@@ -210,6 +210,25 @@ describe('WP-L 系统设置', () => {
     expect(screen.getAllByText('机构管理员').length).toBeGreaterThan(0);
   });
 
+  it('管理员可以逐项授予患者端 H5 能力，列表回显已授予数量', async () => {
+    await renderAt('/settings/accounts');
+    await screen.findByText('admin');
+
+    // 默认谁都没有能力
+    expect(screen.getAllByText('未授予').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /H5 能力/ })[0]!);
+    expect(await screen.findByText(/患者端 H5 能力/)).toBeInTheDocument();
+    expect(screen.getByText('与角色权限分开')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /方案审核/ }));
+    // antd 会在两个汉字之间插空格（「保 存」），用正则匹配
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    // 保存后列表里这一行显示「1 项」
+    expect(await screen.findByText('1 项')).toBeInTheDocument();
+  });
+
   it('只读账号看不到账号写操作', async () => {
     await renderAt('/settings/accounts', 'viewer');
 

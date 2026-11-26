@@ -5,6 +5,7 @@ import {
   PlusOutlined,
   QrcodeOutlined,
   ReloadOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import {
@@ -12,6 +13,7 @@ import {
   App,
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   Modal,
@@ -65,6 +67,24 @@ interface WecomFormValues {
   wecomUserId?: string;
 }
 
+interface H5FormValues {
+  h5Permissions?: string[];
+}
+
+/**
+ * 患者端 H5 能力：与角色权限矩阵分开，管理员也不自动拥有。
+ * 文案要说清「能做什么」，否则管理员只能看权限名猜。
+ */
+const H5_CAPABILITY_OPTIONS: Array<{ value: string; label: string; hint: string }> = [
+  { value: 'h5.plan.review', label: '方案审核', hint: '发布、退回、暂停患者的健康计划' },
+  { value: 'h5.content.edit', label: '内容编辑', hint: '新建与修改食养内容' },
+  { value: 'h5.content.review', label: '内容审核', hint: '审核发布或下架食养内容' },
+];
+
+const H5_CAPABILITY_LABEL: Record<string, string> = Object.fromEntries(
+  H5_CAPABILITY_OPTIONS.map((item) => [item.value, item.label]),
+);
+
 /** 与后端一致：1–64 位字母、数字与 `._@-` */
 const WECOM_USERID_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
 
@@ -103,13 +123,14 @@ export default function AccountsSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<Role | undefined>();
   const [statusFilter, setStatusFilter] = useState<Account['status'] | undefined>();
-  const [modal, setModal] = useState<'create' | 'reset' | 'wecom' | null>(null);
+  const [modal, setModal] = useState<'create' | 'reset' | 'wecom' | 'h5' | null>(null);
   const [target, setTarget] = useState<Account | null>(null);
   const [saving, setSaving] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [createForm] = Form.useForm<CreateFormValues>();
   const [resetForm] = Form.useForm<ResetFormValues>();
   const [wecomForm] = Form.useForm<WecomFormValues>();
+  const [h5Form] = Form.useForm<H5FormValues>();
 
   const load = useCallback(async () => {
     if (!canWrite) {
@@ -166,6 +187,36 @@ export default function AccountsSettingsPage() {
     setTarget(account);
     wecomForm.setFieldsValue({ wecomUserId: account.wecomUserId ?? '' });
     setModal('wecom');
+  };
+
+  const openH5 = (account: Account) => {
+    setTarget(account);
+    h5Form.setFieldsValue({ h5Permissions: account.h5Permissions ?? [] });
+    setModal('h5');
+  };
+
+  const submitH5 = async () => {
+    if (!target) return;
+    const values = await h5Form.validateFields();
+    setSaving(true);
+    try {
+      const updated = await updateAccount(target.id, {
+        h5Permissions: values.h5Permissions ?? [],
+      });
+      setAccounts((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      message.success(
+        (values.h5Permissions ?? []).length === 0
+          ? '已收回全部 H5 能力'
+          : 'H5 能力已更新，对方下次请求即生效',
+      );
+      setModal(null);
+      setTarget(null);
+      h5Form.resetFields();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openReset = (account: Account) => {
@@ -313,6 +364,22 @@ export default function AccountsSettingsPage() {
       render: (value: Role) => <Tag color={ROLE_META[value].color}>{ROLE_META[value].label}</Tag>,
     },
     {
+      title: 'H5 能力',
+      dataIndex: 'h5Permissions',
+      key: 'h5Permissions',
+      width: 150,
+      render: (value?: string[]) =>
+        value && value.length > 0 ? (
+          <Tooltip title={value.map((item) => H5_CAPABILITY_LABEL[item] ?? item).join('、')}>
+            <Tag color="green">{value.length} 项</Tag>
+          </Tooltip>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            未授予
+          </Text>
+        ),
+    },
+    {
       title: '企微成员',
       dataIndex: 'wecomUserId',
       key: 'wecomUserId',
@@ -362,6 +429,9 @@ export default function AccountsSettingsPage() {
         <Space size={4}>
           <Button type="link" size="small" icon={<QrcodeOutlined />} onClick={() => openWecom(account)}>
             企微登录
+          </Button>
+          <Button type="link" size="small" icon={<SafetyCertificateOutlined />} onClick={() => openH5(account)}>
+            H5 能力
           </Button>
           <Button type="link" size="small" icon={<KeyOutlined />} onClick={() => openReset(account)}>
             重置密码
@@ -590,6 +660,43 @@ export default function AccountsSettingsPage() {
             extra="创建后请通过安全渠道交给本人；控制台不会再次显示。"
           >
             <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`患者端 H5 能力${target ? ` · ${target.displayName}` : ''}`}
+        open={modal === 'h5'}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={saving}
+        onOk={() => void submitH5()}
+        onCancel={() => {
+          setModal(null);
+          setTarget(null);
+          h5Form.resetFields();
+        }}
+        destroyOnHidden
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="与角色权限分开"
+          description="这些能力决定能否审核方案、编辑与审核内容；管理员身份不自动拥有，需要逐项授予。"
+        />
+        <Form<H5FormValues> form={h5Form} layout="vertical" requiredMark={false} preserve={false}>
+          <Form.Item name="h5Permissions" style={{ marginBottom: 0 }}>
+            <Checkbox.Group style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {H5_CAPABILITY_OPTIONS.map((item) => (
+                <Checkbox key={item.value} value={item.value} style={{ alignItems: 'flex-start' }}>
+                  <span style={{ display: 'block', fontWeight: 500 }}>{item.label}</span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {item.hint}
+                  </Text>
+                </Checkbox>
+              ))}
+            </Checkbox.Group>
           </Form.Item>
         </Form>
       </Modal>
