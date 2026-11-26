@@ -24,7 +24,9 @@ export type IconName =
   | 'moon'
   | 'headset'
   | 'check'
-  | 'arrow';
+  | 'arrow'
+  | 'speaker'
+  | 'pause';
 
 const PATHS: Record<IconName, string> = {
   home: 'M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z',
@@ -46,6 +48,8 @@ const PATHS: Record<IconName, string> = {
   run: 'M13 5.5a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM9 21l2.2-4.2-1.7-3L7 15M14.5 12l1.8 3.2 2.7 1M11.2 9.3 13 8l3 1.2 1.2 3',
   moon: 'M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5zM17 4l.6 1.6L19.2 6l-1.6.6L17 8l-.6-1.4L14.8 6l1.6-.4z',
   headset: 'M5 13v-1a7 7 0 0 1 14 0v1M5 13h2.5v4H6a1 1 0 0 1-1-1zM19 13h-2.5v4H18a1 1 0 0 0 1-1zM16.5 19a2.5 2.5 0 0 1-2.5 2h-1.5',
+  speaker: 'M5 10h3l4-3.5v11L8 14H5zM16 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10',
+  pause: 'M9 7v10M15 7v10',
   check: 'M5 12.5 9.5 17 19 7',
   arrow: 'M4 12h15M13 6l6 6-6 6',
 };

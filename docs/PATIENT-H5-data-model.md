@@ -470,6 +470,7 @@ H5 端记录的统一实体。与 `meal_log`（群消息识别）**并存不合�
 | `title` | string | 否 | ≤60 字 |
 | `summary` | string | 否 | ≤100 字 |
 | `sections` | array<object> | 否 | 见下 |
+| `coverUrl` | string | 是 | 列表/详情配图地址（站内相对路径或外链）；缺省时前端用占位图，不挡阅读 |
 | `authorType` | enum | 否 | `editor`（编辑主体）/ `professional`（专业人员署名） |
 | `authorName` | string | 否 | 展示主体名（虚构示例：编辑部） |
 | `citations` | array<object> | 否 | 出处：`[{ text, source, verified }]`——经典引用逐字核对（A09） |

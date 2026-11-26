@@ -1104,224 +1104,14 @@ body {
   padding-top: calc(8px + env(safe-area-inset-top));
 }
 
-.nurture-head {
-  position: relative;
-  padding: 4px 2px 14px;
-}
-
-.nurture-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 15px;
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.nurture-title {
-  margin: 10px 0 4px;
-  font-size: 46px;
-  line-height: 1.08;
-  font-family: var(--serif);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--primary);
-}
-
-.nurture-sub {
-  margin: 0;
-  font-size: 15px;
-  color: var(--ink-soft);
-}
-
-.nurture-deco {
-  position: absolute;
-  top: 0;
-  right: -18px;
-  width: 42%;
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.nurture-tabs {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 14px;
-  scrollbar-width: none;
-}
-
-.nurture-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.nurture-tab {
-  flex: 0 0 auto;
-  border: none;
-  background: var(--primary);
-  color: var(--primary-ink);
-  font-family: inherit;
-  font-size: 14px;
-  padding: 8px 12px;
-  min-height: 40px;
-  cursor: pointer;
-  border-radius: 999px;
-  margin-bottom: 8px;
-  margin-right: 8px;
-  opacity: 0.55;
-}
-
-.nurture-tab.active {
-  opacity: 1;
-  font-weight: 600;
-}
-
-.featured-card {
-  position: relative;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  margin-bottom: 12px;
-  box-shadow: var(--shadow);
-  min-height: 220px;
-  display: flex;
-  align-items: flex-end;
-}
-
-.featured-card__asset {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-}
-
-.featured-card__body {
-  position: relative;
-  padding: 16px;
-  width: 100%;
-  background: linear-gradient(
-    to top,
-    rgba(20, 32, 26, 0.82) 0%,
-    rgba(20, 32, 26, 0.55) 55%,
-    rgba(20, 32, 26, 0) 100%
-  );
-  color: #fff;
-}
-
-.featured-card__body h2 {
-  margin: 10px 0 8px;
-  font-size: 27px;
-  line-height: 1.3;
-  font-family: var(--serif);
-  font-weight: 700;
-  color: #fff;
-}
-
-.featured-card__meta {
-  margin: 0;
-  font-size: 13px;
-  opacity: 0.9;
-}
-
 .tag-pill--warm {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
 }
 
-.plan-link-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  background: #eef3ea;
-  border: none;
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  font-family: inherit;
-  color: var(--ink);
-  cursor: pointer;
-  box-shadow: var(--shadow);
-}
-
-.plan-link-card__icon {
-  color: var(--primary);
-  flex-shrink: 0;
-}
-
-.plan-link-card__body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.plan-link-card__label {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.plan-link-card__title {
-  font-size: 19px;
-  font-weight: 700;
-  font-family: var(--serif);
-}
-
-.plan-link-card__arrow {
-  color: var(--primary);
-}
-
 .section-rule {
   display: none;
-}
-
-.article-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.article-row {
-  display: flex;
-  gap: 14px;
-  padding: 12px 0;
-  align-items: flex-start;
-  border-bottom: 1px solid var(--line);
-}
-
-.article-row:last-child {
-  border-bottom: none;
-}
-
-.article-row__thumb {
-  width: 92px;
-  flex-shrink: 0;
-}
-
-.article-row__body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.article-row__title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 700;
-  font-family: var(--serif);
-  line-height: 1.35;
-}
-
-.article-row__summary {
-  margin: 0;
-  font-size: 14px;
-  color: var(--ink-soft);
 }
 
 .article-list__empty {
@@ -1621,13 +1411,6 @@ body {
 
 /* 只有需要铺满整卡的场景才显式撑开 */
 .hero-card__asset.asset-media,
-.featured-card__asset.asset-media {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
 /* 圆头像：裁成圆形 */
 .me-avatar.asset-media,
 .plan-reviewer__avatar.asset-media,
@@ -2723,4 +2506,222 @@ dialog:modal {
   flex-shrink: 0;
   font-size: 13px;
   color: var(--ink-soft);
+}
+
+/* ================= 食养陪伴流（方案 B） =================
+   一屏一个主任务：今日一条 → 按你的情况 → 慢慢读 → 食养主张。
+   正文 ≥16px、按钮 ≥44px，与全站适老化基线一致。 */
+
+.feed-section {
+  margin-bottom: 24px;
+}
+
+.feed-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 2px 10px;
+}
+
+.feed-section__head h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.feed-section__head .muted {
+  font-size: 13px;
+}
+
+.feed-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.feed-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 缩略图只占固定宽度，媒体本身不再撑开卡片 */
+.feed-card__thumb {
+  width: 88px;
+  flex: 0 0 88px;
+}
+
+.feed-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.feed-card__body h3 {
+  margin: 6px 0 4px;
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.feed-card__summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 今日可以做：一条卡只给一个动作，用暖赭区分「知识」与「动手」 */
+.feed-card__action {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: #fbf3e9;
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.feed-card__action-lead {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.feed-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.feed-card__audio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 15px;
+  color: var(--primary);
+  background: rgba(45, 90, 74, 0.07);
+  border: 1px solid rgba(45, 90, 74, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.feed-card__audio[aria-pressed='true'] {
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: var(--primary);
+}
+
+.feed-card__meta {
+  font-size: 13px;
+}
+
+/* 看全文：卡片唯一的「进入」入口，键盘与读屏靠它 */
+.feed-card__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.feed-card__more svg {
+  margin-top: 1px;
+}
+
+/* 今日一条：整块大图，信息只有一条，视线不用挑 */
+.feed-card--lead {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.feed-card--lead .feed-card__cover {
+  width: 100%;
+  border-radius: 0;
+}
+
+.feed-card--lead .feed-card__body {
+  padding: 14px 16px 16px;
+}
+
+.feed-card--lead .feed-card__body h3 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.feed-card--lead .feed-card__summary {
+  font-size: 15px;
+  -webkit-line-clamp: 3;
+}
+
+/* 随便看看：分类就在被它筛选的列表上方，点了立刻见效。
+   标签单独一行，避免和胶囊挤在一起换行后错位。 */
+.feed-browse {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 2px 14px;
+}
+
+.feed-browse__label {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.feed-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feed-cat {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.feed-cat.active {
+  color: var(--primary-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.page-nurture .nurture-creed {
+  margin-top: 4px;
 }

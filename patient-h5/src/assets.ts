@@ -13,4 +13,8 @@ export const ASSETS = {
   mealSquare: `${base}assets/meal-square.jpg`,
   /** 演示头像（H09） */
   avatar: `${base}assets/avatar.png`,
+  /** 文章配图（演示实拍示意，来自 website/scripts/fixtures） */
+  articleMillet: `${base}assets/article-millet.jpg`,
+  articleFish: `${base}assets/article-fish.jpg`,
+  articleNoodles: `${base}assets/article-noodles.jpg`,
 } as const;

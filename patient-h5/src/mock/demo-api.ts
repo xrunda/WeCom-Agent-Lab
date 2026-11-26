@@ -52,6 +52,9 @@ function articleView(article: (typeof DEMO_ARTICLES)[number]): ArticleView {
     summary: article.summary,
     category: article.category,
     publishedAt: article.publishedAt,
+    ...(article.coverUrl ? { coverUrl: article.coverUrl } : {}),
+    ...(article.microAction ? { microAction: article.microAction } : {}),
+    ...(article.scenarioTags ? { scenarioTags: article.scenarioTags } : {}),
   };
 }
 
@@ -251,6 +254,20 @@ export function demoArticleDetail(id: string): import('../api.ts').ArticleDetail
 }
 
 /** 与后端 DEFAULT_MANIFESTO 保持一致，逐字核对过的经典引用 */
+export function demoProfile(): {
+  items: import('../api.ts').ProfileEntryView[];
+  status: import('../api.ts').ProfileStatusView;
+} {
+  const base = { status: 'confirmed' as const, updatedAt: Date.now() };
+  return {
+    items: [
+      { ...base, id: 'ppe_demo_goal', fieldKey: 'goal', value: { items: ['改善睡眠'] }, valueText: '改善睡眠', source: 'patient' },
+      { ...base, id: 'ppe_demo_food', fieldKey: 'food_preference', value: { likes: ['清淡'] }, valueText: '喜欢 清淡', source: 'patient' },
+    ],
+    status: { completeness: 1, safetyMissing: false, conflicts: [] },
+  };
+}
+
 export function demoManifesto(): import('../api.ts').Manifesto {
   return {
     version: 1,

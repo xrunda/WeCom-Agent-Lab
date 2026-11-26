@@ -109,7 +109,7 @@ async function main() {
   // 文章详情
   await nav().getByRole('button', { name: /食养/ }).click();
   await page.waitForTimeout(400);
-  const feature = page.locator('.featured-card');
+  const feature = page.locator('.feed-card--lead');
   if (await feature.count()) {
     await feature.click();
     await page.waitForTimeout(500);

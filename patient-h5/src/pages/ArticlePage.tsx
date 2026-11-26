@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 
 import { ApiError, fetchArticleDetail, type ArticleDetailView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
+import { ASSETS } from '../assets.ts';
 
 const KIND_LABEL: Record<string, string> = {
   classic_quote: '经典原文',
@@ -57,7 +58,14 @@ export function ArticlePage({ articleId, onBack, onUnauthorized }: Props) {
             </p>
           </header>
 
-          <AssetSlot id="P06" ratio="16 / 9" radius={12} label="文章配图" className="article-detail__cover" />
+          <AssetSlot
+            id="P06"
+            ratio="16 / 9"
+            radius={12}
+            src={article.coverUrl ?? ASSETS.mealSquare}
+            label="文章配图"
+            className="article-detail__cover"
+          />
 
           <div className="article-detail__body">
             {article.sections.map((section, index) => (

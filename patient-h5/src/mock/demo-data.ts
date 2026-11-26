@@ -7,6 +7,8 @@
  * 与真实数据的差别写在各处注释里；任何一次演示都必须说明是演示数据。
  */
 
+import { ASSETS } from '../assets.ts';
+
 const DAY = 24 * 60 * 60 * 1000;
 
 /** 以「今天」为基准生成，保证任何时候打开都像当天 */
@@ -163,7 +165,11 @@ export interface DemoArticle {
   title: string;
   summary: string;
   category: 'classics_life' | 'ingredients' | 'seasonal_living';
+  /** 站内配图（public/assets 下的实拍示意） */
+  coverUrl?: string;
   publishedAt: number;
+  scenarioTags?: string[];
+  microAction?: string;
 }
 
 export const DEMO_ARTICLES: DemoArticle[] = [
@@ -172,21 +178,40 @@ export const DEMO_ARTICLES: DemoArticle[] = [
     title: '早餐，怎样吃得更丰富？',
     summary: '几种家常搭配思路，让早餐更均衡、也更合口味。',
     category: 'classics_life',
+    coverUrl: ASSETS.mealSquare,
     publishedAt: Date.now() - 3 * DAY,
+    scenarioTags: ['早餐', '规律饮食'],
+    microAction: '明天早餐加一种蔬菜，比如番茄或小青菜。',
   },
   {
     id: 'art_demo_sleep',
     title: '睡得浅的时候，晚餐可以做点什么',
     summary: '从晚饭的时间和分量说起，聊聊睡前那几小时。',
     category: 'seasonal_living',
+    coverUrl: ASSETS.articleFish,
     publishedAt: Date.now() - 6 * DAY,
+    scenarioTags: ['睡眠', '晚餐'],
+    microAction: '今晚睡前两小时不再吃东西。',
   },
   {
     id: 'art_demo_ingredient',
     title: '认识食材：小米',
     summary: '家常小米的日常吃法、适用条件与注意事项。',
     category: 'ingredients',
+    coverUrl: ASSETS.articleMillet,
     publishedAt: Date.now() - 10 * DAY,
+    scenarioTags: ['早餐', '肠胃'],
+    microAction: '晚饭用小米粥替一半白米饭。',
+  },
+  {
+    id: 'art_demo_noodles',
+    title: '天冷了，一碗热汤面的分寸',
+    summary: '热汤暖身，也别贪多，看看分量与搭配。',
+    category: 'seasonal_living',
+    coverUrl: ASSETS.articleNoodles,
+    publishedAt: Date.now() - 14 * DAY,
+    scenarioTags: ['冬季', '午餐'],
+    microAction: '吃面时配一小碟青菜，汤别喝完。',
   },
 ];
 
