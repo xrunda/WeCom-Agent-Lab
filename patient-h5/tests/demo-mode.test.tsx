@@ -26,7 +26,7 @@ describe('演示模式', () => {
   it('直接进入主应用，显示演示数据横幅与今天页内容', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText('演示数据 · 非真实患者信息')).toBeInTheDocument();
+      expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     });
     await waitFor(() => {
       expect(screen.getByText(/陪伴你的第/)).toBeInTheDocument();

@@ -221,11 +221,6 @@ export function App() {
   // ---------- 主应用：四导航 ----------
   return (
     <div>
-      {isDemoMode() && (
-        <div className="demo-banner" role="status">
-          演示数据 · 非真实患者信息
-        </div>
-      )}
       {tab === 'today' && (
         <TodayPage
           statusHint={statusHintFor(me)}
