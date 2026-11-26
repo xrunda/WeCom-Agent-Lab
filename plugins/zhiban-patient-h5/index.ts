@@ -558,7 +558,13 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
         }),
       }),
       ...createRecordRoutes({ records: recordService, media: mediaStore }),
-      ...createCalendarRoutes({ calendar: calendarService }),
+      ...createCalendarRoutes({
+        calendar: calendarService,
+        companionDays: (patientId) => {
+          const days = center.stats(patientId).companionDays;
+          return days > 0 ? days : null;
+        },
+      }),
       ...createPlanRoutes({ plan, adjust, ids: idFactory(Date.now) }),
       ...createProfileRoutes({ profile, manifesto: config.manifesto }),
     ];
@@ -582,9 +588,12 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
                 : latest && ['reviewing', 'generating', 'generate_failed'].includes(latest.status)
                   ? 'plan_generating'
                   : profile.meStatus(patientId, view.patient.status);
+        // 陪伴天数以服务开始时间为准；stats 在没有开始时间时给 0，这里转成 null 让前端显示占位
+        const companionDays = center.stats(patientId).companionDays;
         return {
           status,
           profile: profile.status(patientId),
+          companionDays: companionDays > 0 ? companionDays : null,
         };
       },
     });
