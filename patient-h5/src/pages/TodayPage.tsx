@@ -55,10 +55,15 @@ export function TodayPage({
   const [sheet, setSheet] = useState<'meal' | 'review' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [patientName, setPatientName] = useState<string | null>(null);
+  /** /today 未返回陪伴天数时（真实接口 PH5-10 前为 null），用 /me 的值兜底 */
+  const [fallbackCompanionDays, setFallbackCompanionDays] = useState<number | null>(null);
 
   useEffect(() => {
     fetchMe()
-      .then((me) => setPatientName(me.displayName ?? null))
+      .then((me) => {
+        setPatientName(me.displayName ?? null);
+        setFallbackCompanionDays(me.companionDays ?? null);
+      })
       .catch(() => undefined);
     fetchToday()
       .then(setToday)
@@ -113,7 +118,7 @@ export function TodayPage({
             />
             <div className="hero-card__body">
               <p className="hero-card__label">
-                陪伴你的第 <b>{today.companionDays ?? '—'}</b> 天
+                陪伴你的第 <b>{today.companionDays ?? fallbackCompanionDays ?? '—'}</b> 天
               </p>
               <p className="hero-card__title">今日食养</p>
               <p className="hero-card__meta">

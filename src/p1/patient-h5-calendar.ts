@@ -134,9 +134,14 @@ export class CalendarService {
       pending: items.filter((item) => item.status === 'pending').length,
       total: items.filter((item) => item.status !== 'cancelled').length,
     };
-    // 下一项优先取「还没到点」的第一条，其次取任意待进行
-    const upcoming = items.find((item) => item.status === 'pending' && item.scheduledAt >= now);
-    const next = upcoming ?? items.find((item) => item.status === 'pending') ?? null;
+    // 下一项：优先「还没到点」里最近的一条；都过点了就取最晚的一条。
+    // 不能退回最早的一条——晚上九点看到「下一件小事：06:30 固定起床」会让人以为页面错了。
+    const pendingItems = items.filter((item) => item.status === 'pending');
+    const upcoming = pendingItems
+      .filter((item) => item.scheduledAt >= now)
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
+    const latestPast = [...pendingItems].sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+    const next = upcoming ?? latestPast ?? null;
     return {
       date: today,
       nextItem: next ? this.view(next, today) : null,
