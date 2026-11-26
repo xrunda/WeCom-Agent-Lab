@@ -58,6 +58,11 @@ export function App() {
 
   const refreshMeRef = useRef<() => Promise<string | null>>(async () => null);
 
+  // 切页或切 tab 后回到顶部：否则从页面底部进入新页面时，顶部标题与返回键都在视口外
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [stage, tab]);
+
   // 启动：抽邀请码 → 探测会话 → 决定进入授权、建档还是主应用
   useEffect(() => {
     const code = extractInviteCode();
@@ -208,6 +213,7 @@ export function App() {
       <OnboardingWizard
         onUnauthorized={toLogin}
         onDone={(status) => void onOnboardingDone(status)}
+        onExit={() => setStage('app')}
       />
     );
   }

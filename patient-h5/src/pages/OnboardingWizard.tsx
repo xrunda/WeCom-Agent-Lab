@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 
+import { PageBack } from '../components/PageBack.tsx';
 import {
   ApiError,
   confirmProfileEntries,
@@ -44,9 +45,11 @@ const DISLIKE_OPTIONS = ['辛辣', '油腻', '过咸', '生冷'];
 interface Props {
   onUnauthorized: () => void;
   onDone: (status: ProfileStatusView) => void;
+  /** 中途退出（已填内容已按步提交，不会丢） */
+  onExit?: () => void;
 }
 
-export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
+export function OnboardingWizard({ onUnauthorized, onDone, onExit }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [existing, setExisting] = useState<ProfileEntryView[]>([]);
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
@@ -210,6 +213,7 @@ export function OnboardingWizard({ onUnauthorized, onDone }: Props) {
 
   return (
     <div className="page">
+      {onExit && <PageBack onClick={onExit} label="稍后再填" />}
       <div className="card">
         <div className="steps" aria-label={`第 ${stepIndex + 1} 步，共 ${STEPS.length} 步`}>
           {STEPS.map((item, index) => (

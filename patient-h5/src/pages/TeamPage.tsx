@@ -78,8 +78,8 @@ export function TeamPage({ onBack, onUnauthorized }: Props) {
 
   return (
     <div className="page page-team">
-      <button type="button" className="link-btn plan-back" onClick={onBack}>
-        ‹ 我的专业团队
+      <button type="button" className="link-btn plan-back" onClick={onBack} aria-label="返回">
+        <span aria-hidden="true">‹</span> 我的专业团队
       </button>
 
       <header className="team-head">
