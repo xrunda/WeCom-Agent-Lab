@@ -16,6 +16,7 @@ function view(article: ReturnType<ContentService['getPublished']>) {
     category: article.category,
     title: article.title,
     summary: article.summary,
+    coverUrl: article.coverUrl ?? null,
     sections: article.sections,
     authorName: article.authorName,
     authorType: article.authorType,
@@ -46,8 +47,13 @@ export function createContentRoutes(options: { content: ContentService }): H5Rou
           category: item.category,
           title: item.title,
           summary: item.summary,
+          coverUrl: item.coverUrl ?? null,
           publishedAt: item.publishedAt ?? null,
           seasonTerm: item.seasonTerm ?? null,
+          // 实践段的第一句作为「今天就能做的一件小事」，没有就不返回
+          microAction:
+            item.sections.find((section) => section.kind === 'practice')?.text?.slice(0, 60) ?? null,
+          scenarioTags: item.scenarioTags,
         })),
     });
     return true;

@@ -45,6 +45,8 @@ export interface ContentArticle {
   title: string;
   summary: string;
   sections: ArticleSection[];
+  /** 列表/详情配图（站内相对路径或外链）；缺省由前端用占位图 */
+  coverUrl?: string;
   authorType: 'editor' | 'professional';
   authorName: string;
   citations: Array<{ text: string; source: string; verified: boolean }>;
@@ -198,6 +200,7 @@ export class ContentService {
     title: string;
     summary: string;
     sections: ArticleSection[];
+    coverUrl?: string;
     authorType: 'editor' | 'professional';
     authorName: string;
     scenarioTags?: string[];
@@ -225,6 +228,7 @@ export class ContentService {
           verified: section.verified === true,
         })),
       scenarioTags: input.scenarioTags ?? [],
+      ...(input.coverUrl ? { coverUrl: input.coverUrl } : {}),
       ...(input.seasonTerm ? { seasonTerm: input.seasonTerm } : {}),
       status: 'draft',
       version: 1,
@@ -247,6 +251,7 @@ export class ContentService {
         | 'title'
         | 'summary'
         | 'sections'
+        | 'coverUrl'
         | 'scenarioTags'
         | 'seasonTerm'
         | 'ingredientSafety'

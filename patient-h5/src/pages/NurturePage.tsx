@@ -1,18 +1,27 @@
 /**
  * 食养栏目（H08，契约 api §9.2）。
  *
- * - 首次引导模式（intro）：只显示食养主张，可跳过（H01）
- * - 常态：品牌行 → 标题 → 分类切换 → 精选文章 → 与计划有关 → 文章列表
+ * 这一页是「每天来坐一会儿」的入口，不是文章库。结构按陪伴流来做：
+ *   今日一条（大图 + 听一听 + 今天做的一件小事）
+ *   → 按你的情况（按档案匹配，不匹配就整段不出现）
+ *   → 慢慢读，慢慢养（分类随手切换，筛选结果就在下方）
+ *   → 食养主张（已审核的经典原文）
  *
- * 刻意不渲染搜索框：PRD §3.1 把搜索列为增强项，未实现时隐藏，不放无效按钮。
+ * 适老化取舍：
+ * - 首屏只推一条，避免老人面对信息流无从下手
+ * - 「听一听」用系统语音朗读，不支持就不显示按钮，不放无效控件
+ * - 每张卡只留一个「今天可以做」的动作，不做多任务
+ *
+ * 刻意不渲染搜索框：PRD §3.1 把搜索列为增强项，未实现时隐藏。
  * 文章只读已发布内容；停用内容不展示正文（A09）。
  */
 import { useEffect, useState } from 'react';
 
-import { ApiError, fetchArticles, fetchManifesto } from '../api.ts';
-import type { ArticleView, Manifesto } from '../api.ts';
+import { ApiError, fetchArticles, fetchManifesto, fetchProfile } from '../api.ts';
+import type { ArticleView, Manifesto, ProfileEntryView } from '../api.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
+import { TabHeader } from '../components/TabHeader.tsx';
 import { ASSETS } from '../assets.ts';
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -22,17 +31,27 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 const TABS = [
-  { key: 'recommend', label: '为你推荐' },
+  { key: 'recommend', label: '全部' },
   { key: 'classics_life', label: '经典与生活' },
   { key: 'ingredients', label: '认识食材' },
   { key: 'seasonal_living', label: '四时起居' },
 ] as const;
+
+type TabKey = (typeof TABS)[number]['key'];
 
 const KIND_LABEL: Record<string, string> = {
   classic_quote: '经典原文',
   plain_explanation: '白话解释',
   brand_copy: '服务主张',
 };
+
+/** 档案里的价值词切成关键词，用来匹配文章的场景标签 */
+function keywordsOf(entries: ProfileEntryView[]): string[] {
+  return entries
+    .flatMap((entry) => (entry.valueText ?? '').split(/[、，,；;\s/]+/))
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2 && word.length <= 8);
+}
 
 interface Props {
   /** 首次引导模式：显示主张与跳过（H01） */
@@ -46,10 +65,15 @@ interface Props {
 export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArticle }: Props) {
   const [manifesto, setManifesto] = useState<Manifesto | null>(null);
   const [articles, setArticles] = useState<ArticleView[]>([]);
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('recommend');
+  const [profileEntries, setProfileEntries] = useState<ProfileEntryView[]>([]);
+  const [tab, setTab] = useState<TabKey>('recommend');
+  const [speaking, setSpeaking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 主张文案两种模式都要：阅读页顶部展示已审核的经典原文
+  // 系统语音合成：不支持（如部分 App 内嵌 WebView）就不显示「听一听」
+  const supportsSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  // 主张文案两种模式都要：阅读页底部展示已审核的经典原文
   useEffect(() => {
     fetchManifesto()
       .then(setManifesto)
@@ -67,7 +91,20 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
         if (err instanceof ApiError && err.status === 401 && onUnauthorized) onUnauthorized();
         // 无内容不算错误：保留空态（PRD §9：缺少适配内容时允许不推荐）
       });
+    fetchProfile()
+      .then((result) => setProfileEntries(result.items))
+      .catch(() => {
+        // 档案读不到只是「按你的情况」不出现，正文照常可看
+      });
   }, [intro, onUnauthorized]);
+
+  // 离开页面时把朗读停掉，避免声音跟着用户走
+  useEffect(
+    () => () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    },
+    [],
+  );
 
   if (intro) {
     return (
@@ -120,127 +157,223 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
     );
   }
 
-  const visible =
-    tab === 'recommend' ? articles : articles.filter((item) => item.category === tab);
-  const featured = visible[0] ?? null;
-  const rest = visible.slice(1);
-  const planRelated = articles.find((item) => item.category === 'classics_life') ?? null;
+  // ---- 今日一条：每天只推一条，其余下沉 ----
+  const todayPick = articles[0] ?? null;
+  const keywords = keywordsOf(profileEntries);
+  const forYou = articles
+    .filter((item) => item.id !== todayPick?.id)
+    .filter((item) =>
+      (item.scenarioTags ?? []).some((tag) =>
+        keywords.some((word) => tag.includes(word) || word.includes(tag)),
+      ),
+    )
+    .slice(0, 2);
+  const shownIds = new Set<string>(
+    [todayPick?.id, ...forYou.map((item) => item.id)].filter((id): id is string => Boolean(id)),
+  );
+  const rest = articles
+    .filter((item) => !shownIds.has(item.id))
+    .filter((item) => (tab === 'recommend' ? true : item.category === tab));
+
+  const speak = (item: ArticleView): void => {
+    if (!supportsSpeech) return;
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    if (speaking === item.id) {
+      setSpeaking(null);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(`${item.title}。${item.summary}`);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.9;
+    utterance.onend = () => setSpeaking(null);
+    utterance.onerror = () => setSpeaking(null);
+    setSpeaking(item.id);
+    synth.speak(utterance);
+  };
+
+  const card = (item: ArticleView) => {
+    const playing = speaking === item.id;
+    return (
+      // 整卡可点（手指面积大），但键盘与读屏走下面「看全文」实体按钮，
+      // 不把 article 声明成 button，避免按钮套按钮
+      <article key={item.id} className="feed-card" onClick={() => onOpenArticle?.(item.id)}>
+        <AssetSlot
+          id="P07"
+          ratio="1 / 1"
+          radius={10}
+          src={item.coverUrl ?? ASSETS.mealHero}
+          label="文章配图"
+          className="feed-card__thumb"
+        />
+        <div className="feed-card__body">
+          <span className="tag-pill">{CATEGORY_LABEL[item.category]}</span>
+          <h3>{item.title}</h3>
+          {item.microAction ? (
+            <p className="feed-card__action">
+              <span className="feed-card__action-lead">今天可以做</span>
+              {item.microAction}
+            </p>
+          ) : (
+            <p className="feed-card__summary">{item.summary}</p>
+          )}
+          <div className="feed-card__row">
+            {supportsSpeech && (
+              <button
+                type="button"
+                className="feed-card__audio"
+                aria-label={playing ? `停止朗读：${item.title}` : `听一听：${item.title}`}
+                aria-pressed={playing}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  speak(item);
+                }}
+              >
+                <Icon name={playing ? 'pause' : 'speaker'} size={16} />
+                {playing ? '停止' : '听一听'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="feed-card__more"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenArticle?.(item.id);
+              }}
+            >
+              看全文
+              <Icon name="arrow" size={14} />
+            </button>
+          </div>
+        </div>
+      </article>
+    );
+  };
 
   return (
     <div className="page page-nurture">
-      <header className="nurture-head">
-        <div className="nurture-brand">
-          <Icon name="leaf" size={18} />
-          知伴健康
-        </div>
-        <h1 className="nurture-title">食养</h1>
-        <p className="nurture-sub">在日常生活里，读懂照顾自己的智慧。</p>
+      <TabHeader title="食养" size="brand" subtitle="在日常生活里，读懂照顾自己的智慧。" />
 
-      </header>
-
-      {manifesto && (() => {
-        const quote = manifesto.sections.find((section) => section.kind === 'classic_quote');
-        if (!quote) return null;
-        return (
-          <section className="nurture-creed">
-            <span className="nurture-creed__pill">食养主张</span>
-            <p className="nurture-creed__quote">“{quote.text}”</p>
-            {quote.citation && <p className="nurture-creed__cite">—— {quote.citation}</p>}
-          </section>
-        );
-      })()}
-
-      <nav className="nurture-tabs" aria-label="内容分类">
-        {TABS.map((item) => (
-          <button
-            type="button"
-            key={item.key}
-            className={`nurture-tab ${tab === item.key ? 'active' : ''}`}
-            aria-pressed={tab === item.key}
-            onClick={() => setTab(item.key)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {featured ? (
-        <article
-          className="featured-card"
-          role="button"
-          tabIndex={0}
-          onClick={() => onOpenArticle?.(featured.id)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') onOpenArticle?.(featured.id);
-          }}
-        >
-          <AssetSlot
-            id="P06"
-            ratio="16 / 10"
-            radius={0}
-            src={ASSETS.mealSquare}
-            label="文章封面"
-            className="featured-card__asset"
-          />
-          <div className="featured-card__body">
-            <span className="tag-pill tag-pill--warm">{CATEGORY_LABEL[featured.category]}</span>
-            <h2>{featured.title}</h2>
-            <p className="featured-card__meta">3 分钟阅读 · 专业审核</p>
+      {todayPick ? (
+        <section className="feed-section" aria-label="今日一条">
+          <div className="feed-section__head">
+            <h2>今日一条</h2>
+            <span className="muted">每天看一条就够</span>
           </div>
-        </article>
+          <article className="feed-card feed-card--lead" onClick={() => onOpenArticle?.(todayPick.id)}>
+            <AssetSlot
+              id="P06"
+              ratio="4 / 3"
+              radius={0}
+              src={todayPick.coverUrl ?? ASSETS.mealSquare}
+              label="今日配图"
+              priority
+              className="feed-card__cover"
+            />
+            <div className="feed-card__body">
+              <span className="tag-pill">{CATEGORY_LABEL[todayPick.category]}</span>
+              <h3>{todayPick.title}</h3>
+              <p className="feed-card__summary">{todayPick.summary}</p>
+              {todayPick.microAction ? (
+                <p className="feed-card__action">
+                  <span className="feed-card__action-lead">今天可以做</span>
+                  {todayPick.microAction}
+                </p>
+              ) : null}
+              <div className="feed-card__row">
+                {supportsSpeech && (
+                  <button
+                    type="button"
+                    className="feed-card__audio"
+                    aria-label={
+                      speaking === todayPick.id
+                        ? `停止朗读：${todayPick.title}`
+                        : `听一听：${todayPick.title}`
+                    }
+                    aria-pressed={speaking === todayPick.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      speak(todayPick);
+                    }}
+                  >
+                    <Icon name={speaking === todayPick.id ? 'pause' : 'speaker'} size={16} />
+                    {speaking === todayPick.id ? '停止' : '听一听'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="feed-card__more"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenArticle?.(todayPick.id);
+                  }}
+                >
+                  看全文
+                  <Icon name="arrow" size={14} />
+                </button>
+                <span className="muted feed-card__meta">约 3 分钟</span>
+              </div>
+            </div>
+          </article>
+        </section>
       ) : (
         <section className="card">
-          <p className="muted">这一类还没有已发布的内容，换一个分类看看。</p>
+          <p className="muted">内容正在准备中，稍后再来看看。</p>
         </section>
       )}
 
-      {planRelated && (
-        <button type="button" className="plan-link-card">
-          <Icon name="bowl" size={30} className="plan-link-card__icon" />
-          <span className="plan-link-card__body">
-            <span className="plan-link-card__label">与你的计划有关</span>
-            <span className="plan-link-card__title">{planRelated.title}</span>
-          </span>
-          <Icon name="chevron" size={18} className="plan-link-card__arrow" />
-        </button>
+      {forYou.length > 0 && (
+        <section className="feed-section" aria-label="按你的情况">
+          <div className="feed-section__head">
+            <h2>按你的情况</h2>
+            <span className="muted">看了就能用</span>
+          </div>
+          {forYou.map(card)}
+        </section>
       )}
 
-      <div className="section-head">
-        <h2>慢慢读，慢慢养</h2>
-        <AssetSlot id="I05" ratio="6 / 1" radius={0} label="装饰线" className="section-rule" />
-      </div>
+      <section className="feed-section" aria-label="慢慢读">
+        <div className="feed-section__head">
+          <h2>慢慢读，慢慢养</h2>
+        </div>
+        <div className="feed-browse">
+          <span className="feed-browse__label">随便看看</span>
+          <div className="feed-cats">
+            {TABS.map((item) => (
+              <button
+                type="button"
+                key={item.key}
+                className={`feed-cat ${tab === item.key ? 'active' : ''}`}
+                aria-pressed={tab === item.key}
+                onClick={() => setTab(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {rest.length === 0 ? (
+          <p className="muted article-list__empty">
+            {tab === 'recommend' ? '更多内容整理中。' : '这一类还在整理，先看别的。'}
+          </p>
+        ) : (
+          rest.map(card)
+        )}
+      </section>
 
-      <ul className="article-list">
-        {rest.length === 0 && <li className="muted article-list__empty">更多内容整理中。</li>}
-        {rest.map((item) => (
-          <li
-            className="article-row"
-            key={item.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpenArticle?.(item.id)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') onOpenArticle?.(item.id);
-            }}
-          >
-            <AssetSlot
-              id="P07"
-              ratio="1 / 1"
-              radius={10}
-              src={ASSETS.mealHero}
-              label="文章缩略图"
-              className="article-row__thumb"
-            />
-            <div className="article-row__body">
-              <span className="tag-pill">{CATEGORY_LABEL[item.category]}</span>
-              <p className="article-row__title">{item.title}</p>
-              <p className="article-row__summary">{item.summary}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {manifesto &&
+        (() => {
+          const quote = manifesto.sections.find((section) => section.kind === 'classic_quote');
+          if (!quote) return null;
+          return (
+            <section className="nurture-creed" aria-label="食养主张">
+              <span className="nurture-creed__pill">食养主张</span>
+              <p className="nurture-creed__quote">“{quote.text}”</p>
+              {quote.citation && <p className="nurture-creed__cite">—— {quote.citation}</p>}
+            </section>
+          );
+        })()}
 
-      <p className="nurture-footer">好好吃饭，也是照顾自己的开始。</p>
       <div className="footer-space" />
     </div>
   );

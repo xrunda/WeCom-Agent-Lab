@@ -245,7 +245,14 @@ export interface ProfileStatusView {
   conflicts: Array<{ fieldKey: ProfileFieldKey; detail: string }>;
 }
 
-export function fetchProfile(): Promise<{ items: ProfileEntryView[]; status: ProfileStatusView }> {
+export async function fetchProfile(): Promise<{
+  items: ProfileEntryView[];
+  status: ProfileStatusView;
+}> {
+  if (isDemoMode()) {
+    const { demoProfile } = await import('./mock/demo-api.ts');
+    return demoProfile();
+  }
   return apiRequest<{ items: ProfileEntryView[]; status: ProfileStatusView }>('/profile');
 }
 
@@ -348,7 +355,13 @@ export interface ArticleView {
   title: string;
   summary: string;
   category: 'classics_life' | 'ingredients' | 'seasonal_living';
+  /** 配图地址；为空时用占位图 */
+  coverUrl?: string | null;
   publishedAt: number;
+  /** 今天就能做的一件小事（来自已审核的实践段） */
+  microAction?: string | null;
+  /** 适用场景标签，用于与个人档案匹配 */
+  scenarioTags?: string[];
 }
 
 export interface ArticleSectionView {

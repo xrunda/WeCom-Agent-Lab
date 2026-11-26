@@ -47,7 +47,7 @@ describe('演示模式', () => {
     expect(screen.getByText('饮食有节，贵在日常')).toBeInTheDocument();
   });
 
-  it('食养页显示分类、精选文章与列表，且不出搜索框（增强项）', async () => {
+  it('食养页按陪伴流展示：今日一条 → 按你的情况 → 慢慢读，且不出搜索框（增强项）', async () => {
     render(<App />);
     await waitFor(() => screen.getByRole('navigation', { name: '主导航' }));
     await userEvent.click(
@@ -56,9 +56,16 @@ describe('演示模式', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: '食养' })).toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: '为你推荐' })).toBeInTheDocument();
+    // 首屏只推一条，不铺信息流
+    expect(screen.getByText('今日一条')).toBeInTheDocument();
+    expect(screen.getByText('每天看一条就够')).toBeInTheDocument();
+    // 档案里「改善睡眠」与文章场景标签匹配后才出现，不匹配就不硬推
+    await waitFor(() => expect(screen.getByText('按你的情况')).toBeInTheDocument());
+    expect(screen.getByText('慢慢读，慢慢养')).toBeInTheDocument();
+    // 分类就在被筛选的列表上方
+    expect(screen.getByText('随便看看')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '全部' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '认识食材' })).toBeInTheDocument();
-    expect(screen.getByText('与你的计划有关')).toBeInTheDocument();
     // 搜索是增强项，未实现不得出现
     expect(screen.queryByPlaceholderText(/搜索/)).not.toBeInTheDocument();
   });

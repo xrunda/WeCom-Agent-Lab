@@ -542,7 +542,11 @@
 
 ### 9.2 `GET /zhiban/h5/articles?category=&page=`（公开）
 
-分类浏览（H08）：`classics_life` / `ingredients` / `seasonal_living`。只返回 `published` 且未 `retired`。响应 `200`：`{ items: [{ id, title, summary, category, seasonTerm, publishedAt }], ... }`。
+分类浏览（H08）：`classics_life` / `ingredients` / `seasonal_living`。只返回 `published` 且未 `retired`。响应 `200`：`{ items: [{ id, title, summary, category, seasonTerm, coverUrl, microAction, scenarioTags, publishedAt }], ... }`。
+
+- `microAction`：实践段首句（≤60 字），作为「今天可以做的一件小事」；无实践段为 `null`。
+- `scenarioTags`：场景标签，前端与档案关键词匹配后决定是否放进「按你的情况」；匹配不上就整段不出现。
+- `coverUrl`：列表配图；为 `null` 时前端用占位图。
 
 - 分享预览只有标题/摘要，不含个人信息（A09）。
 

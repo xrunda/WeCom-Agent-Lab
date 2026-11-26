@@ -101,6 +101,9 @@ export function registerPatientH5ContentRoutes(deps: ContentRouteDeps): void {
           authorType: (body.authorType as never) ?? 'editor',
           authorName: String(body.authorName ?? '编辑部'),
           scenarioTags: Array.isArray(body.scenarioTags) ? (body.scenarioTags as string[]) : [],
+          ...(typeof body.coverUrl === 'string' && body.coverUrl.trim()
+            ? { coverUrl: body.coverUrl.trim() }
+            : {}),
           ...(typeof body.seasonTerm === 'string' ? { seasonTerm: body.seasonTerm } : {}),
           ...(body.ingredientSafety ? { ingredientSafety: body.ingredientSafety as never } : {}),
           actorId: actor.account.id,
