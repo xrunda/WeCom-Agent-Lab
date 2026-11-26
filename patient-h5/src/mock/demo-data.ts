@@ -16,8 +16,16 @@ function atToday(hour: number, minute = 0): number {
   return date.getTime();
 }
 
-function localDate(offsetDays = 0): string {
+export function localDate(offsetDays = 0): string {
   const date = new Date(Date.now() + offsetDays * DAY);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
+}
+
+/** 按时间戳取本地日期（避免用 toISOString 拿到 UTC 日期） */
+export function localDateOf(at: number): string {
+  const date = new Date(at);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
     date.getDate(),
   ).padStart(2, '0')}`;

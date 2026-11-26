@@ -10,6 +10,7 @@ import { ASSETS } from '../assets.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { RecordSheet } from '../components/RecordSheet.tsx';
+import { Sheet } from '../components/Sheet.tsx';
 
 const WEEK_LABEL = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -251,13 +252,7 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
       )}
 
       {detail && (
-        <div className="sheet-mask" onClick={() => setDetail(null)} role="presentation">
-          <div
-            className="sheet"
-            role="dialog"
-            aria-label="事项详情"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <Sheet open onClose={() => setDetail(null)} label="事项详情">
             <h2>{detail.title}</h2>
             <p className="muted">{detail.purpose}</p>
             {detail.method && <p className="sheet__method">{detail.method}</p>}
@@ -304,8 +299,7 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
             <button type="button" className="btn btn-ghost" onClick={() => setDetail(null)}>
               关闭
             </button>
-          </div>
-        </div>
+        </Sheet>
       )}
 
       {recordItem && (

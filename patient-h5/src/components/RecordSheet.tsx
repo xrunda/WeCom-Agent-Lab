@@ -6,6 +6,8 @@
  */
 import { useRef, useState } from 'react';
 
+import { Sheet } from './Sheet.tsx';
+
 import {
   confirmRecordFoods,
   createEveningReview,
@@ -132,8 +134,7 @@ export function RecordSheet({ mode, defaultMealType, linkedCalendarItemId, onClo
   };
 
   return (
-    <div className="sheet-mask" role="presentation" onClick={onClose}>
-      <div className="sheet" role="dialog" aria-label={mode === 'meal' ? '记录这一餐' : '晚间回顾'} onClick={(event) => event.stopPropagation()}>
+    <Sheet open onClose={onClose} label={mode === 'meal' ? '记录这一餐' : '晚间回顾'}>
         <h2>{mode === 'meal' ? '记录这一餐' : '晚间回顾'}</h2>
 
         {error && (
@@ -250,7 +251,6 @@ export function RecordSheet({ mode, defaultMealType, linkedCalendarItemId, onClo
             关闭
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

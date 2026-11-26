@@ -18,6 +18,8 @@ import {
   DEMO_DAILY_TIP,
   DEMO_PLAN,
   demoCalendarItems,
+  localDate,
+  localDateOf,
   weekDates,
 } from './demo-data.ts';
 
@@ -78,7 +80,7 @@ export function demoToday(): Promise<TodayView> {
   const pending = items.filter((item) => item.status === 'pending').length;
   const next = items.find((item) => item.status === 'pending') ?? null;
   return Promise.resolve({
-    date: new Date().toISOString().slice(0, 10),
+    date: localDate(),
     greeting: greeting(),
     nextItem: next,
     items,
@@ -117,7 +119,7 @@ export function demoCalendar(): Promise<CalendarView> {
   const days = weekDates().map((date) => ({
     date,
     // 只有今天有完整事项；其余日期给空数组，页面按「暂无安排」渲染
-    items: date === new Date().toISOString().slice(0, 10) ? items : [],
+    items: date === localDate() ? items : [],
   }));
   return Promise.resolve({
     days,
@@ -144,7 +146,7 @@ export async function demoCreateRecord(input: {
     id: `rec_demo_${demoRecordSeq}`,
     kind: input.kind,
     occurredAt: input.occurredAt,
-    occurredDate: new Date(input.occurredAt).toISOString().slice(0, 10),
+    occurredDate: localDateOf(input.occurredAt),
     submittedAt: Date.now(),
     content: (input.kind === 'meal' ? input.meal : input.review) ?? {},
     recognition: input.kind === 'meal' ? { status: 'skipped', candidates: [] } : undefined,
@@ -184,20 +186,20 @@ export function demoStats(): import('../api.ts').ProfileCenterStats {
 }
 
 export function demoHistory(date?: string): import('../api.ts').RecordHistoryItem[] {
-  if (date && date !== new Date().toISOString().slice(0, 10)) return [];
+  if (date && date !== localDate()) return [];
   return [
     {
       id: 'rec_h1',
       kind: 'meal',
       occurredAt: Date.now() - 3 * 60 * 60 * 1000,
-      occurredDate: new Date().toISOString().slice(0, 10),
+      occurredDate: localDate(),
       content: { mealType: 'breakfast', confirmedFoods: [{ name: '小米粥' }, { name: '鸡蛋' }] },
     },
     {
       id: 'rec_h2',
       kind: 'evening_review',
       occurredAt: Date.now() - 14 * 60 * 60 * 1000,
-      occurredDate: new Date().toISOString().slice(0, 10),
+      occurredDate: localDate(),
       content: { sleep: 'light', notes: '睡得还行' },
     },
   ];
