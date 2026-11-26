@@ -189,10 +189,20 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
         </button>
       </div>
 
-      <section className="term-next" aria-label="节气">
-        <span className="term-next__label">距{nextTerm.name}</span>
-        <span className="term-next__days">
-          {nextTerm.days === 0 ? '今天' : `${nextTerm.days} 天`}
+      <section className="term-next" aria-label="下一个节气">
+        <span className="term-next__bar" aria-hidden="true" />
+        <span className="term-next__name">{nextTerm.name}</span>
+        <span className="term-next__rule" aria-hidden="true" />
+        <span className="term-next__count">
+          {nextTerm.days === 0 ? (
+            <span className="term-next__today">就在今天</span>
+          ) : (
+            <>
+              <span className="term-next__lead">还有</span>
+              <span className="term-next__num">{nextTerm.days}</span>
+              <span className="term-next__unit">天</span>
+            </>
+          )}
         </span>
         <span className="term-next__date">{nextTerm.date.slice(5).replace('-', '月')}日</span>
       </section>

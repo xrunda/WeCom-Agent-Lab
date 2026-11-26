@@ -2314,34 +2314,84 @@ dialog:modal {
 }
 
 /* 节气倒计时 */
+/* 节气签：节气名做主角（衬线大字），天数用大字数字，日期退到右边。
+   不做动画、不放大图：老人扫一眼要能立刻读出「还差几天」。 */
 .term-next {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(100deg, #fbf3e9 0%, #f8ece1 100%);
+  border-radius: 14px;
+  padding: 12px 16px 12px 0;
+  margin: 0 2px 14px;
+  overflow: hidden;
+}
+
+.term-next__bar {
+  flex: 0 0 4px;
+  align-self: stretch;
+  margin-right: 4px;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+  opacity: 0.9;
+}
+
+.term-next__name {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
+.term-next__rule {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 2px 2px 0;
+  background: rgba(180, 99, 58, 0.28);
+}
+
+.term-next__count {
+  display: flex;
   align-items: baseline;
-  gap: 8px;
-  background: #faf0e7;
-  border-radius: 12px;
-  padding: 10px 14px;
-  margin: 0 2px 12px;
-  font-size: 15px;
-  color: var(--ink);
+  gap: 4px;
 }
 
-.term-next__label {
-  font-family: var(--serif);
-  font-weight: 700;
+.term-next__lead {
+  font-size: 13px;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
 }
 
-.term-next__days {
+.term-next__num {
   font-family: var(--serif);
+  font-size: 36px;
   font-weight: 700;
-  font-size: 20px;
+  line-height: 1;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.term-next__unit {
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.term-next__today {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.06em;
 }
 
 .term-next__date {
   margin-left: auto;
   font-size: 13px;
   color: var(--ink-soft);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 /* 周条：增加农历/节气小字 */
