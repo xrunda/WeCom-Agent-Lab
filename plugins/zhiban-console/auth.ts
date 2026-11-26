@@ -45,6 +45,38 @@ export interface ConsoleAuthOptions {
   emit?: (type: string, data: unknown) => void;
 }
 
+/**
+ * 患者端 H5 的职能能力（契约 PATIENT-H5-data-model §6.3）。
+ *
+ * 与角色权限矩阵分开：admin 也不自动拥有——专业审核是业务职责，
+ * 不是管理权限。必须由管理员在账号上逐项显式授予。
+ */
+export const H5_CAPABILITIES = [
+  'h5.plan.review',
+  'h5.content.edit',
+  'h5.content.review',
+] as const;
+
+export type H5Capability = (typeof H5_CAPABILITIES)[number];
+
+/** 校验并归一 h5Permissions：只接受已知能力，去重排序；空数组表示全部收回 */
+export function parseH5Permissions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    throw new ConsoleError('VALIDATION_FAILED', 'h5Permissions 必须是数组', [
+      { field: 'h5Permissions', issue: 'expected array' },
+    ]);
+  }
+  const unknown = raw.filter(
+    (item) => typeof item !== 'string' || !H5_CAPABILITIES.includes(item as H5Capability),
+  );
+  if (unknown.length > 0) {
+    throw new ConsoleError('VALIDATION_FAILED', `不支持的能力：${unknown.join('、')}`, [
+      { field: 'h5Permissions', issue: 'unknown capability' },
+    ]);
+  }
+  return [...new Set(raw as string[])].sort();
+}
+
 export function publicAccount(account: AccountRecord): PublicAccount {
   const { passwordHash: _hash, ...rest } = account;
   return rest;
@@ -512,6 +544,8 @@ export class ConsoleAuthService {
     }
     const wecomUserId = parseWecomUserId(input.wecomUserId);
     if (wecomUserId) this.assertWecomUserIdFree(wecomUserId, null);
+    const initialH5 =
+      input.h5Permissions === undefined ? undefined : parseH5Permissions(input.h5Permissions);
     this.assertUsernameFree(username);
 
     const now = this.now();
@@ -524,6 +558,7 @@ export class ConsoleAuthService {
       status: 'active',
       passwordHash: await hashPassword(input.password as string),
       ...(wecomUserId ? { wecomUserId } : {}),
+      ...(initialH5 && initialH5.length > 0 ? { h5Permissions: initialH5 } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -531,6 +566,7 @@ export class ConsoleAuthService {
     this.auditAccount(actor, 'account.create', account.id, {
       role,
       ...(wecomUserId ? { wecomUserId: true } : {}),
+      ...(initialH5 ? { h5Permissions: initialH5 } : {}),
     });
     return publicAccount(account);
   }
@@ -572,6 +608,11 @@ export class ConsoleAuthService {
     if (isSelf && (patch.status === 'disabled' || (patch.role && patch.role !== account.role))) {
       throw new ConsoleError('CONFLICT', '不能停用或降级自己');
     }
+    // 患者端 H5 能力：传数组即「设为这些」，空数组表示全部收回；不传不改
+    let h5Permissions: string[] | undefined;
+    if (input.h5Permissions !== undefined) {
+      h5Permissions = parseH5Permissions(input.h5Permissions);
+    }
     // wecomUserId 传 null / 空串表示解绑；不传表示不改
     let wecomBinding: { set: string } | { clear: true } | undefined;
     if (input.wecomUserId !== undefined) {
@@ -590,12 +631,21 @@ export class ConsoleAuthService {
       if ('clear' in wecomBinding) delete updated.wecomUserId;
       else updated.wecomUserId = wecomBinding.set;
     }
+    if (h5Permissions !== undefined) {
+      if (h5Permissions.length === 0) delete updated.h5Permissions;
+      else updated.h5Permissions = h5Permissions;
+    }
     this.store.saveAccount(updated);
     if (!isSelf && (patch.status === 'disabled' || patch.role !== undefined)) {
       this.revokeSessions(account.id);
     }
     this.auditAccount(actor, 'account.update', account.id, {
-      fields: [...Object.keys(patch), ...(wecomBinding ? ['wecomUserId'] : [])],
+      fields: [
+        ...Object.keys(patch),
+        ...(wecomBinding ? ['wecomUserId'] : []),
+        ...(h5Permissions !== undefined ? ['h5Permissions'] : []),
+      ],
+      ...(h5Permissions !== undefined ? { h5Permissions } : {}),
     });
     return publicAccount(updated);
   }

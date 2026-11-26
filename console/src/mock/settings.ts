@@ -175,7 +175,16 @@ export interface AccountInput {
   password: string;
   /** 企微成员 userid；不填表示只能用密码登录 */
   wecomUserId?: string;
+  /** 患者端 H5 职能能力；缺省为不授予 */
+  h5Permissions?: string[];
 }
+
+/** 与后端 plugins/zhiban-console/auth.ts 的 H5_CAPABILITIES 保持一致 */
+export const H5_CAPABILITIES = [
+  'h5.plan.review',
+  'h5.content.edit',
+  'h5.content.review',
+] as const;
 
 export interface AccountPatch {
   displayName?: string;
@@ -183,6 +192,8 @@ export interface AccountPatch {
   status?: Account['status'];
   /** 传 null 表示解绑 */
   wecomUserId?: string | null;
+  /** 传空数组表示全部收回；不传表示不改 */
+  h5Permissions?: string[];
 }
 
 /** 与后端保持一致：1–64 位字母、数字与 `._@-` */
@@ -276,13 +287,25 @@ export async function updateAccount(id: string, patch: AccountPatch): Promise<Ac
   if (patch.displayName !== undefined && !patch.displayName.trim()) {
     throw new ApiError('VALIDATION_FAILED', '请填写显示名', 422);
   }
-  const { wecomUserId: bound, ...rest } = patch;
+  if (patch.h5Permissions !== undefined) {
+    const invalid = patch.h5Permissions.filter(
+      (item) => !H5_CAPABILITIES.includes(item as (typeof H5_CAPABILITIES)[number]),
+    );
+    if (invalid.length > 0) {
+      throw new ApiError('VALIDATION_FAILED', `不支持的能力：${invalid.join('、')}`, 422);
+    }
+  }
+  const { wecomUserId: bound, h5Permissions: nextH5, ...rest } = patch;
   const next: Account = {
     ...items[index],
     ...rest,
     displayName: patch.displayName?.trim() ?? items[index].displayName,
     updatedAt: Date.now(),
   };
+  if (nextH5 !== undefined) {
+    if (nextH5.length === 0) delete next.h5Permissions;
+    else next.h5Permissions = [...new Set(nextH5)].sort();
+  }
   if (bound !== undefined) {
     const value = bound === null ? '' : bound.trim();
     if (value === '') {

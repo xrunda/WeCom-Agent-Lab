@@ -92,7 +92,7 @@ export function H5PlanTab({ patientId, canReview }: Props) {
           type="warning"
           showIcon
           message="当前账号没有「方案审核」能力，只能查看"
-          description="发布、退回、暂停需要管理员在账号上单独开通 h5.plan.review——管理员身份本身不等于专业审核资质。"
+          description="发布、退回、暂停需要管理员在「设置 → 账号 → H5 能力」里单独开通 h5.plan.review——管理员身份本身不等于专业审核资质。"
         />
       )}
 

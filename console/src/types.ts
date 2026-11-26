@@ -54,6 +54,11 @@ export interface Account {
   status: 'active' | 'disabled';
   /** 绑定的企微成员 userid；有值才能扫码登录（#181） */
   wecomUserId?: string;
+  /**
+   * 患者端 H5 的职能能力（h5.plan.review / h5.content.edit / h5.content.review）。
+   * 与角色权限矩阵分开：管理员也不自动拥有，必须逐项授予。
+   */
+  h5Permissions?: string[];
   lastLoginAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -61,7 +66,7 @@ export interface Account {
 }
 
 export interface Session {
-  account: Pick<Account, 'id' | 'displayName' | 'role'>;
+  account: Pick<Account, 'id' | 'displayName' | 'role' | 'h5Permissions'>;
   tenant: Tenant;
   permissions: string[];
   serverTime: number;
