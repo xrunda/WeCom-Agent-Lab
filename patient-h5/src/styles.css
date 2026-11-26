@@ -2725,3 +2725,22 @@ dialog:modal {
 .page-nurture .nurture-creed {
   margin-top: 4px;
 }
+
+/* 登录卡页脚：一句提示 + 邀请码入口同一行，避免两条都像可点 */
+.login-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.login-foot .muted {
+  font-size: 13px;
+}
+
+.login-foot .link-btn {
+  min-height: 44px;
+  font-size: 14px;
+}
