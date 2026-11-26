@@ -7,6 +7,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlanPage } from '../src/pages/PlanPage.tsx';
 
 const fetchMock = vi.fn();
+
+/** 计划页会同时取 /plan/current 与 /manifesto：按路径返回 */
+function mockByPath(routes: { plan: () => Response; manifesto?: () => Response }) {
+  fetchMock.mockImplementation((input: RequestInfo | URL) =>
+    Promise.resolve(
+      String(input).endsWith('/manifesto')
+        ? (routes.manifesto ?? (() => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'x' } })))()
+        : routes.plan(),
+    ),
+  );
+}
 vi.stubGlobal('fetch', fetchMock);
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -47,7 +58,21 @@ const plan = {
 
 describe('PlanPage（H04）', () => {
   it('展示审核人、版本与阶段重点，不出现固定 28 天', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { plan }));
+    mockByPath({
+      plan: () => jsonResponse(200, { plan }),
+      manifesto: () =>
+        jsonResponse(200, {
+          version: 1,
+          slogans: [],
+          sections: [
+            {
+              kind: 'classic_quote',
+              text: '五谷为养，五果为助，五畜为益，五菜为充',
+              citation: '《黄帝内经·素问·脏气法时论》',
+            },
+          ],
+        }),
+    });
     render(<PlanPage onBack={vi.fn()} onAdjust={vi.fn()} onOpenCalendar={vi.fn()} onUnauthorized={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByText('专业团队已审核')).toBeInTheDocument();
@@ -59,9 +84,9 @@ describe('PlanPage（H04）', () => {
   });
 
   it('没有已发布方案时显示错误提示而不是空白页', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(404, { error: { code: 'NOT_FOUND', message: '暂无已发布方案' } }),
-    );
+    mockByPath({
+      plan: () => jsonResponse(404, { error: { code: 'NOT_FOUND', message: '暂无已发布方案' } }),
+    });
     render(<PlanPage onBack={vi.fn()} onAdjust={vi.fn()} onOpenCalendar={vi.fn()} onUnauthorized={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('暂无已发布方案');

@@ -211,7 +211,11 @@ export interface Manifesto {
   sections: ManifestoSection[];
 }
 
-export function fetchManifesto(): Promise<Manifesto> {
+export async function fetchManifesto(): Promise<Manifesto> {
+  if (isDemoMode()) {
+    const { demoManifesto } = await import('./mock/demo-api.ts');
+    return demoManifesto();
+  }
   return apiRequest<Manifesto>('/manifesto');
 }
 

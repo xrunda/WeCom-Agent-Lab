@@ -7,8 +7,14 @@
  */
 import { useEffect, useState } from 'react';
 
-import { acknowledgePlan, ApiError, fetchCurrentPlan, submitPlanAdjust } from '../api.ts';
-import type { PlanView } from '../api.ts';
+import {
+  acknowledgePlan,
+  ApiError,
+  fetchCurrentPlan,
+  fetchManifesto,
+  submitPlanAdjust,
+} from '../api.ts';
+import type { ManifestoSection, PlanView } from '../api.ts';
 import { ASSETS } from '../assets.ts';
 import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
@@ -39,8 +45,15 @@ export function PlanPage({ onBack, onOpenCalendar, onUnauthorized }: Props) {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustText, setAdjustText] = useState('');
   const [adjustSent, setAdjustSent] = useState(false);
+  const [quote, setQuote] = useState<ManifestoSection | null>(null);
 
   useEffect(() => {
+    // 食养思路引用的经典原文来自已审核的主张文案，前端不写死引文
+    fetchManifesto()
+      .then((manifesto) => {
+        setQuote(manifesto.sections.find((section) => section.kind === 'classic_quote') ?? null);
+      })
+      .catch(() => undefined);
     fetchCurrentPlan()
       .then((value) => {
         setPlan(value);
@@ -131,8 +144,14 @@ export function PlanPage({ onBack, onOpenCalendar, onUnauthorized }: Props) {
               <span className="accent-bar" aria-hidden="true" />
               食养思路
             </h2>
-            <blockquote className="plan-quote">“{plan.foodTherapyRationale}”</blockquote>
-            <p className="plan-reason__text">{plan.rationale.basedOn.join('；')}</p>
+            {quote && (
+              <>
+                <blockquote className="plan-quote">“{quote.text}”</blockquote>
+                {quote.citation && <p className="plan-quote__cite">—— {quote.citation}</p>}
+              </>
+            )}
+            <p className="plan-reason__text">{plan.foodTherapyRationale}</p>
+            <p className="plan-reason__basis">依据：{plan.rationale.basedOn.join('；')}</p>
             <button
               type="button"
               className="plan-reason__btn"
@@ -154,7 +173,7 @@ export function PlanPage({ onBack, onOpenCalendar, onUnauthorized }: Props) {
             <div className="section-head">
               <h2>
                 <span className="accent-bar" aria-hidden="true" />
-                本周，先做好 {plan.actions.length} 件事
+                本周，先做好 {plan.actions.length} 件食养小事
               </h2>
             </div>
             <ol className="plan-actions">

@@ -250,6 +250,26 @@ export function demoArticleDetail(id: string): import('../api.ts').ArticleDetail
   };
 }
 
+/** 与后端 DEFAULT_MANIFESTO 保持一致，逐字核对过的经典引用 */
+export function demoManifesto(): import('../api.ts').Manifesto {
+  return {
+    version: 1,
+    slogans: ['饮食有养', '起居有常', '健康有伴'],
+    sections: [
+      {
+        kind: 'classic_quote',
+        text: '五谷为养，五果为助，五畜为益，五菜为充',
+        citation: '《黄帝内经·素问·脏气法时论》',
+      },
+      {
+        kind: 'plain_explanation',
+        text: '主食养身、果菜相助：一日三餐里，把种类吃全、份量适当，就是日常的食养。',
+      },
+      { kind: 'brand_copy', text: '食养融入日常，健康关怀更早一点。' },
+    ],
+  };
+}
+
 export function demoPlan(): Promise<PlanView> {
   return Promise.resolve({
     id: DEMO_PLAN.id,

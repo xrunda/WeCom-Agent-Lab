@@ -49,16 +49,18 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('recommend');
   const [error, setError] = useState<string | null>(null);
 
+  // 主张文案两种模式都要：阅读页顶部展示已审核的经典原文
   useEffect(() => {
-    if (intro) {
-      fetchManifesto()
-        .then(setManifesto)
-        .catch((err: unknown) => {
-          if (err instanceof ApiError && err.status === 401 && onUnauthorized) onUnauthorized();
-          else setError(err instanceof Error ? err.message : '加载失败');
-        });
-      return;
-    }
+    fetchManifesto()
+      .then(setManifesto)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401 && onUnauthorized) onUnauthorized();
+        else if (intro) setError(err instanceof Error ? err.message : '加载失败');
+      });
+  }, [intro, onUnauthorized]);
+
+  useEffect(() => {
+    if (intro) return;
     fetchArticles()
       .then((result) => setArticles(result.items))
       .catch((err: unknown) => {
@@ -135,6 +137,18 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
         <p className="nurture-sub">在日常生活里，读懂照顾自己的智慧。</p>
 
       </header>
+
+      {manifesto && (() => {
+        const quote = manifesto.sections.find((section) => section.kind === 'classic_quote');
+        if (!quote) return null;
+        return (
+          <section className="nurture-creed">
+            <span className="nurture-creed__pill">食养主张</span>
+            <p className="nurture-creed__quote">“{quote.text}”</p>
+            {quote.citation && <p className="nurture-creed__cite">—— {quote.citation}</p>}
+          </section>
+        );
+      })()}
 
       <nav className="nurture-tabs" aria-label="内容分类">
         {TABS.map((item) => (

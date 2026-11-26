@@ -163,7 +163,7 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
       {total > 0 && (
         <div className="progress-pill">
           <span>
-            今日安排 {done} / {total} 已完成
+            今日食养 {done} / {total} 已完成
           </span>
           <span className="progress-pill__bar" aria-hidden="true">
             <span style={{ width: `${Math.round((done / total) * 100)}%` }} />

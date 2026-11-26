@@ -26,7 +26,7 @@ describe('演示模式', () => {
   it('直接进入主应用，显示演示数据横幅与今天页内容', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText('演示数据 · 非真实患者信息')).toBeInTheDocument();
+      expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     });
     await waitFor(() => {
       expect(screen.getByText(/陪伴你的第/)).toBeInTheDocument();
@@ -43,7 +43,7 @@ describe('演示模式', () => {
     await waitFor(() => {
       expect(screen.getByText('我的健康日历')).toBeInTheDocument();
     });
-    await waitFor(() => expect(screen.getByText(/今日安排 1 \/ 4 已完成/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/今日食养 1 \/ 4 已完成/)).toBeInTheDocument());
     expect(screen.getByText('饮食有节，贵在日常')).toBeInTheDocument();
   });
 

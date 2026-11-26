@@ -119,7 +119,7 @@ export function MePage({
           <span className="me-plan-card__pill">
             {me?.plan?.endDate ? `食养陪伴中 · ${statusText}` : statusText}
           </span>
-          <p className="me-plan-card__stage">{planSummary?.stage ?? '计划发布后显示本阶段重点'}</p>
+          <p className="me-plan-card__stage">{planSummary?.stage ?? '计划发布后显示本阶段食养重点'}</p>
         </div>
 
         <button
