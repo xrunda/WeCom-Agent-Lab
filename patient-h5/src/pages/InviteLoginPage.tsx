@@ -27,6 +27,8 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [manualInviteCode, setManualInviteCode] = useState('');
+  /** 邀请码默认收起：老用户只看到手机号+验证码两个框，少一层心理负担 */
+  const [showInviteField, setShowInviteField] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
@@ -116,11 +118,6 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
 
       <div className="card">
         <h1>{effectiveInviteCode ? '开通个人服务' : '登录'}</h1>
-        <p className="muted">
-          {effectiveInviteCode
-            ? '输入顾问为你预留的手机号，验证后开通。'
-            : '输入绑定的手机号验证后继续。'}
-        </p>
 
         {error && (
           <div className="notice notice-error" role="alert">
@@ -139,14 +136,14 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
             void submit();
           }}
         >
-          {!inviteCode && (
+          {!inviteCode && showInviteField && (
             <div className="field">
-              <label htmlFor="invite-code">邀请码（首次开通需要）</label>
+              <label htmlFor="invite-code">邀请码</label>
               <input
                 id="invite-code"
                 value={manualInviteCode}
                 onChange={(event) => setManualInviteCode(event.target.value.trim())}
-                placeholder="可留空（已绑定手机号直接登录）"
+                placeholder="顾问发你的邀请码"
                 autoComplete="off"
                 enterKeyHint="next"
               />
@@ -203,9 +200,19 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
           </button>
         </form>
 
-        <p className="retry-hint">
-          邀请已过期或收不到验证码？请联系你的顾问重新办理。
-        </p>
+        <div className="login-foot">
+          <span className="muted">收不到验证码？联系顾问</span>
+          {!inviteCode && (
+            <button
+              type="button"
+              className="link-btn"
+              aria-expanded={showInviteField}
+              onClick={() => setShowInviteField((value) => !value)}
+            >
+              {showInviteField ? '不用邀请码' : '用邀请码开通'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
