@@ -1753,11 +1753,12 @@ body {
 
 /* 今日食养提示卡 */
 .tip-card {
-  position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background: #faf6ec;
   border-radius: var(--radius-lg);
-  padding: 18px 16px;
+  padding: 16px;
   overflow: hidden;
 }
 
@@ -1772,35 +1773,35 @@ body {
 }
 
 .tip-card h2 {
-  margin: 0 0 8px;
-  font-size: 28px;
+  margin: 0 0 6px;
+  font-size: 21px;
   font-family: var(--serif);
   font-weight: 700;
-  line-height: 1.3;
-  max-width: 70%;
+  line-height: 1.35;
 }
 
 .tip-card__text {
-  margin: 0 0 10px;
-  font-size: 16px;
+  margin: 0 0 8px;
+  font-size: 14px;
   color: var(--ink);
-  max-width: 70%;
 }
 
 .tip-card__link {
-  font-size: 16px;
+  font-size: 14px;
   text-decoration: underline;
   text-underline-offset: 4px;
   padding-left: 0;
 }
 
+.tip-card__body {
+  flex: 1;
+  min-width: 0;
+}
+
 .tip-card__asset {
-  position: absolute;
-  right: -14px;
-  bottom: -6px;
-  width: 42%;
-  opacity: 0.9;
-  pointer-events: none;
+  width: 30%;
+  flex-shrink: 0;
+  border-radius: 12px;
 }
 
 .team-line {
