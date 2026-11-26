@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 
+import { PageBack } from '../components/PageBack.tsx';
 import { ApiError, decideConsent, fetchConsents } from '../api.ts';
 import type { ConsentItem } from '../api.ts';
 
@@ -58,6 +59,7 @@ export function ConsentsPage({ onUnauthorized, onDone }: Props) {
 
   return (
     <div className="page">
+      {onDone && <PageBack onClick={onDone} />}
       <div className="card">
         <h1>服务与隐私授权</h1>
         <p className="muted">

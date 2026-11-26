@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 
+import { PageBack } from '../components/PageBack.tsx';
 import { ApiError, createPrivacyRequest, fetchPrivacySummary } from '../api.ts';
 import type { PrivacySummary } from '../api.ts';
 
@@ -84,6 +85,7 @@ export function PrivacyPage({ onUnauthorized, onDone }: Props) {
 
   return (
     <div className="page">
+      {onDone && <PageBack onClick={onDone} />}
       <div className="card">
         <h1>隐私与授权</h1>
         <div className="status-line">
@@ -172,13 +174,6 @@ export function PrivacyPage({ onUnauthorized, onDone }: Props) {
         )}
       </div>
 
-      {onDone && (
-        <div className="card">
-          <button type="button" className="btn btn-secondary" onClick={onDone}>
-            返回
-          </button>
-        </div>
-      )}
     </div>
   );
 }

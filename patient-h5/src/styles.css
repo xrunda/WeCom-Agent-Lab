@@ -2403,3 +2403,14 @@ dialog:modal {
   text-align: center;
   margin: 14px 0;
 }
+
+/* 页面左上角返回：所有非 tab 页面统一入口 */
+.page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 2px 6px;
+  font-size: 16px;
+  min-height: 44px;
+  padding: 0 4px;
+}

@@ -14,7 +14,8 @@
     "dev:api": "node dev-server.ts",
     "dev:demo": "VITE_API_MODE=demo vite --host 127.0.0.1",
     "dev:demo:api": "node dev-server.ts",
-    "shots": "node scripts/screenshots.mjs"
+    "shots": "node scripts/screenshots.mjs",
+    "check:back": "node scripts/check-back.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
