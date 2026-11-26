@@ -3,7 +3,7 @@
  * 大标题 → 月份 → 周条 → 问候（竖线强调）→ 进度条 →
  * 带圆形图标的时间轴（右侧为缩略图 / 记录按钮 / 箭头）→ 今日食养提示 → 联系团队。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, fetchCalendar, fetchMe, submitItemFeedback, type CalendarItemView, type CalendarView } from '../api.ts';
 import { ASSETS } from '../assets.ts';
@@ -13,6 +13,10 @@ import { RecordSheet } from '../components/RecordSheet.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { TabHeader } from '../components/TabHeader.tsx';
 import { almanacLine, almanacOf } from '../utils/almanac.ts';
+import { lunarDayOf } from '../utils/lunar.ts';
+import { nextSolarTerm, solarTermOn } from '../utils/solar-terms.ts';
+import { addMemo, loadMemos, MEMO_LABELS, memosPersistent, memosOn, removeMemo } from '../utils/memos.ts';
+import type { Memo, MemoType } from '../utils/memos.ts';
 
 const WEEK_LABEL = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -67,6 +71,12 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [patientName, setPatientName] = useState<string | null>(null);
+  /** week：一周条；month：整月展开 */
+  const [expanded, setExpanded] = useState(false);
+  const [memos, setMemos] = useState<Memo[]>(() => loadMemos());
+  const [memoDate, setMemoDate] = useState<string | null>(null);
+  const [memoType, setMemoType] = useState<MemoType>('birthday');
+  const [memoTitle, setMemoTitle] = useState('');
 
   const load = (): void => {
     fetchCalendar()
@@ -96,7 +106,39 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
 
   const done = items.filter((item) => item.status === 'done').length;
   const total = items.filter((item) => item.status !== 'cancelled').length;
-  const monthLabel = `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`;
+  const monthLabel = `${Number(selected.slice(0, 4))}年${Number(selected.slice(5, 7))}月`;
+  const nextTerm = useMemo(() => nextSolarTerm(today), [today]);
+
+  /** 切换月份：保留「日」，超出该月天数时取月末 */
+  const shiftMonth = (delta: number): void => {
+    const [yearText, monthText, dayText] = selected.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText) - 1 + delta;
+    const target = new Date(year, month, 1);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    const day = Math.min(Number(dayText), lastDay);
+    setSelected(
+      `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    );
+  };
+
+  /** 月网格：周一起，固定 6 行，含上下月补位 */
+  const monthCells = useMemo(() => {
+    const year = Number(selected.slice(0, 4));
+    const month = Number(selected.slice(5, 7)) - 1;
+    const first = new Date(year, month, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const start = new Date(year, month, 1 - offset);
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+        date.getDate(),
+      ).padStart(2, '0')}`;
+      return { date: key, inMonth: date.getMonth() === month, day: date.getDate() };
+    });
+  }, [selected]);
+
+  const dayMemos = memosOn(memos, selected);
 
   const send = async (
     item: CalendarItemView,
@@ -118,11 +160,42 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
   return (
     <div className="page page-calendar">
       <TabHeader eyebrow={almanacLine(almanacOf())} title="我的健康日历" />
+
       <div className="cal-month">
-        <span className="cal-month__nav" aria-hidden="true">‹</span>
+        <button
+          type="button"
+          className="cal-month__nav"
+          aria-label="上个月"
+          onClick={() => shiftMonth(-1)}
+        >
+          ‹
+        </button>
         {monthLabel}
-        <span className="cal-month__nav" aria-hidden="true">›</span>
+        <button
+          type="button"
+          className="cal-month__nav"
+          aria-label="下个月"
+          onClick={() => shiftMonth(1)}
+        >
+          ›
+        </button>
+        <button
+          type="button"
+          className="cal-month__toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? '收起' : '展开月历'}
+        </button>
       </div>
+
+      <section className="term-next" aria-label="节气">
+        <span className="term-next__label">距{nextTerm.name}</span>
+        <span className="term-next__days">
+          {nextTerm.days === 0 ? '今天' : `${nextTerm.days} 天`}
+        </span>
+        <span className="term-next__date">{nextTerm.date.slice(5).replace('-', '月')}日</span>
+      </section>
 
       {error && (
         <div className="notice notice-error" role="alert">
@@ -130,32 +203,62 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
         </div>
       )}
 
-      <div className="week-strip" role="row" aria-label="本周">
-        {days.map((day) => {
-          const date = new Date(`${day.date}T00:00:00`);
-          const isToday = day.date === today;
-          const isSelected = day.date === selected;
-          return (
-            <button
-              type="button"
-              key={day.date}
-              className={`week-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
-              aria-current={isToday ? 'date' : undefined}
-              aria-pressed={isSelected}
-              onClick={() => setSelected(day.date)}
-            >
-              <span className="wd-label">{WEEK_LABEL[(date.getDay() + 6) % 7]}</span>
-              <span className="wd-date">{date.getDate()}</span>
-            </button>
-          );
-        })}
-      </div>
+      {expanded ? (
+        <div className="month-grid" role="grid" aria-label="本月日历">
+          {WEEK_LABEL.map((label) => (
+            <span className="month-grid__weekday" key={label} role="columnheader">
+              {label}
+            </span>
+          ))}
+          {monthCells.map((cell) => (
+            <DayCell
+              key={cell.date}
+              cell={cell}
+              today={today}
+              selected={selected}
+              memos={memos}
+              onSelect={() => setSelected(cell.date)}
+              onLongPress={() => {
+                setMemoDate(cell.date);
+                setSelected(cell.date);
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="week-strip" role="row" aria-label="本周">
+          {days.map((day) => {
+            const date = new Date(`${day.date}T00:00:00`);
+            return (
+              <button
+                type="button"
+                key={day.date}
+                className={`week-day ${day.date === today ? 'today' : ''} ${day.date === selected ? 'selected' : ''}`}
+                aria-current={day.date === today ? 'date' : undefined}
+                aria-pressed={day.date === selected}
+                onClick={() => setSelected(day.date)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMemoDate(day.date);
+                  setSelected(day.date);
+                }}
+              >
+                <span className="wd-label">{WEEK_LABEL[(date.getDay() + 6) % 7]}</span>
+                <span className="wd-date">{date.getDate()}</span>
+                <span className="wd-lunar">{cellLabel(day.date)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <section className="cal-greeting">
         <h2>
           <span className="accent-bar" aria-hidden="true" />
           {patientName ? `${patientName}，` : ''}
-          {selected === today ? greetingOf() : `${selected.slice(5).replace('-', '月')}日`}
+          {selected === today
+            ? greetingOf()
+            : `${Number(selected.slice(5, 7))}月${Number(selected.slice(8, 10))}日`}
         </h2>
         <p className="muted">今天，从一顿从容的早餐开始。</p>
       </section>
@@ -169,6 +272,48 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
             <span style={{ width: `${Math.round((done / total) * 100)}%` }} />
           </span>
         </div>
+      )}
+
+      {(
+        <section className="memo-block">
+          <div className="memo-block__head">
+            <span className="memo-block__title">这一天的备忘</span>
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => {
+                setMemoDate(selected);
+                setMemoTitle('');
+              }}
+            >
+              ＋ 添加备忘
+            </button>
+          </div>
+          {dayMemos.length === 0 ? (
+            <p className="muted memo-block__empty">
+              长按日历上的日期，可以记生日、纪念日或复查安排。
+            </p>
+          ) : (
+            <ul className="memo-list">
+              {dayMemos.map((memo) => (
+                <li className="memo-item" key={memo.id}>
+                  <span className="memo-item__type">{MEMO_LABELS[memo.type]}</span>
+                  <span className="memo-item__title">{memo.title}</span>
+                  <button
+                    type="button"
+                    className="link-btn memo-item__remove"
+                    onClick={() => {
+                      removeMemo(memo.id);
+                      setMemos(loadMemos());
+                    }}
+                  >
+                    删除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
 
       <ol className="timeline timeline--rich">
@@ -309,6 +454,58 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
         </Sheet>
       )}
 
+      {memoDate && (
+        <Sheet open onClose={() => setMemoDate(null)} label="添加备忘">
+          <h2>记一件重要的事</h2>
+          <p className="muted">{memoDate.replace(/-/g, '/')}</p>
+          <div className="sheet__row">
+            {(Object.keys(MEMO_LABELS) as MemoType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                className={`btn btn-inline ${memoType === type ? 'btn-primary' : 'btn-secondary'}`}
+                aria-pressed={memoType === type}
+                onClick={() => setMemoType(type)}
+              >
+                {MEMO_LABELS[type]}
+              </button>
+            ))}
+          </div>
+          <div className="field">
+            <label htmlFor="memo-title">写一句提醒自己的话</label>
+            <input
+              id="memo-title"
+              value={memoTitle}
+              onChange={(event) => setMemoTitle(event.target.value)}
+              placeholder="例如：母亲生日，记得打电话"
+              maxLength={30}
+            />
+          </div>
+          {!memosPersistent() && (
+            <p className="muted">本机存储不可用，关闭页面后备忘会丢失。</p>
+          )}
+          <div className="sheet__actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!memoTitle.trim()}
+              onClick={() => {
+                addMemo({ date: memoDate, type: memoType, title: memoTitle });
+                setMemos(loadMemos());
+                setMemoDate(null);
+                setMemoTitle('');
+                setNotice('已记下这一天');
+              }}
+            >
+              保存备忘
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setMemoDate(null)}>
+              关闭
+            </button>
+          </div>
+        </Sheet>
+      )}
+
       {recordItem && (
         <RecordSheet
           mode="meal"
@@ -325,5 +522,89 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
 
       <div className="footer-space" />
     </div>
+  );
+}
+
+/** 格子里的农历/节气短标签 */
+function cellLabel(date: string): string {
+  return solarTermOn(date) ?? lunarDayOf(date).label ?? '';
+}
+
+/**
+ * 月历格子。长按 600ms 记备忘；轻点选中。
+ * 同时支持右键（桌面）作为长按的等价操作，方便调试与无触屏环境。
+ */
+function DayCell({
+  cell,
+  today,
+  selected,
+  memos,
+  onSelect,
+  onLongPress,
+}: {
+  cell: { date: string; inMonth: boolean; day: number };
+  today: string;
+  selected: string;
+  memos: Memo[];
+  onSelect: () => void;
+  onLongPress: () => void;
+}) {
+  const timer = useRef<number | null>(null);
+  const fired = useRef(false);
+
+  const clear = (): void => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+
+  const start = (): void => {
+    fired.current = false;
+    clear();
+    timer.current = window.setTimeout(() => {
+      fired.current = true;
+      onLongPress();
+    }, 600);
+  };
+
+  const hasMemo = memosOn(memos, cell.date).length > 0;
+  const term = solarTermOn(cell.date);
+  const label = term ?? lunarDayOf(cell.date).label ?? '';
+
+  return (
+    <button
+      type="button"
+      role="gridcell"
+      className={[
+        'day-cell',
+        cell.inMonth ? '' : 'day-cell--outside',
+        cell.date === today ? 'day-cell--today' : '',
+        cell.date === selected ? 'day-cell--selected' : '',
+        term ? 'day-cell--term' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      aria-current={cell.date === today ? 'date' : undefined}
+      aria-label={`${cell.date}${label ? ` ${label}` : ''}${hasMemo ? ' 有备忘' : ''}`}
+      onPointerDown={start}
+      onPointerUp={clear}
+      onPointerLeave={clear}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onLongPress();
+      }}
+      onClick={() => {
+        if (fired.current) {
+          fired.current = false;
+          return;
+        }
+        onSelect();
+      }}
+    >
+      <span className="day-cell__solar">{cell.day}</span>
+      <span className="day-cell__lunar">{label}</span>
+      {hasMemo && <span className="day-cell__memo" aria-hidden="true" />}
+    </button>
   );
 }

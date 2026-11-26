@@ -15,7 +15,6 @@ import { Icon } from '../components/Icon.tsx';
 import { ASSETS } from '../assets.ts';
 import { RecordSheet } from '../components/RecordSheet.tsx';
 import { TabHeader } from '../components/TabHeader.tsx';
-import { almanacLine, almanacOf } from '../utils/almanac.ts';
 
 const STATUS_TEXT: Record<string, string> = {
   done: '已完成',
@@ -78,7 +77,6 @@ export function TodayPage({
   return (
     <div className="page page-today">
       <TabHeader
-        eyebrow={almanacLine(almanacOf())}
         title={`${patientName ? `${patientName}，` : ''}${greeting}。`}
         subtitle="把今天照顾好，健康慢慢来。"
       />
