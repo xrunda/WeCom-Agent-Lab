@@ -10,6 +10,7 @@ export function AssetSlot({
   radius = 12,
   label,
   src,
+  priority = false,
   className = '',
 }: {
   id: string;
@@ -18,6 +19,8 @@ export function AssetSlot({
   label?: string;
   /** 已就位的素材地址；缺省时显示占位块 */
   src?: string;
+  /** 首屏最大图（LCP）：eager + fetchpriority=high；其余走 lazy */
+  priority?: boolean;
   className?: string;
 }) {
   if (src) {
@@ -28,8 +31,9 @@ export function AssetSlot({
         src={src}
         alt={label ?? ''}
         style={{ aspectRatio: ratio, borderRadius: radius }}
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
         decoding="async"
+        {...(priority ? ({ fetchpriority: 'high' } as Record<string, string>) : {})}
       />
     );
   }

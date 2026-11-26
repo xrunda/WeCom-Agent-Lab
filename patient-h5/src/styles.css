@@ -15,6 +15,8 @@
   --ok: #2d5a4a;
   --radius: 14px;
   --gutter: 16px;
+  /* 设计稿只有浅色一套：告诉浏览器别把原生控件按深色渲染 */
+  color-scheme: light;
 }
 
 /* 设计稿是米白底单一主题：不跟随系统深色，避免出现没人设计过的暗色版本 */
@@ -2270,16 +2272,34 @@ body {
 /* ---------- 截图自查后的修正（第三轮） ---------- */
 
 /* 记录面板：固定覆盖视口，明确高度，避免只露出一角 */
-.sheet-mask {
-  position: fixed;
-  inset: 0;
+/* 原生模态：页面 inert、焦点陷阱、top layer、Esc 都由浏览器提供 */
+.sheet {
   width: 100%;
-  height: 100dvh;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  max-width: 480px;
+  margin: auto auto 0;
+  border: none;
+  border-radius: 20px 20px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -8px 30px rgba(31, 58, 46, 0.12);
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+.sheet::backdrop {
   background: rgba(20, 28, 24, 0.45);
-  z-index: 60;
+  overscroll-behavior: contain;
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+/* 弹层内部仍沿用原来的纵向排布 */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* 快捷记录：再收一点，减少难看的折行 */

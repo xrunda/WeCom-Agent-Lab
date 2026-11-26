@@ -125,6 +125,7 @@ export function TodayPage({
               ratio="4 / 3"
               radius={0}
               src={ASSETS.mealHero}
+              priority
               label="今日餐食配图"
               className="hero-card__asset"
             />

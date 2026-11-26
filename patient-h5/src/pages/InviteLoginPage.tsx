@@ -123,62 +123,75 @@ export function InviteLoginPage({ inviteCode, onDone }: Props) {
           </div>
         )}
 
-        {!inviteCode && (
-          <div className="field">
-            <label htmlFor="invite-code">邀请码（首次开通需要）</label>
-            <input
-              id="invite-code"
-              value={manualInviteCode}
-              onChange={(event) => setManualInviteCode(event.target.value.trim())}
-              placeholder="可留空（已绑定手机号直接登录）"
-              autoComplete="off"
-            />
-          </div>
-        )}
-
-        <div className="field">
-          <label htmlFor="phone">手机号</label>
-          <input
-            id="phone"
-            value={phone}
-            onChange={(event) => setPhone(event.target.value.trim())}
-            inputMode="numeric"
-            autoComplete="tel"
-            placeholder="请输入手机号"
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="sms-code">验证码</label>
-          <div className="row">
-            <input
-              id="sms-code"
-              className="grow code-input"
-              value={code}
-              onChange={(event) => setCode(event.target.value.trim())}
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="6 位验证码"
-            />
-            <button
-              type="button"
-              className="btn btn-secondary btn-inline"
-              onClick={() => void sendCode()}
-              disabled={countdown > 0 || mode === 'submitting'}
-            >
-              {countdown > 0 ? `${countdown}s` : '获取验证码'}
-            </button>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void submit()}
-          disabled={mode === 'submitting' || code.length < 6 || phone.length < 11}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
         >
-          {mode === 'submitting' ? '正在验证…' : effectiveInviteCode ? '开通服务' : '登录'}
-        </button>
+          {!inviteCode && (
+            <div className="field">
+              <label htmlFor="invite-code">邀请码（首次开通需要）</label>
+              <input
+                id="invite-code"
+                value={manualInviteCode}
+                onChange={(event) => setManualInviteCode(event.target.value.trim())}
+                placeholder="可留空（已绑定手机号直接登录）"
+                autoComplete="off"
+                enterKeyHint="next"
+              />
+            </div>
+          )}
+
+          <div className="field">
+            <label htmlFor="phone">手机号</label>
+            <input
+              id="phone"
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value.trim())}
+              inputMode="tel"
+              autoComplete="tel"
+              enterKeyHint="next"
+              placeholder="请输入手机号"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="sms-code">验证码</label>
+            <div className="row">
+              <input
+                id="sms-code"
+                className="grow code-input"
+                type="text"
+                value={code}
+                onChange={(event) => setCode(event.target.value.trim())}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={6}
+                enterKeyHint="done"
+                placeholder="6 位验证码"
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-inline"
+                onClick={() => void sendCode()}
+                disabled={countdown > 0 || mode === 'submitting'}
+              >
+                {countdown > 0 ? `${countdown}s` : '获取验证码'}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={mode === 'submitting' || code.length < 6 || phone.length < 11}
+          >
+            {mode === 'submitting' ? '正在验证…' : effectiveInviteCode ? '开通服务' : '登录'}
+          </button>
+        </form>
 
         <p className="retry-hint">
           邀请已过期或收不到验证码？请联系你的顾问重新办理。
