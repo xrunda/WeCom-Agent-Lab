@@ -11,6 +11,8 @@ import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { RecordSheet } from '../components/RecordSheet.tsx';
 import { Sheet } from '../components/Sheet.tsx';
+import { TabHeader } from '../components/TabHeader.tsx';
+import { almanacLine, almanacOf } from '../utils/almanac.ts';
 
 const WEEK_LABEL = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -115,14 +117,12 @@ export function CalendarPage({ onUnauthorized, onBackToNurture, onOpenTeam }: Pr
 
   return (
     <div className="page page-calendar">
-      <header className="cal-head">
-        <h1>我的健康日历</h1>
-        <div className="cal-month">
-          <span className="cal-month__nav" aria-hidden="true">‹</span>
-          {monthLabel}
-          <span className="cal-month__nav" aria-hidden="true">›</span>
-        </div>
-      </header>
+      <TabHeader eyebrow={almanacLine(almanacOf())} title="我的健康日历" />
+      <div className="cal-month">
+        <span className="cal-month__nav" aria-hidden="true">‹</span>
+        {monthLabel}
+        <span className="cal-month__nav" aria-hidden="true">›</span>
+      </div>
 
       {error && (
         <div className="notice notice-error" role="alert">

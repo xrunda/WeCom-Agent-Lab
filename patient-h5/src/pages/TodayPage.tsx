@@ -14,8 +14,8 @@ import { AssetSlot } from '../components/AssetSlot.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { ASSETS } from '../assets.ts';
 import { RecordSheet } from '../components/RecordSheet.tsx';
-
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+import { TabHeader } from '../components/TabHeader.tsx';
+import { almanacLine, almanacOf } from '../utils/almanac.ts';
 
 const STATUS_TEXT: Record<string, string> = {
   done: '已完成',
@@ -28,14 +28,6 @@ const STATUS_TEXT: Record<string, string> = {
 function formatTime(at: number): string {
   const date = new Date(at);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function dateLine(): { text: string; weekday: string } {
-  const now = new Date();
-  return {
-    text: `${now.getMonth() + 1}月${now.getDate()}日`,
-    weekday: `星期${WEEKDAYS[now.getDay()]}`,
-  };
 }
 
 interface Props {
@@ -79,25 +71,17 @@ export function TodayPage({
       });
   }, [onUnauthorized]);
 
-  const { text, weekday } = dateLine();
   const greeting = today?.greeting ?? '你好';
   const progress = today?.progress;
   const next = today?.nextItem;
 
   return (
     <div className="page page-today">
-      <header className="today-head">
-        <div className="today-date">
-          <span className="today-date__icon" aria-hidden="true" />
-          {text} · {weekday}
-        </div>
-        <h1 className="today-greeting">
-          {patientName ? `${patientName}，` : ''}
-          {greeting}
-          <span className="today-greeting__dot">。</span>
-        </h1>
-        <p className="today-sub">把今天照顾好，健康慢慢来。</p>
-      </header>
+      <TabHeader
+        eyebrow={almanacLine(almanacOf())}
+        title={`${patientName ? `${patientName}，` : ''}${greeting}。`}
+        subtitle="把今天照顾好，健康慢慢来。"
+      />
 
       {error && (
         <div className="notice notice-error" role="alert">

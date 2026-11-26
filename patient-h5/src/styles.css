@@ -2460,3 +2460,47 @@ dialog:modal {
   font-size: 13px;
   color: var(--ink-soft);
 }
+
+/* ================= 一级页面统一页头 ================= */
+.tab-head {
+  padding: 8px 2px 14px;
+}
+
+.tab-head__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+
+.tab-head__eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.tab-head__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 700;
+  line-height: 1.28;
+  color: var(--ink);
+  font-size: 32px;
+}
+
+.tab-head--brand .tab-head__title {
+  font-size: 46px;
+  line-height: 1.08;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+}
+
+.tab-head__sub {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
