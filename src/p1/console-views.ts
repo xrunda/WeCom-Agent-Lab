@@ -195,6 +195,10 @@ export interface PatientView {
   id: string;
   tenantId: string;
   displayName: string;
+  /** 企微群昵称（客户自己的名字，只读） */
+  nickname: string | null;
+  /** 我们的备注名（顾问可改） */
+  remark: string | null;
   avatar: string | null;
   externalUserId: string | null;
   /** 患者身份确认状态：pending=按发言猜测待确认；confirmed=顾问手动指定 */
@@ -740,6 +744,9 @@ export function patientView(
     id: patient.id,
     tenantId: patient.tenantId,
     displayName: patient.displayName,
+    // 群昵称（客户自己的名字）与备注名（我们的）分开返回，界面上并排展示
+    nickname: patient.nickname ?? null,
+    remark: patient.remark ?? null,
     avatar: patient.avatar ?? null,
     externalUserId: patient.externalUserId ?? null,
     identityStatus: patient.identityStatus ?? 'pending',

@@ -85,7 +85,12 @@ export interface GroupBinding {
 export interface Patient {
   id: string;
   tenantId: string;
+  /** 展示名：`remark || nickname || 「外部成员 …尾号」`，由服务层计算并持久化 */
   displayName: string;
+  /** 企微群昵称（客户联系 API 回填），只读——客户自己设的名字 */
+  nickname?: string;
+  /** 我们的备注名（顾问可改）；为空时展示群昵称 */
+  remark?: string;
   avatar?: string;
   /** 主外部成员 id（wm...），用于路由与同意状态 */
   externalUserId?: string;

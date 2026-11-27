@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { MemoryPatientStore } from '../src/p1/patient-store.ts';
 import type { PatientStoreBackend, PatientSnapshot } from '../src/p1/patient-store.ts';
-import { PatientService } from '../src/p1/patient-service.ts';
+import { displayNameOf, PatientService } from '../src/p1/patient-service.ts';
 import { setupPatient, observeServiceGroup, TENANT } from './p1-helpers.ts';
 
 test('#33 含外部成员的群自动登记为 pending，不触发回合', () => {
@@ -558,4 +558,52 @@ test('企微群名变更同步到系统；控制台手工改名优先', () => {
   // 空群名不覆盖已有名称
   const empty = h.service.syncGroupName(group.id, '   ');
   assert.equal(empty.name, '汪女士（手工）');
+});
+
+test('群昵称与备注名分开存：改备注不动昵称，清空备注回退昵称', () => {
+  const h = setupPatient();
+  const group = observeServiceGroup(h, { status: 'serving', advisorId: 'adv_1' });
+  h.service.routeInbound({
+    msgid: 'm1',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '你好',
+    msgtime: h.clock.now(),
+  });
+  const patientId = h.store.listPatients()[0]!.id;
+
+  // 回填后：昵称有值，备注为空，展示名用昵称
+  h.service.observeGroup(group.roomId ?? 'wr_g1', [
+    { id: 'wm_patient', isExternal: true, displayName: '小张', lastActiveAt: h.clock.now() + 1 },
+  ]);
+  const afterNickname = h.store.getPatient(patientId)!;
+  assert.equal(afterNickname.nickname, '小张');
+  assert.equal(afterNickname.remark, undefined);
+  assert.equal(afterNickname.displayName, '小张');
+
+  // 顾问写备注：展示名换成备注，昵称保持客户自己的名字
+  h.service.updatePatient(patientId, { displayName: '林秀兰' });
+  const withRemark = h.store.getPatient(patientId)!;
+  assert.equal(withRemark.remark, '林秀兰');
+  assert.equal(withRemark.nickname, '小张', '群昵称不被备注覆盖');
+  assert.equal(withRemark.displayName, '林秀兰');
+
+  // 客户在群里改了昵称：备注优先，展示名不变；昵称跟着更新
+  h.service.observeGroup(group.roomId ?? 'wr_g1', [
+    { id: 'wm_patient', isExternal: true, displayName: '小张（新）', lastActiveAt: h.clock.now() + 2 },
+  ]);
+  const renamed = h.store.getPatient(patientId)!;
+  assert.equal(renamed.nickname, '小张（新）');
+  assert.equal(renamed.displayName, '林秀兰');
+
+  // 清空备注：回退到群昵称
+  h.service.updatePatient(patientId, { remark: '' });
+  assert.equal(h.store.getPatient(patientId)?.displayName, '小张（新）');
+});
+
+test('displayNameOf：备注 > 昵称 > 外部成员尾号', () => {
+  assert.equal(displayNameOf({ remark: '林秀兰', nickname: 'ATHM_wb001' }), '林秀兰');
+  assert.equal(displayNameOf({ nickname: 'ATHM_wb001' }), 'ATHM_wb001');
+  assert.match(displayNameOf({ externalUserId: 'wm_abc123' }), /^外部成员 …/);
+  assert.equal(displayNameOf({}), '未命名患者');
 });

@@ -45,6 +45,20 @@ export interface ObservedMember {
  * 是否是系统生成的占位名（存档没有昵称时用 id 尾号）。
  * 只有占位名允许被真实群昵称回填，员工手工改过的名字不动。
  */
+/**
+ * 展示名 = 备注名 || 群昵称 || 占位名。
+ *
+ * 一个患者有两个名字：客户自己在企微设的昵称（只读），和我们的备注名。
+ * 展示时备注优先，没有备注就用昵称；两者都没有才用「外部成员 …尾号」。
+ */
+export function displayNameOf(patient: Pick<Patient, 'remark' | 'nickname' | 'externalUserId'>): string {
+  const remark = patient.remark?.trim();
+  if (remark) return remark;
+  const nickname = patient.nickname?.trim();
+  if (nickname) return nickname;
+  return patient.externalUserId ? `外部成员 ${tailId(patient.externalUserId)}` : '未命名患者';
+}
+
 function isFallbackDisplayName(name: string, externalUserId: string): boolean {
   const tail = tailId(externalUserId);
   return name === `外部成员 ${tail}` || name === `外部客户 ${tail}`;
@@ -197,9 +211,10 @@ export class PatientService {
     if (!observed.displayName) return;
     const patient = this.patientForGroup(groupId);
     if (!patient || patient.externalUserId !== observed.id) return;
-    if (!isFallbackDisplayName(patient.displayName, observed.id)) return;
-    if (observed.displayName === patient.displayName) return;
-    patient.displayName = observed.displayName;
+    // 群昵称是客户自己的名字，一直同步；展示名按备注优先重算，顾问改的备注不会被冲掉
+    if (patient.nickname === observed.displayName) return;
+    patient.nickname = observed.displayName;
+    patient.displayName = displayNameOf(patient);
     patient.updatedAt = now;
     this.store.savePatient(patient);
   }
@@ -227,8 +242,9 @@ export class PatientService {
       const externalUserId = patient.externalUserId;
       if (!externalUserId) continue;
       const name = names[externalUserId];
-      if (!name || !isFallbackDisplayName(patient.displayName, externalUserId)) continue;
-      patient.displayName = name;
+      if (!name || patient.nickname === name) continue;
+      patient.nickname = name;
+      patient.displayName = displayNameOf(patient);
       patient.updatedAt = now;
       this.store.savePatient(patient);
     }
@@ -342,6 +358,7 @@ export class PatientService {
       id: this.store.nextId('pat'),
       tenantId: this.tenantId,
       displayName: input.displayName.trim() || '未命名患者',
+      ...(input.displayName.trim() ? { nickname: input.displayName.trim() } : {}),
       externalUserId: input.externalUserId,
       identityStatus: input.identityStatus,
       identitySource: input.identitySource,
@@ -365,12 +382,29 @@ export class PatientService {
     patch: Partial<
       Pick<
         Patient,
-        'displayName' | 'avatar' | 'tags' | 'advisorId' | 'consent' | 'status' | 'externalUserId'
+        | 'displayName'
+        | 'remark'
+        | 'nickname'
+        | 'avatar'
+        | 'tags'
+        | 'advisorId'
+        | 'consent'
+        | 'status'
+        | 'externalUserId'
       >
     >,
   ): Patient {
     const patient = this.requirePatient(patientId);
     Object.assign(patient, patch);
+    // 控制台仍以 displayName 传备注名：落成 remark，展示名统一重算
+    if (patch.displayName !== undefined && patch.remark === undefined) {
+      const remark = patch.displayName.trim();
+      if (remark) patient.remark = remark;
+      else delete patient.remark;
+    }
+    if (patch.remark !== undefined || patch.nickname !== undefined || patch.displayName !== undefined) {
+      patient.displayName = displayNameOf(patient);
+    }
     patient.updatedAt = this.clock.now();
     this.store.savePatient(patient);
     this.audit('admin', 'patient.update', patient.id, 'ok');
@@ -581,12 +615,11 @@ export class PatientService {
     const changed = previous !== externalUserId;
 
     patient.externalUserId = externalUserId;
+    // 群昵称跟着成员走；顾问若给了新名字，落成备注（展示名按备注优先重算）
+    if (member.displayName) patient.nickname = member.displayName;
     const rename = opts.displayName?.trim();
-    if (changed || !patient.displayName) {
-      patient.displayName = rename || member.displayName;
-    } else if (rename) {
-      patient.displayName = rename;
-    }
+    if (rename) patient.remark = rename;
+    patient.displayName = displayNameOf(patient);
     patient.consent = member.consent;
     patient.identityStatus = 'confirmed';
     patient.identitySource = 'manual';

@@ -139,7 +139,7 @@ export function buildMealToolDefinitions(handlers: MealToolHandlers): Registered
     {
       name: 'meal_log_write',
       description:
-        '把餐食图片识别结果写入该患者的饮食记录。只有 meal 类型的图片才调用；识别不确定时降低 confidence。',
+        '把餐食记录写入该患者的饮食记录。两种来源：① 餐食图片的识别结果（只有 meal 类型的图片才调用，识别不确定时降低 confidence）；② 患者用文字说了吃了什么（如「今早吃了热汤面」「中午在店里吃的牛肉面」），此时 confidence 填 1，份量不确定就留空。',
       parameters: MEAL_LOG_WRITE_PARAMETERS,
       output: {
         schema: MEAL_LOG_RESULT_SCHEMA,

@@ -62,8 +62,9 @@ export function PatientIdentityModal({
     if (!open) return;
     setGroupId(groups[0]?.id ?? '');
     setSelected(patient.externalUserId ?? undefined);
-    setNameOverride('');
-  }, [open, groups, patient.externalUserId]);
+    // 预填当前备注名：留空才能明确表示「用群昵称」，否则顾问只是想改绑群也不会丢备注
+    setNameOverride(patient.remark ?? '');
+  }, [open, groups, patient.externalUserId, patient.remark]);
 
   useEffect(() => {
     if (!open || !groupId) {
@@ -218,6 +219,11 @@ export function PatientIdentityModal({
               <Text strong style={{ display: 'block', marginBottom: 6 }}>
                 备注名（可选）
               </Text>
+              {patient.nickname ? (
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
+                  群昵称：{patient.nickname}
+                </Text>
+              ) : null}
               <Input
                 value={nameOverride}
                 onChange={(event) => setNameOverride(event.target.value)}
