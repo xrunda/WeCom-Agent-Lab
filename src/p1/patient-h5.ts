@@ -845,6 +845,23 @@ export class PatientH5Service {
     userAgentSummary?: string,
   ): Promise<{ record: H5SessionRecord; token: string }> {
     const now = this.now();
+    const deviceLabel = userAgentSummary?.slice(0, 40);
+    // 同一台设备重新登录：旧会话直接撤销，避免列表堆成一屏「Other · 活跃」
+    if (deviceLabel) {
+      for (const existing of this.backend.load().sessions) {
+        if (
+          existing.tenantId === this.tenantId &&
+          existing.patientId === patientId &&
+          existing.status === 'active' &&
+          existing.userAgentSummary === deviceLabel
+        ) {
+          existing.status = 'revoked';
+          existing.revokedAt = now;
+          existing.revokedBy = 'system';
+          await this.backend.putSession(existing);
+        }
+      }
+    }
     const token = newSessionToken();
     const record: H5SessionRecord = {
       id: this.ids('phs'),
@@ -856,7 +873,7 @@ export class PatientH5Service {
       issuedAt: now,
       expiresAt: now + this.sessionAbsoluteTtlMs,
       lastSeenAt: now,
-      ...(userAgentSummary ? { userAgentSummary: userAgentSummary.slice(0, 40) } : {}),
+      ...(deviceLabel ? { userAgentSummary: deviceLabel } : {}),
     };
     await this.backend.putSession(record);
     return { record, token };

@@ -189,12 +189,43 @@ function ipOf(req: H5HttpRequest): string {
   return (headerValue(req, 'x-forwarded-for') ?? '').split(',')[0]?.trim() || 'unknown';
 }
 
-function userAgentSummary(req: H5HttpRequest): string | undefined {
+/**
+ * 设备标签：`<系统> · <浏览器/微信>`。
+ *
+ * 顾问看会话列表是为了回答「这条是谁登录的、要不要踢掉」，
+ * 只显示 `Other` 等于没信息。企业微信内置浏览器优先识别，
+ * 否则微信里的 MicroMessenger 会被当成普通 Chrome。
+ */
+export function userAgentSummary(req: H5HttpRequest): string | undefined {
   const ua = headerValue(req, 'user-agent');
   if (!ua) return undefined;
-  if (/iPhone|iPad/i.test(ua)) return /MicroMessenger/i.test(ua) ? 'iOS/WeChat' : 'iOS';
-  if (/Android/i.test(ua)) return /MicroMessenger/i.test(ua) ? 'Android/WeChat' : 'Android';
-  return 'Other';
+  const platform = /iPhone/i.test(ua)
+    ? 'iPhone'
+    : /iPad/i.test(ua)
+      ? 'iPad'
+      : /Android/i.test(ua)
+        ? 'Android'
+        : /Macintosh|Mac OS X/i.test(ua)
+          ? 'Mac'
+          : /Windows/i.test(ua)
+            ? 'Windows'
+            : /Linux/i.test(ua)
+              ? 'Linux'
+              : '未知设备';
+  const browser = /wxwork/i.test(ua)
+    ? '企业微信'
+    : /MicroMessenger/i.test(ua)
+      ? '微信'
+      : /Edg\//i.test(ua)
+        ? 'Edge'
+        : /Chrome\//i.test(ua)
+          ? 'Chrome'
+          : /Safari\//i.test(ua)
+            ? 'Safari'
+            : /Firefox\//i.test(ua)
+              ? 'Firefox'
+              : '浏览器';
+  return `${platform} · ${browser}`.slice(0, 40);
 }
 
 function errorBody(error: H5Error, requestId: string): unknown {

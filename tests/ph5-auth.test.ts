@@ -615,3 +615,42 @@ test('邀请按 +86 写法预留、按 11 位兑换也认（写法不同不算�
   const login = await service.login({ phone: '+8613810524000', code: MOCK_VERIFY_CODE });
   assert.ok(login.sessionToken);
 });
+
+test('同一台设备重新登录：旧会话撤销，列表不长出一屏「活跃」', async () => {
+  const { service } = setup();
+  const invitation = await service.createInvitation({
+    patientId: 'pat_a',
+    advisorId: 'adv_1',
+    phone: '13800003421',
+    createdBy: 'acc_test',
+  });
+  await service.requestVerifyCode({ invitationCode: invitation.code });
+  const first = await service.redeem({
+    invitationCode: invitation.code,
+    phone: '13800003421',
+    code: MOCK_VERIFY_CODE,
+    userAgentSummary: 'iPhone · 微信',
+  });
+  await service.requestVerifyCode({ phone: '13800003421' });
+  const second = await service.login({
+    phone: '13800003421',
+    code: MOCK_VERIFY_CODE,
+    userAgentSummary: 'iPhone · 微信',
+  });
+
+  const sessions = service.listSessions('pat_a');
+  assert.equal(sessions.filter((item) => item.status === 'active').length, 1, '同设备只保留最新会话');
+  assert.equal(await service.resolveSession(first.sessionToken), null, '旧令牌立即失效');
+  assert.ok(await service.resolveSession(second.sessionToken));
+
+  // 换一台设备登录：两台设备各自保留
+  await service.requestVerifyCode({ phone: '13800003421' });
+  const third = await service.login({
+    phone: '13800003421',
+    code: MOCK_VERIFY_CODE,
+    userAgentSummary: 'Mac · Chrome',
+  });
+  assert.equal(service.listSessions('pat_a').filter((item) => item.status === 'active').length, 2);
+  assert.ok(await service.resolveSession(second.sessionToken), '另一台设备不受影响');
+  assert.ok(await service.resolveSession(third.sessionToken));
+});

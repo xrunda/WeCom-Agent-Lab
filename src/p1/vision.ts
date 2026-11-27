@@ -310,6 +310,8 @@ export function mealLogView(record: MealLogRecord, photoUrl?: string): Record<st
     agentComment: record.agentComment ?? null,
     confidence: record.confidence,
     sandbox: record.sandbox,
+    /** 来源：群消息提取（默认）或患者端 H5 记录 */
+    source: record.source ?? 'wecom_archive',
     createdAt: record.createdAt,
   };
 }

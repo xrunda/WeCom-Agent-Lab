@@ -197,6 +197,8 @@ export interface ProfileStatus {
   completeness: number;
   /** 0–1，六个必备字段已填比例 */
   safetyMissing: boolean;
+  /** 尚未填写的字段（给顾问看「还缺什么」，别只丢一个 profile_incomplete） */
+  missingKeys: ProfileFieldKey[];
   conflicts: Array<{ fieldKey: ProfileFieldKey; detail: string }>;
 }
 
@@ -335,7 +337,12 @@ export class ProfileService {
         }
       }
     }
-    return { completeness, safetyMissing, conflicts };
+    return {
+      completeness,
+      safetyMissing,
+      missingKeys: PROFILE_FIELD_KEYS.filter((key) => !present.has(key)),
+      conflicts,
+    };
   }
 
   /** /me 状态聚合（PH5-03 版）：建档未完成 / 资料待补充 / 计划准备中 */

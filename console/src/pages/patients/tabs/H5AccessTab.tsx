@@ -43,6 +43,16 @@ const INVITATION_STATUS_LABEL: Record<H5Invitation['status'], { label: string; c
   revoked: { label: '已撤销', color: 'red' },
 };
 
+/** H5 状态：直接给顾问一句人话，别让他去猜 profile_incomplete 是什么意思 */
+const H5_STATUS_LABEL: Record<string, string> = {
+  profile_incomplete: '档案未填完',
+  data_pending: '资料待补充',
+  plan_generating: '计划准备中',
+  plan_active: '计划执行中',
+  plan_suspended: '计划已暂停',
+  service_paused: '服务已暂停',
+};
+
 const SESSION_STATUS_LABEL: Record<string, { label: string; color: string }> = {
   active: { label: '活跃', color: 'green' },
   revoked: { label: '已撤销', color: 'red' },
@@ -76,6 +86,7 @@ export function H5AccessTab({
   const [creating, setCreating] = useState(false);
   const [createdLink, setCreatedLink] = useState<{ link: string; phoneTail: string } | null>(null);
   const [form] = Form.useForm<InviteFormValues>();
+  const [showAllSessions, setShowAllSessions] = useState(false);
 
   const reload = (): void => {
     setLoading(true);
@@ -146,7 +157,19 @@ export function H5AccessTab({
           <Space direction="vertical" size={4}>
             <Text>
               已绑定手机尾号 {binding.binding.phoneTail}（{formatDateTime(binding.binding.boundAt)}
-              开通）；H5 状态：{binding.h5Status}
+              开通）；H5 状态：
+              <Tag
+                color={binding.h5Status === 'profile_incomplete' ? 'orange' : 'green'}
+                style={{ marginInlineStart: 4 }}
+              >
+                {H5_STATUS_LABEL[binding.h5Status] ?? binding.h5Status}
+              </Tag>
+              {binding.h5Status === 'profile_incomplete' &&
+                (binding.missingFields?.length ?? 0) > 0 && (
+                  <Text type="secondary" style={{ marginInlineStart: 6 }}>
+                    缺：{binding.missingFields!.join('、')}
+                  </Text>
+                )}
             </Text>
             <Space size={[8, 8]} wrap>
               {Object.entries(H5_CONSENT_LABELS).map(([scope, label]) => {
@@ -170,7 +193,22 @@ export function H5AccessTab({
           rowKey="id"
           size="small"
           pagination={false}
-          dataSource={binding.sessions}
+          dataSource={
+            showAllSessions
+              ? [...binding.sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+              : [...binding.sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt).slice(0, 5)
+          }
+          footer={
+            binding.sessions.length > 5
+              ? () => (
+                  <Button type="link" size="small" onClick={() => setShowAllSessions((v) => !v)}>
+                    {showAllSessions
+                      ? '只看最近 5 条'
+                      : `更早的 ${binding.sessions.length - 5} 条（已过期/已撤销的居多）`}
+                  </Button>
+                )
+              : undefined
+          }
           columns={[
             { title: '设备', dataIndex: 'userAgentSummary', render: (v) => v ?? '未知' },
             {

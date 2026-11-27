@@ -76,6 +76,10 @@ export function DietTab({ patientId }: { patientId: string }) {
                 <Tag bordered={false} color={MEAL_COLORS[log.mealType]}>
                   {MEAL_TYPE_LABELS[log.mealType]}
                 </Tag>
+                {/* 来源要能一眼分开：群里晒的餐和患者自己在 H5 记的餐是两回事 */}
+                <Tag bordered={false} color={log.source === 'h5' ? 'geekblue' : 'default'}>
+                  {log.source === 'h5' ? '患者端 H5' : '服务群'}
+                </Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {formatDateTime(log.createdAt)} · 识别置信度 {Math.round(log.confidence * 100)}%
                 </Text>

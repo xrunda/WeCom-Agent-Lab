@@ -53,6 +53,7 @@ export interface PatientH5RouteDeps {
           handledBy: string;
         }): Promise<PrivacyRequestRecord>;
         meStatus(patientId: string): string;
+        meStatusDetail?(patientId: string): { status: string; missingFields: string[] };
         invitationLink(record: InvitationRecord): string;
         config: { tenantId: string };
       }
@@ -212,7 +213,9 @@ export function registerPatientH5InvitationRoutes(deps: PatientH5RouteDeps): voi
           : null,
         sessions,
         consents: api.consentsView(patientId),
-        h5Status: api.meStatus(patientId),
+        h5Status: api.meStatusDetail?.(patientId).status ?? api.meStatus(patientId),
+        // 只丢「profile_incomplete」顾问不知道要补什么，带上缺失字段
+        missingFields: api.meStatusDetail?.(patientId).missingFields ?? [],
       }, rc.requestId);
     },
     { permission: 'patient.read' },
