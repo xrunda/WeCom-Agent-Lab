@@ -34,7 +34,7 @@ import type {
   PrivacyRequestRecord,
   PrivacyRequestStatus,
 } from '../../src/p1/patient-h5.ts';
-import { MemoryProfileBackend, ProfileService } from '../../src/p1/patient-h5-profile.ts';
+import { FIELD_LABELS, MemoryProfileBackend, ProfileService } from '../../src/p1/patient-h5-profile.ts';
 import type { ProfileBackend } from '../../src/p1/patient-h5-profile.ts';
 import {
   MemoryPlanBackend,
@@ -162,6 +162,8 @@ export interface PatientH5RuntimeApi {
     handledBy: string;
   }): Promise<PrivacyRequestRecord>;
   meStatus(patientId: string): string;
+  /** 状态 + 还缺哪些档案字段（控制台展示用，不暴露给患者） */
+  meStatusDetail(patientId: string): { status: string; missingFields: string[] };
   /** 供控制台展示邀请链接（一次性返回，不落日志；列表不再回 code） */
   /** 邀请链接（域名来自服务端配置，不接受调用方传入，防钓鱼域名注入） */
   invitationLink(record: InvitationRecord): string;
@@ -317,6 +319,15 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       meStatus: (patientId) => {
         const patient = patientView(patientId);
         return patient ? service.meStatus(patient) : 'service_paused';
+      },
+      meStatusDetail: (patientId) => {
+        const patient = patientView(patientId);
+        if (!patient) return { status: 'service_paused', missingFields: [] };
+        const status = profile.meStatus(patientId, patient.status);
+        const missingFields = profile
+          .status(patientId)
+          .missingKeys.map((key) => FIELD_LABELS[key] ?? key);
+        return { status, missingFields };
       },
       invitationLink: (record) =>
         `${config.publicBaseUrl ?? DEFAULT_H5_PUBLIC_BASE}/h5/invite?code=${encodeURIComponent(record.code)}`,

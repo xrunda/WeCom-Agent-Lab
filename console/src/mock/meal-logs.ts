@@ -26,6 +26,8 @@ export interface MealLog {
   agentComment: string;
   confidence: number;
   sandbox: boolean;
+  /** 来源：群消息提取 或 患者端 H5 记录 */
+  source?: 'wecom_archive' | 'h5';
   createdAt: number;
 }
 

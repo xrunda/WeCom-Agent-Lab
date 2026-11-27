@@ -35,6 +35,8 @@ export interface H5BindingView {
   sessions: H5Session[];
   consents: Record<string, 'granted' | 'withdrawn' | 'never'>;
   h5Status: string;
+  /** 档案还缺哪些字段（h5Status=profile_incomplete 时用来指导顾问补资料） */
+  missingFields?: string[];
 }
 
 const DAY = 24 * 60 * 60 * 1000;
