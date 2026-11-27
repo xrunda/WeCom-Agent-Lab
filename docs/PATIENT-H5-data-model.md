@@ -355,7 +355,14 @@ fieldKey 枚举（v1）：
 
 ### 3.8 patient_record —— 患者记录（餐食 / 晚间回顾 / 随手记）
 
-H5 端记录的统一实体。与 `meal_log`（群消息识别）**并存不合并**。
+H5 端记录的统一实体。
+
+**与 `meal_log` 的关系（2026-11-26 起）**：`meal_logs` 是餐食的**单一事实来源**。
+
+- H5 记餐 → 同步写入 `meal_logs`（`source: 'h5'`，`h5RecordId` 指向本条），
+  控制台「饮食记录」立刻可见；同步失败不影响患者记录本身（`mealLogId` 为空）。
+- 群存档里提取的餐食 → 通过 `GET /records/history` 的 `archiveMeals` **只读**借给 H5 展示。
+- 同一条 H5 记录在 `meal_logs` 里只有一条（按 `h5RecordId` 去重），照片后到再更新 `mediaPath`。
 
 | 字段 | 类型 | 可空 | 说明 |
 |---|---|---|---|

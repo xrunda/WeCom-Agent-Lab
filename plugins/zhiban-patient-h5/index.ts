@@ -17,6 +17,7 @@ import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 
 import { idFactory } from '../../src/p1/ids.ts';
 import {
+  localDateKey,
   MemoryH5Backend,
   MOCK_SMS,
   PatientH5Service,
@@ -50,7 +51,7 @@ import { createProfileRoutes, DomainProfileBackend } from './routes/profile.ts';
 import type { ManifestoConfig } from './routes/profile.ts';
 import { createPlanRoutes, DomainPlanBackend } from './routes/plan.ts';
 import { createCalendarRoutes } from './routes/calendar.ts';
-import { createRecordRoutes, DomainRecordBackend, MemoryMediaStore } from './routes/records.ts';
+import { createRecordRoutes, DomainRecordBackend, FileMediaStore } from './routes/records.ts';
 import { createFollowupRoutes } from './routes/followup.ts';
 import { createContentRoutes } from './routes/content.ts';
 import { ContentService, MemoryContentBackend } from '../../src/p1/patient-h5-content.ts';
@@ -76,6 +77,18 @@ interface AnyTableLike {
 export const name = 'zhiban-patient-h5';
 
 export const inject = ['storageDomain', 'webServer', 'tools', 'sessionController'];
+
+/** 控制台 meal_logs 记录（只取本插件用到的字段） */
+interface MealLogRecordLike {
+  id: string;
+  createdAt: number;
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  foods?: Array<{ name: string; portion?: string }>;
+  notes?: string;
+  mediaPath?: string;
+  source?: 'wecom_archive' | 'h5';
+  h5RecordId?: string;
+}
 
 export interface DshPatientH5Context {
   logger?: {
@@ -446,6 +459,7 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       followups: adjust,
       ids: idFactory(Date.now),
     });
+    const mediaStore = new FileMediaStore(config.mediaRootDir);
     const recordBackend =
       recordTable && mediaTable
         ? new DomainRecordBackend(recordTable, mediaTable, idempotencyTable, config.tenantId)
@@ -470,8 +484,50 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
           await calendarService.matchRecord(input);
         },
       },
+      // 与控制台 meal_logs 的桥：H5 记的餐同步过去，群存档的餐借过来只读展示
+      mealLogs: {
+        listArchive: (patientId, date) => {
+          const api = ctx.get<{ listMealLogs?: (id: string) => MealLogRecordLike[] }>(
+            'zhibanPatient',
+          );
+          return (api?.listMealLogs?.(patientId) ?? [])
+            .filter((log) => log.source !== 'h5' && !log.h5RecordId)
+            .filter((log) => localDateKey(log.createdAt) === date)
+            .map((log) => ({
+              id: log.id,
+              occurredAt: log.createdAt,
+              mealType: log.mealType,
+              foods: log.foods ?? [],
+              ...(log.notes ? { notes: log.notes } : {}),
+              hasPhoto: Boolean(log.mediaPath),
+            }));
+        },
+        upsert: (input) => {
+          const api = ctx.get<{
+            upsertH5MealLog?: (input: {
+              patientId: string;
+              h5RecordId: string;
+              occurredAt: number;
+              mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+              foods: Array<{ name: string; portion?: string }>;
+              notes?: string;
+              mediaPath?: string;
+            }) => { id: string };
+          }>('zhibanPatient');
+          const synced = api?.upsertH5MealLog?.(input);
+          if (!synced) throw new Error('患者服务未就绪');
+          return synced;
+        },
+        photoPath: (patientId, mealLogId) => {
+          const api = ctx.get<{ listMealLogs?: (id: string) => MealLogRecordLike[] }>(
+            'zhibanPatient',
+          );
+          const log = (api?.listMealLogs?.(patientId) ?? []).find((item) => item.id === mealLogId);
+          return log?.mediaPath ?? null;
+        },
+      },
+      mediaPathOf: (mediaId) => mediaStore.pathOf(mediaId),
     });
-    const mediaStore = new MemoryMediaStore();
 
     const prefsStore = new MemoryReminderPrefsStore();
     const reminderBackend = reminderTable

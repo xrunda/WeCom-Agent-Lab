@@ -4,7 +4,12 @@
  */
 import { useEffect, useState } from 'react';
 
-import { ApiError, fetchRecordHistory, type RecordHistoryItem } from '../api.ts';
+import {
+  ApiError,
+  fetchRecordHistory,
+  type ArchiveMealView,
+  type RecordHistoryItem,
+} from '../api.ts';
 
 const MEAL_LABEL: Record<string, string> = {
   breakfast: '早餐',
@@ -63,15 +68,22 @@ interface Props {
 export function RecordsPage({ onBack, onUnauthorized }: Props) {
   const [date, setDate] = useState(localDate());
   const [items, setItems] = useState<RecordHistoryItem[]>([]);
+  const [archiveMeals, setArchiveMeals] = useState<ArchiveMealView[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     fetchRecordHistory(date)
-      .then((result) => setItems(result.items))
+      .then((result) => {
+        setItems(result.items);
+        setArchiveMeals(result.archiveMeals);
+      })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) onUnauthorized();
-        else setItems([]);
+        else {
+          setItems([]);
+          setArchiveMeals([]);
+        }
       })
       .finally(() => setLoading(false));
   }, [date, onUnauthorized]);
@@ -105,7 +117,7 @@ export function RecordsPage({ onBack, onUnauthorized }: Props) {
 
       {loading ? (
         <p className="muted">正在加载…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && archiveMeals.length === 0 ? (
         <div className="card">
           <p className="muted">这一天还没有记录。</p>
         </div>
@@ -128,6 +140,43 @@ export function RecordsPage({ onBack, onUnauthorized }: Props) {
             </li>
           ))}
         </ul>
+      )}
+
+      {archiveMeals.length > 0 && (
+        <section className="archive-meals" aria-label="服务群里的餐食">
+          <h2 className="archive-meals__title">服务群里的记录</h2>
+          <p className="muted archive-meals__hint">来自你在服务群里发的消息，团队也在看同一份。</p>
+          <ul className="archive-meals__list">
+            {archiveMeals.map((meal) => (
+              <li className="archive-meal" key={meal.id}>
+                {meal.hasPhoto && (
+                  <img
+                    className="archive-meal__photo"
+                    src={`/zhiban/h5/records/history/archive/${encodeURIComponent(meal.id)}/photo`}
+                    alt={`${MEAL_LABEL[meal.mealType] ?? '餐食'}照片`}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                )}
+                <div className="archive-meal__body">
+                  <p className="archive-meal__head">
+                    <span className="chip chip--done">{MEAL_LABEL[meal.mealType] ?? '餐食'}</span>
+                    <span className="muted archive-meal__time">
+                      {new Date(meal.occurredAt).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </p>
+                  <p className="archive-meal__foods">
+                    {meal.foods.map((food) => food.name).join('、') || '（未识别出食物）'}
+                  </p>
+                  {meal.notes && <p className="muted archive-meal__notes">{meal.notes}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <p className="muted">如需更正，请在「专业团队」里留言说明，团队处理后这里会更新。</p>

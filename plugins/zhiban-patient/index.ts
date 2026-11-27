@@ -215,6 +215,19 @@ export interface PatientRuntimeApi {
   consentStats(): { agreed: number; unknown: number; disagreed: number; total: number };
   /** #55：饮食记录，控制台 Agent 主页读取 */
   listMealLogs(patientId: string): MealLogRecord[];
+  /**
+   * 患者端 H5 记餐同步：同一 H5 记录只保留一条餐食记录（按 h5RecordId 去重），
+   * 照片后到时再调一次更新 mediaPath。返回同步后的记录。
+   */
+  upsertH5MealLog(input: {
+    patientId: string;
+    h5RecordId: string;
+    occurredAt: number;
+    mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+    foods: Array<{ name: string; portion?: string }>;
+    notes?: string;
+    mediaPath?: string;
+  }): MealLogRecord;
   /** 慢病管理：结构化档案（无记录时返回空档案） */
   getChronicProfile(patientId: string): ChronicProfile;
   /** 慢病管理：顾问手工 / Agent 对话提取写入 */
@@ -597,6 +610,32 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
           return stats;
         },
         listMealLogs: (patientId) => store?.listMealLogs(patientId) ?? [],
+        upsertH5MealLog: (input) => {
+          if (!store) throw new Error('患者存储未就绪');
+          const now = Date.now();
+          const existing = store.findMealLogByH5Record(input.patientId, input.h5RecordId);
+          const record: MealLogRecord = {
+            ...(existing ?? {
+              id: `meal_h5_${input.h5RecordId}`,
+              tenantId: config.tenantId,
+              patientId: input.patientId,
+              mealType: input.mealType,
+              foods: [],
+              confidence: 0,
+              sandbox: false,
+              createdAt: now,
+            }),
+            mealType: input.mealType,
+            foods: input.foods,
+            ...(input.notes ? { notes: input.notes } : {}),
+            ...(input.mediaPath ? { mediaPath: input.mediaPath } : {}),
+            source: 'h5',
+            h5RecordId: input.h5RecordId,
+            createdAt: existing?.createdAt ?? input.occurredAt,
+          };
+          store.saveMealLog(record);
+          return record;
+        },
         getChronicProfile: (patientId) => service.getChronicProfile(patientId),
         updateChronicProfile: (patientId, patch, actor) =>
           service.updateChronicProfile(patientId, patch, actor),

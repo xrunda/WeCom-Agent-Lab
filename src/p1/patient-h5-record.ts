@@ -64,6 +64,8 @@ export interface PatientRecord {
   recognition?: RecordRecognition;
   mediaIds: string[];
   linkedCalendarItemIds: string[];
+  /** 同步到团队侧饮食记录（meal_logs）后的 id；同步失败时为空 */
+  mealLogId?: string;
   duplication: { suspectedIds: string[]; status: 'none' | 'suspected' | 'distinct_confirmed' };
   revisions: Array<{ content: unknown; at: number; via: string }>;
   createdAt: number;
@@ -110,6 +112,42 @@ export const UNCONFIGURED_RECOGNITION: MealRecognitionPort = {
     return null;
   },
 };
+
+/**
+ * 「服务群里的餐食」只读视图。
+ *
+ * 与 `patient_records` 不同：这些是企微聊天里提取出来的，患者端只能看不能改，
+ * 照片经鉴权接口回读，不暴露服务端路径。
+ */
+export interface ArchiveMealView {
+  id: string;
+  occurredAt: number;
+  mealType: MealType;
+  foods: Array<{ name: string; portion?: string }>;
+  notes?: string;
+  hasPhoto: boolean;
+}
+
+/**
+ * 餐食记录与控制台 `meal_logs` 的桥。
+ *
+ * 单一事实来源是 `meal_logs`：H5 记的餐同步写进去，控制台「饮食记录」立刻可见；
+ * 群存档里提取的餐食由这里只读地借给 H5 展示，避免两套数据各说各的。
+ * 同步失败不能影响 H5 记录本身（先落库，再尽力同步）。
+ */
+export interface MealLogPort {
+  listArchive(patientId: string, date: string): ArchiveMealView[];
+  upsert(input: {
+    patientId: string;
+    h5RecordId: string;
+    occurredAt: number;
+    mealType: MealType;
+    foods: Array<{ name: string; portion?: string }>;
+    notes?: string;
+    mediaPath?: string;
+  }): { id: string };
+  photoPath(patientId: string, mealLogId: string): string | null;
+}
 
 export interface RecordBackend {
   load(): { records: PatientRecord[]; media: MediaRecord[] };
@@ -194,6 +232,10 @@ export interface RecordServiceOptions {
   timeZone?: string;
   /** 同一餐次多久内算「同日同餐」，用于疑似重复标记 */
   duplicateWindowMs?: number;
+  /** 与控制台 meal_logs 的桥；未接入时餐食只存在 H5 自己的表里 */
+  mealLogs?: MealLogPort;
+  /** H5 照片落盘后的文件路径（同步给控制台用）；未接入时不同步照片 */
+  mediaPathOf?: (mediaId: string) => string | undefined;
 }
 
 function localDateOf(at: number, timeZone: string): string {
@@ -216,6 +258,8 @@ export class RecordService {
   private readonly ids: IdFactory;
   private readonly now: () => number;
   private readonly timeZone: string;
+  private readonly mealLogs?: MealLogPort;
+  private readonly mediaPathOf?: (mediaId: string) => string | undefined;
 
   constructor(options: RecordServiceOptions) {
     this.tenantId = options.tenantId;
@@ -225,6 +269,49 @@ export class RecordService {
     this.ids = options.ids;
     this.now = options.now ?? Date.now;
     this.timeZone = options.timeZone ?? 'Asia/Shanghai';
+    this.mealLogs = options.mealLogs;
+    this.mediaPathOf = options.mediaPathOf;
+  }
+
+  /** 群存档里提取的餐食（只读）；未接入控制台时返回空数组 */
+  archiveMeals(patientId: string, date: string): ArchiveMealView[] {
+    return this.mealLogs?.listArchive(patientId, date) ?? [];
+  }
+
+  /** 群存档餐食的照片绝对路径；由路由做鉴权后读文件，路径不出接口 */
+  archiveMealPhotoPath(patientId: string, mealLogId: string): string | null {
+    return this.mealLogs?.photoPath(patientId, mealLogId) ?? null;
+  }
+
+  /**
+   * 把 H5 餐食同步到控制台 `meal_logs`。
+   *
+   * 先落库再同步：同步失败只记 mealLogId 缺失，绝不回滚患者已经记下的内容。
+   */
+  private syncMealLog(record: PatientRecord): void {
+    if (!this.mealLogs || record.kind !== 'meal') return;
+    const content = record.content as MealContent;
+    const foods = (content.confirmedFoods ?? []).map((item) => ({
+      name: item.name,
+      ...(item.portion ? { portion: item.portion } : {}),
+    }));
+    const mediaPath = record.mediaIds
+      .map((mediaId) => this.mediaPathOf?.(mediaId))
+      .find((value) => Boolean(value));
+    try {
+      const synced = this.mealLogs.upsert({
+        patientId: record.patientId,
+        h5RecordId: record.id,
+        occurredAt: record.occurredAt,
+        mealType: content.mealType,
+        foods,
+        ...(content.patientNotes ? { notes: content.patientNotes } : {}),
+        ...(mediaPath ? { mediaPath } : {}),
+      });
+      record.mealLogId = synced.id;
+    } catch {
+      // 团队侧暂不可用时不影响患者记录；下次挂照片会再同步一次
+    }
   }
 
   list(patientId: string, query: { date?: string; kind?: RecordKind } = {}): PatientRecord[] {
@@ -297,6 +384,12 @@ export class RecordService {
     }
 
     await this.backend.putRecord(record);
+
+    // 餐食同步到控制台 meal_logs（单一事实来源）；失败不影响记录本身
+    if (input.kind === 'meal') {
+      this.syncMealLog(record);
+      if (record.mealLogId) await this.backend.putRecord(record);
+    }
 
     // 不适反馈进入跟进事件（A08）
     if (input.kind === 'evening_review' && input.review?.discomfort?.trim()) {
@@ -386,6 +479,8 @@ export class RecordService {
     if (record.kind === 'meal') {
       const content = record.content as MealContent;
       record.content = { ...content, aiCandidates: candidates ?? [] };
+      // 照片后到：把 mediaPath 补进控制台那条记录
+      this.syncMealLog(record);
     }
     await this.backend.putRecord(record);
     return { record, recognition: record.recognition };
@@ -411,6 +506,8 @@ export class RecordService {
           ...(item.portion ? { portion: item.portion.slice(0, 20) } : {}),
         })),
     };
+    // 患者确认后，团队侧那条饮食记录跟着更新（否则控制台还是识别候选）
+    this.syncMealLog(record);
     await this.backend.putRecord(record);
     return record;
   }
@@ -446,7 +543,11 @@ export class RecordService {
         confirmedFoods: (input.meal.confirmedFoods ?? [])
           .filter((item) => item.name?.trim())
           .slice(0, 20)
-          .map((item) => ({ name: item.name.trim().slice(0, 40) })),
+          .map((item) => ({
+            name: item.name.trim().slice(0, 40),
+            // 份量是患者自己确认的一部分，别在归一化时丢掉
+            ...(item.portion?.trim() ? { portion: item.portion.trim().slice(0, 20) } : {}),
+          })),
         ...(input.meal.patientNotes ? { patientNotes: input.meal.patientNotes.slice(0, 200) } : {}),
       } satisfies MealContent;
     }

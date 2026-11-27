@@ -2794,3 +2794,77 @@ dialog:modal {
   min-height: 44px;
   font-size: 14px;
 }
+
+/* ================= 记录页：服务群里的餐食（只读） ================= */
+
+.archive-meals {
+  margin: 18px 0 8px;
+}
+
+.archive-meals__title {
+  margin: 0 0 4px;
+  font-family: var(--serif);
+  font-size: 19px;
+  color: var(--ink);
+}
+
+.archive-meals__hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.archive-meals__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.archive-meal {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+
+.archive-meal__photo {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 84px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--line);
+}
+
+.archive-meal__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.archive-meal__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.archive-meal__time {
+  font-size: 13px;
+}
+
+.archive-meal__foods {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.archive-meal__notes {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
