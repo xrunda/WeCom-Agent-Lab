@@ -6,6 +6,7 @@ import { EChart } from '../../components/EChart.tsx';
 import { PageHeader } from '../../components/PageHeader.tsx';
 import { Panel } from '../../components/Panel.tsx';
 import { SampleDataTag } from '../../components/SampleDataTag.tsx';
+import { getDashboardKpis, getDashboardValue } from '../../mock/dashboard.ts';
 import { isMockMode } from '../../mock/http.ts';
 import {
   SAMPLE_ADVISORS,
@@ -21,6 +22,8 @@ import {
 } from '../../sample/index.ts';
 import { chartColors, consoleTokens as t, outcomeColor } from '../../theme/tokens.ts';
 import { formatPercent } from '../../utils/format.ts';
+import { useEffect, useMemo, useState } from 'react';
+import type { DashboardKpis, DashboardRange, DashboardValue } from '../../types.ts';
 import './reports.css';
 
 const PERIOD_HINT = `${SAMPLE_DAYS[0].label} 至 ${SAMPLE_DAYS[SAMPLE_DAYS.length - 1].label}`;
@@ -252,22 +255,7 @@ export default function ReportsPage() {
   const activePatients = SAMPLE_PATIENTS.filter((patient) => patient.activity === 'active').length;
 
   if (!isMockMode) {
-    return (
-      <div className="report-page">
-        <PageHeader
-          title="数据报表"
-          description="服务量、响应时效、核验质量、团队对比与客户活跃。"
-        />
-        <Panel title="尚未接入真实统计">
-          <Alert
-            type="info"
-            showIcon
-            message="真实模式下不展示示例报表数字"
-            description="数据报表的统计口径尚未接入真实草稿与存档数据，避免与真实运营数据混淆。当前请以工作台 KPI、服务流与审计日志为准。"
-          />
-        </Panel>
-      </div>
-    );
+    return <RealReports />;
   }
 
   return (
@@ -407,6 +395,234 @@ export default function ReportsPage() {
         本页为预置示例：{SAMPLE_PERIOD_LABEL}，{SAMPLE_ADVISORS.length} 位顾问、{SAMPLE_TOTALS.patients} 位客户、
         {SAMPLE_TOTALS.volume} 条服务消息。顾问合计与趋势合计一致；核验结果四类合计同样为 {SAMPLE_TOTALS.volume} 条。
       </p>
+    </div>
+  );
+}
+
+/* ================= 真实数据报表（真实模式） ================= */
+
+const RANGE_LABEL: Record<DashboardRange, string> = {
+  today: '今天',
+  week: '本周',
+  month: '本月',
+};
+
+/**
+ * 真实模式报表：只用后端真实口径（/dashboard/value、/dashboard/kpis）。
+ * 没有数据时给空态说明，绝不回退到示例数字。
+ */
+function RealReports() {
+  const [range, setRange] = useState<DashboardRange>('week');
+  const [value, setValue] = useState<DashboardValue | null>(null);
+  const [kpis, setKpis] = useState<DashboardKpis | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([getDashboardValue(range), getDashboardKpis(range)])
+      .then(([nextValue, nextKpis]) => {
+        if (cancelled) return;
+        setValue(nextValue);
+        setKpis(nextKpis);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setValue(null);
+          setKpis(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
+
+  const trend = value?.trend ?? [];
+  const ranking = value?.advisorRanking ?? [];
+  const hasTrend = trend.some((point) => point.volume > 0);
+
+  const trendOption = useMemo<EChartsOption>(() => {
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 4, right: 12, top: 14, bottom: 2, containLabel: true },
+      xAxis: { type: 'category', data: trend.map((point) => point.label), axisLabel: { interval: 0 } },
+      yAxis: { type: 'value', minInterval: 1 },
+      series: [
+        {
+          name: '草稿',
+          type: 'bar',
+          data: trend.map((point) => point.volume),
+          barWidth: 12,
+          itemStyle: { color: chartColors.volumeBar, borderRadius: [3, 3, 0, 0] },
+          z: 1,
+        },
+        {
+          name: '已核验',
+          type: 'line',
+          data: trend.map((point) => point.verified),
+          smooth: 0.3,
+          symbolSize: 5,
+          lineStyle: { width: 2, color: t.brand },
+          itemStyle: { color: t.brand, borderColor: t.surface, borderWidth: 1.5 },
+          z: 3,
+        },
+      ],
+    } as EChartsOption;
+  }, [trend]);
+
+  const adoptionOption = useMemo<EChartsOption>(() => {
+    const adoption = value?.adoption;
+    return {
+      tooltip: { trigger: 'item', formatter: '{b}：{c} 条（{d}%）' },
+      title: {
+        text: formatPercent(value?.verificationPassRate ?? 0),
+        subtext: '核验通过率',
+        left: 'center',
+        top: '38%',
+        textStyle: { fontSize: 20, color: t.ink, fontWeight: 600 },
+        subtextStyle: { fontSize: 12, color: t.muted },
+      },
+      legend: { bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8 },
+      series: [
+        {
+          type: 'pie',
+          radius: ['58%', '76%'],
+          center: ['50%', '45%'],
+          avoidLabelOverlap: true,
+          label: { show: false },
+          data: [
+            { name: '原样发出', value: adoption?.original ?? 0, itemStyle: { color: outcomeColor('verified') } },
+            { name: '改稿后发出', value: adoption?.revised ?? 0, itemStyle: { color: outcomeColor('edit_sent') } },
+            { name: '人工改写', value: adoption?.edited ?? 0, itemStyle: { color: outcomeColor('unverified') } },
+          ].filter((item) => item.value > 0),
+        },
+      ],
+    } as EChartsOption;
+  }, [value]);
+
+  return (
+    <div className="report-page">
+      <PageHeader
+        title="数据报表"
+        description="服务量、响应时效、核验质量、团队对比与客户活跃。"
+      />
+
+      <section className="report-metrics" aria-label="统计范围">
+        {(['today', 'week', 'month'] as DashboardRange[]).map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={`report-metric ${range === item ? 'is-active' : ''}`}
+            aria-pressed={range === item}
+            onClick={() => setRange(item)}
+            style={{ cursor: 'pointer', textAlign: 'left' }}
+          >
+            <span className="report-metric-label">{RANGE_LABEL[item]}</span>
+            <span className="report-metric-hint">
+              {range === item ? '当前统计范围' : '点击切换'}
+            </span>
+          </button>
+        ))}
+      </section>
+
+      <section className="report-metrics" aria-label="核心指标">
+        <div className="report-metric">
+          <span className="report-metric-label">草稿</span>
+          <span className="report-metric-value report-num">
+            {kpis?.draftsToday ?? 0}
+            <small>条</small>
+          </span>
+          <span className="report-metric-hint">{RANGE_LABEL[range]}生成</span>
+        </div>
+        <div className="report-metric">
+          <span className="report-metric-label">核验通过率</span>
+          <span className="report-metric-value report-num">
+            {formatPercent(kpis?.verificationPassRate ?? 0)}
+          </span>
+          <span className="report-metric-hint">{value?.adoption.rateFormula ?? '—'}</span>
+        </div>
+        <div className="report-metric">
+          <span className="report-metric-label">平均响应</span>
+          <span className="report-metric-value report-num">
+            {kpis?.avgResponseSeconds ?? 0}
+            <small>秒</small>
+          </span>
+          <span className="report-metric-hint">从客户发言到草稿生成</span>
+        </div>
+        <div className="report-metric">
+          <span className="report-metric-label">人均客户</span>
+          <span className="report-metric-value report-num">{value?.patientsPerAdvisor ?? 0}</span>
+          <span className="report-metric-hint">在服务患者 / 在线顾问</span>
+        </div>
+        <div className="report-metric">
+          <span className="report-metric-label">主动关怀</span>
+          <span className="report-metric-value report-num">
+            {value?.proactiveCareCount ?? 0}
+            <small>次</small>
+          </span>
+          <span className="report-metric-hint">计划按期触发</span>
+        </div>
+      </section>
+
+      {!loading && !hasTrend && (
+        <Panel title="还没有可统计的草稿">
+          <Alert
+            type="info"
+            showIcon
+            message="真实数据为空时不做推测"
+            description="报表只统计已生成的草稿与核验结果。等群里有新的客户消息、Agent 生成草稿后，这里会出现近 14 天的趋势。"
+          />
+        </Panel>
+      )}
+
+      {hasTrend && (
+        <div className="report-grid report-grid-main">
+          <Panel title="近 14 天草稿与核验">
+            <EChart option={trendOption} height={262} ariaLabel="近 14 天草稿量与已核验趋势" />
+            <p className="report-chart-note">
+              柱为当天生成草稿数，线为其中已核验通过的数量。
+            </p>
+          </Panel>
+          <Panel title="草稿去向">
+            <EChart option={adoptionOption} height={286} ariaLabel="草稿去向构成环形图" />
+            <p className="report-chart-note">
+              原样发出 {value?.adoption.original ?? 0} 条 · 改稿后 {value?.adoption.revised ?? 0} 条 ·
+              人工改写 {value?.adoption.edited ?? 0} 条
+            </p>
+          </Panel>
+        </div>
+      )}
+
+      <Panel title="顾问对比" hint="按草稿量排序">
+        <Table
+          rowKey="advisorId"
+          size="small"
+          pagination={false}
+          loading={loading}
+          dataSource={ranking}
+          locale={{ emptyText: '还没有顾问草稿数据' }}
+          columns={[
+            { title: '顾问', dataIndex: 'name' },
+            { title: '草稿', dataIndex: 'volume', width: 90 },
+            { title: '已核验', dataIndex: 'verified', width: 90 },
+            {
+              title: '平均响应',
+              dataIndex: 'avgResponseSeconds',
+              width: 120,
+              render: (seconds: number) => (seconds > 0 ? `${seconds} 秒` : '—'),
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 100,
+              render: (status: string) => (status === 'active' ? '服务中' : '已暂停'),
+            },
+          ]}
+        />
+      </Panel>
     </div>
   );
 }
