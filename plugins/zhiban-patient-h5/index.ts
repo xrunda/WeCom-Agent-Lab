@@ -323,10 +323,25 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
       meStatusDetail: (patientId) => {
         const patient = patientView(patientId);
         if (!patient) return { status: 'service_paused', missingFields: [] };
-        const status = profile.meStatus(patientId, patient.status);
-        const missingFields = profile
-          .status(patientId)
-          .missingKeys.map((key) => FIELD_LABELS[key] ?? key);
+        // 与 /me 的 composeMe 同一口径：有计划就看计划状态，别让控制台说「准备中」
+        // 而患者手机上显示「执行中」
+        const current = plan.currentForPatient(patientId);
+        const latest = plan.list(patientId)[0];
+        const status =
+          current?.status === 'published'
+            ? 'plan_active'
+            : current?.status === 'suspended'
+              ? 'plan_suspended'
+              : latest?.status === 'data_pending'
+                ? 'data_pending'
+                : latest && ['reviewing', 'generating', 'generate_failed'].includes(latest.status)
+                  ? 'plan_generating'
+                  : profile.meStatus(patientId, patient.status);
+        const details = profile.status(patientId);
+        const missingFields =
+          status === 'profile_incomplete'
+            ? details.missingKeys.map((key) => FIELD_LABELS[key] ?? key)
+            : [];
         return { status, missingFields };
       },
       invitationLink: (record) =>

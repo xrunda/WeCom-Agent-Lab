@@ -113,7 +113,17 @@ export function App() {
     if (usedInvite) setInviteCode(null);
     // 会话开始事件由服务端在兑换/登录时记录，前端不重复上报
     setMe(null); // 新登录：丢弃上一个患者的残留状态
-    setStage('consents');
+    // 已授权过的患者直接进主流程：授权页只在真正缺授权（403）时出现，
+    // 不让每次登录都先做一遍五项勾选。逐项授权仍可在「我的 → 隐私与授权」里管理。
+    void (async () => {
+      const status = await refreshMe();
+      if (status === 'login') return;
+      if (status === null) {
+        setStage('consents');
+        return;
+      }
+      setStage(status === 'profile_incomplete' || status === 'data_pending' ? 'manifesto' : 'app');
+    })();
   };
 
   const onOnboardingDone = async (_status: ProfileStatusView): Promise<void> => {
