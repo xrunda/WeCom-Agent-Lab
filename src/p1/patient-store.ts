@@ -116,6 +116,7 @@ export class MemoryPatientStore {
     for (const patient of snapshot.patients) this.patients.set(patient.id, patient);
     for (const session of snapshot.sessions) this.sessions.set(session.patientId, session);
     for (const log of snapshot.mealLogs ?? []) this.mealLogs.set(log.id, log);
+    this.migratePatientNames();
     for (const profile of snapshot.chronicProfiles ?? []) {
       this.chronicProfiles.set(profile.patientId, profile);
     }
@@ -343,6 +344,32 @@ export class MemoryPatientStore {
 
   lastPersistError(): Error | undefined {
     return this.lastError;
+  }
+
+  /**
+   * 一次性迁移：把「群昵称 / 备注名」从单一 displayName 里拆出来。
+   *
+   * - `nickname` 从群成员记录回填（同一 externalUserId）
+   * - 现有 displayName 不是占位名、也不等于昵称时，视为顾问写的备注 → `remark`
+   * 只补空字段，不覆盖已有值；不做持久化写入，下次保存时自然带上。
+   */
+  private migratePatientNames(): void {
+    for (const patient of this.patients.values()) {
+      if (patient.deletedAt !== undefined) continue;
+      if (!patient.nickname && patient.externalUserId) {
+        const member = [...this.members.values()].find(
+          (item) =>
+            item.isExternal && item.externalUserId === patient.externalUserId && item.displayName,
+        );
+        if (member) patient.nickname = member.displayName;
+      }
+      if (patient.remark === undefined && patient.displayName) {
+        const isPlaceholder = /^外部(成员|客户) /.test(patient.displayName);
+        if (!isPlaceholder && patient.displayName !== patient.nickname) {
+          patient.remark = patient.displayName;
+        }
+      }
+    }
   }
 
   private persist(table: PatientTable, key: string, value: unknown): void {

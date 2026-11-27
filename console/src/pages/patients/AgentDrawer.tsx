@@ -215,7 +215,11 @@ export function AgentDrawer({
           ) : (
             <div className="agent-identity-line">
               <Text type="secondary" style={{ fontSize: 12 }}>
-                该 Agent 对应{term}：<Text strong>{detail.patient.displayName}</Text>（顾问已确认）
+                该 Agent 对应{term}：<Text strong>{detail.patient.displayName}</Text>
+                {detail.patient.nickname && detail.patient.nickname !== detail.patient.displayName
+                  ? `（群昵称 ${detail.patient.nickname}）`
+                  : ''}
+                （顾问已确认）
               </Text>
               {can('patient.write') ? (
                 <Button size="small" icon={<EditOutlined />} onClick={() => setIdentityOpen(true)}>

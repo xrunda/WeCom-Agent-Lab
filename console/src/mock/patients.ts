@@ -38,7 +38,12 @@ export type ActionResult = 'success' | 'failed' | 'skipped';
 export interface Patient {
   id: string;
   tenantId: string;
+  /** 展示名：备注名 || 群昵称 || 占位名 */
   displayName: string;
+  /** 企微群昵称（客户自己的名字，只读） */
+  nickname?: string | null;
+  /** 我们的备注名（顾问可改） */
+  remark?: string | null;
   avatar: string | null;
   externalUserId: string | null;
   /** 患者身份确认状态：pending=系统按发言推测待确认；confirmed=顾问手动指定 */
