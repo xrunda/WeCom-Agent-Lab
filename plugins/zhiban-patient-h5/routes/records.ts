@@ -4,6 +4,9 @@
  * 关键顺序：先建文字记录，再传照片。照片上传/识别失败只影响 recognition 状态，
  * 已保存的记录不会因此丢失（A07）。
  */
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { H5Error } from '../../../src/p1/patient-h5.ts';
 import { prepareImage } from '../../../src/p1/patient-h5-media.ts';
 import { RecordError } from '../../../src/p1/patient-h5-record.ts';
@@ -73,6 +76,38 @@ export class DomainRecordBackend {
       `${this.tenantId}\u0000${record.patientId}\u0000${record.key}`,
       record,
     );
+  }
+}
+
+/**
+ * 照片落盘存储。
+ *
+ * 原来用内存 Map，进程一重启照片就丢；而控制台「饮食记录」是通过
+ * `meal_logs.mediaPath` 直接读文件的——内存存储会让 H5 记的餐在控制台永远没有图。
+ */
+export class FileMediaStore implements MediaStore {
+  private readonly root: string;
+
+  constructor(root: string) {
+    this.root = root;
+  }
+
+  /** 落盘路径；同步给 `meal_logs.mediaPath`，控制台据此回读 */
+  pathOf(id: string): string {
+    return join(this.root, id);
+  }
+
+  async put(id: string, data: Buffer): Promise<void> {
+    await mkdir(this.root, { recursive: true });
+    await writeFile(this.pathOf(id), data);
+  }
+
+  async get(id: string): Promise<Buffer | undefined> {
+    try {
+      return await readFile(this.pathOf(id));
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -290,6 +325,30 @@ export function createRecordRoutes(options: {
     return true;
   };
 
+  /** GET /records/history/archive/:id/photo —— 群存档餐食照片，本人鉴权读取 */
+  const archiveMealPhoto: H5RouteExtension = async (_req, res, ctx) => {
+    const match = /^\/records\/history\/archive\/([^/]+)\/photo$/.exec(ctx.path);
+    if (!match || ctx.method !== 'GET') return false;
+    const view = await ctx.requireSession();
+    const filePath = options.records.archiveMealPhotoPath(view.session.patientId, match[1]!);
+    if (!filePath) throw new H5Error('NOT_FOUND', '照片不存在');
+    let data: Buffer;
+    try {
+      data = await readFile(filePath);
+    } catch {
+      throw new H5Error('NOT_FOUND', '照片不存在');
+    }
+    const mime = prepareImage(data);
+    res.writeHead(200, {
+      'Content-Type': mime.ok ? mime.image.mimeType : 'application/octet-stream',
+      'Cache-Control': 'private, max-age=300',
+      'Content-Length': data.length,
+      'X-Request-Id': ctx.requestId,
+    });
+    res.end(data as unknown as string);
+    return true;
+  };
+
   /** GET /media/:id —— 本人鉴权读取 */
   const media: H5RouteExtension = async (_req, res, ctx) => {
     const match = /^\/media\/([^/]+)$/.exec(ctx.path);
@@ -312,5 +371,5 @@ export function createRecordRoutes(options: {
     return true;
   };
 
-  return [photo, confirm, detail, correct, list, media, create];
+  return [photo, confirm, detail, correct, list, media, archiveMealPhoto, create];
 }

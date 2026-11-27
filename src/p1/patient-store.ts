@@ -269,6 +269,13 @@ export class MemoryPatientStore {
     return this.mealLogs.get(id);
   }
 
+  /** 按 H5 记录 id 找已同步的餐食记录（去重与更新照片用） */
+  findMealLogByH5Record(patientId: string, h5RecordId: string): MealLogRecord | undefined {
+    return [...this.mealLogs.values()].find(
+      (log) => log.patientId === patientId && log.h5RecordId === h5RecordId,
+    );
+  }
+
   listMealLogs(patientId: string): MealLogRecord[] {
     return [...this.mealLogs.values()]
       .filter((log) => log.patientId === patientId)

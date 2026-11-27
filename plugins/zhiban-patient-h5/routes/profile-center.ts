@@ -3,7 +3,7 @@
  *
  * 统计全部由有效数据复算；纠错只置「待确认」并进团队待办。
  */
-import { H5Error } from '../../../src/p1/patient-h5.ts';
+import { H5Error, localDateKey } from '../../../src/p1/patient-h5.ts';
 import type { ProfileCenterService } from '../../../src/p1/patient-h5-profile-center.ts';
 import type { H5RouteExtension } from '../http.ts';
 
@@ -24,8 +24,12 @@ export function createProfileCenterRoutes(options: {
     if (ctx.path !== '/records/history' || ctx.method !== 'GET') return false;
     const view = await ctx.requireSession();
     const date = ctx.query.get('date') ?? undefined;
+    const patientId = view.session.patientId;
+    const resolvedDate = date ?? localDateKey(Date.now());
     ctx.ok(200, {
-      items: options.center.recordsOn(view.session.patientId, date),
+      items: options.center.recordsOn(patientId, date),
+      // 群存档里提取的餐食：只读展示，带不带照片由 hasPhoto 决定
+      archiveMeals: options.center.archiveMeals(patientId, resolvedDate),
       ...(date ? { date } : {}),
     });
     return true;

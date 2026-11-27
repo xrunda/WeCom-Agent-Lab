@@ -89,6 +89,11 @@ export class ProfileCenterService {
     };
   }
 
+  /** 群存档里提取的餐食（只读），与 H5 自己的记录一起展示 */
+  archiveMeals(patientId: string, date: string) {
+    return this.records.archiveMeals(patientId, date);
+  }
+
   /** 按日查看记录（H09 记录历史） */
   recordsOn(patientId: string, date?: string): PatientRecord[] {
     return this.records.list(patientId, date ? { date } : {});

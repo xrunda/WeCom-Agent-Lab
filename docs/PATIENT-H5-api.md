@@ -473,7 +473,12 @@
 
 ### 7.5 `GET /zhiban/h5/records?date=&from=&to=&kind=&page=`
 
-角色：患者会话。按日查看（H09）。响应 `200`：`{ items: [patient_record], ... }`，按 `occurredAt` 倒序。
+角色：患者会话。按日查看（H09）。响应 `200`：`{ items: [patient_record], archiveMeals: [archive_meal], ... }`，`items` 按 `occurredAt` 倒序。
+
+- `archiveMeals`：群存档里提取的餐食（**只读**，`source: 'wecom_archive'`），与控制台「饮食记录」是同一份数据；
+  H5 自己记的餐不会重复出现在这里（按 `h5RecordId` 去重）。
+- `archive_meal`：`{ id, occurredAt, mealType, foods: [{ name, portion? }], notes?, hasPhoto }`。
+- 照片：`GET /zhiban/h5/records/history/archive/{id}/photo`（患者会话 + 本人校验），磁盘路径不出接口。
 
 ### 7.6 `PATCH /zhiban/h5/records/{id}`
 

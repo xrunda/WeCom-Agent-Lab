@@ -189,6 +189,13 @@ export interface MealLogRecord {
   agentComment?: string;
   confidence: number;
   sandbox: boolean;
+  /**
+   * 记录来源：群存档提取（默认）或患者端 H5 记餐。
+   * H5 记的餐同样进这张表，控制台「饮食记录」与患者端看到的是同一份数据。
+   */
+  source?: 'wecom_archive' | 'h5';
+  /** H5 记录 id：用于去重（同一条 H5 记录不重复出现在列表里） */
+  h5RecordId?: string;
   createdAt: number;
 }
 

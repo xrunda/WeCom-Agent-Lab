@@ -672,13 +672,27 @@ export interface RecordHistoryItem {
   content: Record<string, unknown>;
 }
 
-export async function fetchRecordHistory(date?: string): Promise<{ items: RecordHistoryItem[] }> {
+/** 群存档里提取的餐食（只读）：与控制台「饮食记录」是同一份数据 */
+export interface ArchiveMealView {
+  id: string;
+  occurredAt: number;
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  foods: Array<{ name: string; portion?: string }>;
+  notes?: string;
+  hasPhoto: boolean;
+}
+
+export async function fetchRecordHistory(
+  date?: string,
+): Promise<{ items: RecordHistoryItem[]; archiveMeals: ArchiveMealView[] }> {
   if (isDemoMode()) {
     const { demoHistory } = await import('./mock/demo-api.ts');
-    return { items: demoHistory(date) };
+    return { items: demoHistory(date), archiveMeals: [] };
   }
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
-  return apiRequest<{ items: RecordHistoryItem[] }>(`/records/history${query}`);
+  return apiRequest<{ items: RecordHistoryItem[]; archiveMeals?: ArchiveMealView[] }>(
+    `/records/history${query}`,
+  ).then((result) => ({ items: result.items, archiveMeals: result.archiveMeals ?? [] }));
 }
 
 export async function requestProfileCorrection(input: {

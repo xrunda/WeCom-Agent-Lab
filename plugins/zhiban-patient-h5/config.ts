@@ -6,6 +6,9 @@
  * 真实登录阻塞（契约 api §2.1：不得回退到无验证码模式承载真实数据）。
  */
 
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { ManifestoConfig } from './routes/profile.ts';
 
 export type SmsMode = 'mock' | 'real' | 'unconfigured';
@@ -31,6 +34,8 @@ export interface PatientH5Config {
   manifesto?: ManifestoConfig;
   /** 方案生成会话的工作区根目录；缺省用系统临时目录 */
   planWorkspaceRoot?: string;
+  /** 患者端照片落盘根目录；必须可写（VM 上要在 /var/lib/zhiban 下） */
+  mediaRootDir: string;
   /** 生成会话使用的 agent 预设（DSH 侧配置名） */
   planAgentPreset?: string;
   /** 只用于审计回显的模型名，不做路由 */
@@ -56,6 +61,7 @@ interface RawConfig {
   cookieSecure?: unknown;
   manifesto?: unknown;
   planWorkspaceRoot?: unknown;
+  mediaRootDir?: unknown;
   planAgentPreset?: unknown;
   planModelName?: unknown;
   supervisorAccountId?: unknown;
@@ -135,6 +141,10 @@ export function parsePatientH5Config(raw: unknown): PatientH5Config {
     ...(typeof input.planWorkspaceRoot === 'string' && input.planWorkspaceRoot
       ? { planWorkspaceRoot: input.planWorkspaceRoot }
       : {}),
+    mediaRootDir:
+      typeof input.mediaRootDir === 'string' && input.mediaRootDir
+        ? input.mediaRootDir
+        : join(tmpdir(), 'zhiban-h5-media'),
     ...(typeof input.planAgentPreset === 'string' && input.planAgentPreset
       ? { planAgentPreset: input.planAgentPreset }
       : {}),
