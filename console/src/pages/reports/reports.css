@@ -371,3 +371,9 @@
     transition: none !important;
   }
 }
+
+/* 真实报表：范围切换按钮沿用指标卡外观，选中时描边高亮 */
+.report-metric.is-active {
+  background: var(--zb-brand-tint, #e9f2f0);
+  box-shadow: inset 0 0 0 1px var(--zb-brand, #0f766e);
+}
