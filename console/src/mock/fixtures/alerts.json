@@ -77,7 +77,9 @@
     "escalatedTo": null,
     "createdAt": 1794210000000,
     "updatedAt": 1794210000000,
-    "sandbox": false
+    "sandbox": false,
+    "source": "draft",
+    "reviewStage": "keyword"
   },
   {
     "id": "alt_05",
@@ -118,7 +120,8 @@
     "groupId": "grp_01",
     "createdAt": 1794205200000,
     "message": "群「糖友-张女士」李顾问的发言命中规则：不诊断、不调药、不承诺疗效。发言内容：「不用专门去医院确诊了，您这就是糖尿病，二甲双胍直接加量到每天两片，坚持两个月一定有效。」",
-    "updatedAt": 1794205200000
+    "updatedAt": 1794205200000,
+    "reviewStage": "semantic"
   },
   {
     "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
@@ -139,7 +142,8 @@
     "groupId": "grp_02",
     "createdAt": 1794204300000,
     "message": "群「减重-刘先生」王顾问的发言命中规则：不调药。发言内容：「这个月掉了八斤，减重药可以减药了，下个月复查看情况再决定要不要换药。」",
-    "updatedAt": 1794204300000
+    "updatedAt": 1794204300000,
+    "reviewStage": "semantic"
   },
   {
     "tenantId": "tn_01j9z3k4m5n6p7q8r9s0t1u2v3",
@@ -160,6 +164,7 @@
     "groupId": "grp_03",
     "createdAt": 1794203400000,
     "message": "群「产后-孙女士」李顾问的发言命中规则：不承诺疗效。发言内容：「按这个汤谱喝一个月，保证治好你的产后脱发，很多人都是这么好的。」",
-    "updatedAt": 1794206100000
+    "updatedAt": 1794206100000,
+    "reviewStage": "semantic"
   }
 ]

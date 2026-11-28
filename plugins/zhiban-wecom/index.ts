@@ -118,6 +118,8 @@ interface StaffQualityGuard {
     groupId?: string;
     groupName?: string;
     messageId?: string;
+    /** 语义复核判违规 semantic；未复核 / 复核不可用 keyword（保守告警） */
+    reviewStage?: 'keyword' | 'semantic';
   }): {
     hits: string[];
     hitNames: string[];
@@ -145,7 +147,8 @@ export interface StaffQualityDecisionDeps {
   precheck?(): { hits: string[]; hitNames: string[] } | undefined;
   /** 语义复核；不可用时直接告警 */
   judge?(input: { text: string; ruleNames: string[] }): Promise<'violation' | 'ok' | 'unknown'>;
-  raiseAlert(): void;
+  /** reviewStage 告诉控制台这条告警是语义确认的违规，还是只有关键词初筛 */
+  raiseAlert(reviewStage: 'keyword' | 'semantic'): void;
   /** 语义复核判为合规时的留痕（不产生告警） */
   dismiss?(ruleIds: string[]): void;
 }
@@ -170,12 +173,12 @@ export async function decideStaffQuality(
     pre = undefined;
   }
   if (!pre) {
-    deps.raiseAlert();
+    deps.raiseAlert('keyword');
     return 'alerted';
   }
   if (pre.hits.length === 0) return 'clean';
   if (!deps.judge) {
-    deps.raiseAlert();
+    deps.raiseAlert('keyword');
     return 'alerted';
   }
 
@@ -186,7 +189,8 @@ export async function decideStaffQuality(
     verdict = 'unknown';
   }
   if (verdict !== 'ok') {
-    deps.raiseAlert();
+    // 语义复核确认违规 → semantic；复核不可用（unknown）→ 保守告警但标 keyword
+    deps.raiseAlert(verdict === 'violation' ? 'semantic' : 'keyword');
     return 'alerted';
   }
   try {
@@ -315,8 +319,8 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       messageId: message.msgid,
     };
 
-    const raiseAlert = (): void => {
-      const result = guard.reviewStaffMessage!(input);
+    const raiseAlert = (reviewStage: 'keyword' | 'semantic'): void => {
+      const result = guard.reviewStaffMessage!({ ...input, reviewStage });
       if (!result?.alertId) return;
       log(
         `员工发言命中红线：advisor=${tailId(advisor?.id ?? message.from)} ` +
@@ -359,7 +363,7 @@ export function apply(ctx: DshPluginContext, rawConfig: unknown): void {
       .catch((error: unknown) => {
         // 兜底：告警本身失败也要留日志，且不带发言正文
         try {
-          raiseAlert();
+          raiseAlert('keyword');
         } catch {
           log(
             `员工发言质检失败 msgid=${tailId(message.msgid)}：` +

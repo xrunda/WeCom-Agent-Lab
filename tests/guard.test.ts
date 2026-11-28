@@ -162,6 +162,92 @@ test('患者自己提到调药、草稿没调药：不产生红线告警', async
   assert.equal(h.service.alerts().length, 0);
 });
 
+test('草稿里的合规提醒不算命中：否定句、并列结构与「请勿 / 不建议」', () => {
+  const h = harness();
+  // 真实误报样本：血压偏低时提醒「要跟医生说一声，不要自己停药或减量」。
+  // 「减量」离「不要」隔了 6 个字，只靠 4 字窗口挡不住，要靠并列结构延伸。
+  const reminders = [
+    '如果血压偏低还有这些感觉，要跟医生说一声，不要自己停药或减量。',
+    '请勿自行停药，有不舒服先联系医生。',
+    '不建议自己减药，也不建议换药。',
+    '无需停药，继续按医生开的剂量吃。',
+    '不要自行加量，也别停药，有情况随时联系医生。',
+    '别停药，等医生看过再说。',
+  ];
+  for (const body of reminders) {
+    const result = h.service.review({
+      body,
+      riskLevel: 'low',
+      patientId: 'pt_1',
+      source: 'inbound',
+    });
+    assert.deepEqual(result.hits, [], `合规提醒不该命中：${body}`);
+    assert.equal(result.riskLevel, 'low');
+  }
+  assert.equal(h.service.alerts().length, 0);
+
+  // 否定不跨逗号：前半句是提醒，后半句仍在替客户调药，照常命中
+  const violations = [
+    '可以先停药观察两天。',
+    '不用怕，加量到两片试试。',
+    '建议口服一片降糖药。',
+    '这个药可以减量到半片。',
+    '不建议停药，但可以自行减量到半片。',
+  ];
+  for (const body of violations) {
+    const result = h.service.review({
+      body,
+      riskLevel: 'low',
+      patientId: 'pt_1',
+      source: 'inbound',
+    });
+    assert.ok(result.hits.includes('rul_builtin_no_medication'), `真违规必须命中：${body}`);
+    assert.equal(result.riskLevel, 'high');
+  }
+});
+
+test('草稿告警标 keyword：只有实际命中的关键词进 hitKeywords，摘录围绕它截取', () => {
+  const h = harness();
+  const body =
+    '这几天血压偏低时，要跟医生说一声，不要自己停药或减量。今天开始可以加量到两片试试。';
+  const result = h.service.review({
+    body,
+    riskLevel: 'low',
+    patientId: 'pt_1',
+    source: 'inbound',
+  });
+  assert.ok(result.hits.includes('rul_builtin_no_medication'));
+  const alert = h.service.alerts()[0]!;
+  // 草稿侧还没接语义复核：控制台必须能看出这是初筛，不是已确认的违规
+  assert.equal(alert.reviewStage, 'keyword');
+  // 「停药」「减量」处在否定句里，不该被当地标；真正的触发词是「加量」
+  assert.deepEqual(alert.hitKeywords, ['加量']);
+  assert.match(alert.message, /草稿内容：「.*加量到两片试试。/);
+  // 摘录以真正的触发词为中心，不能落在被否定掉的「不要自己停药或减量」上
+  assert.equal(alert.message.includes('不要自己停药或减量。今天开始可以加量'), true);
+});
+
+test('员工发言告警记录判定层级：语义复核确认 semantic，复核不可用 keyword', () => {
+  const h = harness();
+  const confirmed = h.service.reviewStaffMessage({
+    text: '建议口服一粒格华止。',
+    advisorId: 'adv_1',
+    messageId: 'msg_semantic_1',
+    reviewStage: 'semantic',
+  });
+  assert.ok(confirmed.alertId);
+  assert.equal(h.service.alerts()[0]?.reviewStage, 'semantic');
+  assert.deepEqual(h.service.alerts()[0]?.hitKeywords, ['建议口服']);
+
+  const fallback = h.service.reviewStaffMessage({
+    text: '建议口服一粒格华止。',
+    advisorId: 'adv_1',
+    messageId: 'msg_keyword_1',
+  });
+  assert.ok(fallback.alertId);
+  assert.equal(h.service.alerts()[1]?.reviewStage, 'keyword');
+});
+
 test('#37 急症：只看患者输入也能升级，正文改写为就医引导，告警不带正文', async () => {
   const h = harness();
   const inboundText = '我爸刚才胸口很痛，喘不上气，现在躺着。';

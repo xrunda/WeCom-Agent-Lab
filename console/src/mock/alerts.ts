@@ -38,6 +38,10 @@ export interface Alert {
   groupId: string | null;
   /** 告警来源：员工群发言 / AI 草稿；历史告警可能没有该字段 */
   source?: 'draft' | 'staff' | null;
+  /** 判定层级：keyword=关键词初筛待确认；semantic=语义复核确认违规；历史告警可能没有 */
+  reviewStage?: 'keyword' | 'semantic' | null;
+  /** 实际命中的关键词（已排除否定句里的提醒） */
+  hitKeywords?: string[] | null;
   note: string | null;
   resolvedBy: string | null;
   resolvedAt: number | null;

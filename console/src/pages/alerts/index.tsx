@@ -72,6 +72,21 @@ function statusColor(status: AlertStatus): string {
   return 'green';
 }
 
+/**
+ * 判定层级：关键词只负责「不漏」，语义复核才负责确认。
+ * 待处理队列里要一眼看出这条是「初筛待确认」还是「已确认违规」，
+ * 否则会把关键词误报当成结论，很快就不再信任这个队列。
+ */
+function ReviewStageTag({ stage }: { stage?: string | null }) {
+  if (stage !== 'keyword' && stage !== 'semantic') return null;
+  const semantic = stage === 'semantic';
+  return (
+    <Tag bordered={false} color={semantic ? 'red' : 'gold'} className="alert-rule-tag">
+      {semantic ? '语义复核确认' : '关键词初筛'}
+    </Tag>
+  );
+}
+
 function asAlertStatus(value: string | null): AlertStatus | undefined {
   return value === 'open' || value === 'acknowledged' || value === 'resolved'
     ? value
@@ -154,6 +169,7 @@ function AlertCard({
               AI 草稿
             </Tag>
           ) : null}
+          <ReviewStageTag stage={alert.reviewStage} />
           <span className="alert-time" title={formatDateTime(alert.createdAt)}>
             {formatRelative(alert.createdAt)}
           </span>
@@ -375,6 +391,12 @@ export default function AlertsPage() {
   const keywordsByAlert = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const alert of items) {
+      // 后端记录的实际命中词最准（否定句里的「停药」不算）；旧告警退回按规则名取
+      const hitKeywords = alert.hitKeywords?.filter((word) => word !== '') ?? [];
+      if (hitKeywords.length > 0) {
+        map.set(alert.id, hitKeywords);
+        continue;
+      }
       const names = ruleNamesFor(alert);
       map.set(
         alert.id,
@@ -570,13 +592,16 @@ export default function AlertsPage() {
               : parsed.rules.length > 0
                 ? parsed.rules
                 : ruleNamesFor(alert);
+            const hitKeywords = alert.hitKeywords?.filter((word) => word !== '') ?? [];
             const keywords =
-              ruleNames.length > 0
-                ? keywordsForRules(
-                    ruleNames,
-                    rules.filter((rule) => rule.action === 'flag'),
-                  )
-                : allRuleKeywords;
+              hitKeywords.length > 0
+                ? hitKeywords
+                : ruleNames.length > 0
+                  ? keywordsForRules(
+                      ruleNames,
+                      rules.filter((rule) => rule.action === 'flag'),
+                    )
+                  : allRuleKeywords;
             // 草稿红线质检的是草稿正文；客户消息摘要只作背景，不能当成长原文。
             const draftText = isDraft ? (detail.draft?.body ?? '') : parsed.quote;
             const matched = matchKeywords(draftText, keywords);
@@ -594,6 +619,7 @@ export default function AlertsPage() {
                       AI 草稿
                     </Tag>
                   ) : null}
+                  <ReviewStageTag stage={alert.reviewStage} />
                   <Text type="secondary">{formatDateTime(alert.createdAt)}</Text>
                 </Space>
 
@@ -690,6 +716,18 @@ export default function AlertsPage() {
                     <div className="alert-step-hint">
                       {alertReason(alert.kind, alert.source)}
                     </div>
+                    {alert.reviewStage === 'keyword' ? (
+                      <div className="alert-step-hint">
+                        {isDraft
+                          ? '这一条只有关键词初筛，还没有经过模型语义复核：草稿里出现未被否定的红线关键词就抬高风险（「不要自己停药或减量」这类提醒已经被排除），但语义上是否真的违规仍需看草稿原文判断。'
+                          : '语义复核不可用（未启用、超时或报错），本次按关键词保守告警；请人工判断这句话是否真的违规。'}
+                      </div>
+                    ) : null}
+                    {alert.reviewStage === 'semantic' ? (
+                      <div className="alert-step-hint">
+                        已通过模型语义复核：这句话确实在替客户下诊断、调整用药或承诺疗效，不是转述医嘱或科普。
+                      </div>
+                    ) : null}
                   </section>
 
                   <section className="alert-step">

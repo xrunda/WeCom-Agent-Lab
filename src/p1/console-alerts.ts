@@ -131,6 +131,12 @@ export class AlertService {
     const message = asString(event.message) ?? '';
     const sourceRaw = asString(event.source);
     const source = sourceRaw === 'staff' || sourceRaw === 'draft' ? sourceRaw : undefined;
+    // 判定层级：区分「关键词初筛」和「语义复核确认」；缺失的历史告警保持空白
+    const stageRaw = asString(event.reviewStage);
+    const reviewStage = stageRaw === 'keyword' || stageRaw === 'semantic' ? stageRaw : undefined;
+    const hitKeywords = Array.isArray(event.hitKeywords)
+      ? event.hitKeywords.filter((item): item is string => typeof item === 'string' && item !== '')
+      : undefined;
     // 员工发言告警的详情包含发言人、群名、命中规则与原文摘录，放宽到 500 字；
     // 调用方负责截断，日志与事件仍不带正文。
     const record: AlertRecord = {
@@ -146,6 +152,8 @@ export class AlertService {
       advisorId: asString(event.advisorId) ?? null,
       groupId: asString(event.groupId) ?? null,
       ...(source ? { source } : {}),
+      ...(reviewStage ? { reviewStage } : {}),
+      ...(hitKeywords && hitKeywords.length > 0 ? { hitKeywords } : {}),
       note: asString(event.note) ?? null,
       resolvedBy: asString(event.resolvedBy) ?? null,
       resolvedAt: asNumber(event.resolvedAt) ?? null,
