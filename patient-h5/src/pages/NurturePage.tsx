@@ -9,13 +9,13 @@
  *
  * 适老化取舍：
  * - 首屏只推一条，避免老人面对信息流无从下手
- * - 「听一听」用系统语音朗读，不支持就不显示按钮，不放无效控件
+ * - 「听一听」用服务端火山 TTS（固定音色）朗读；未配置时按钮不出现，不放无效控件
  * - 每张卡只留一个「今天可以做」的动作，不做多任务
  *
  * 刻意不渲染搜索框：PRD §3.1 把搜索列为增强项，未实现时隐藏。
  * 文章只读已发布内容；停用内容不展示正文（A09）。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError, fetchArticles, fetchManifesto, fetchProfile } from '../api.ts';
 import type { ArticleView, Manifesto, ProfileEntryView } from '../api.ts';
@@ -68,10 +68,20 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
   const [profileEntries, setProfileEntries] = useState<ProfileEntryView[]>([]);
   const [tab, setTab] = useState<TabKey>('recommend');
   const [speaking, setSpeaking] = useState<string | null>(null);
+  const [audioAvailable, setAudioAvailable] = useState(false);
+  const [audioNotice, setAudioNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 系统语音合成：不支持（如部分 App 内嵌 WebView）就不显示「听一听」
-  const supportsSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const stopAudio = (): void => {
+    const current = audioRef.current;
+    if (current) {
+      current.pause();
+      current.src = '';
+      audioRef.current = null;
+    }
+    setSpeaking(null);
+  };
 
   // 主张文案两种模式都要：阅读页底部展示已审核的经典原文
   useEffect(() => {
@@ -86,7 +96,10 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
   useEffect(() => {
     if (intro) return;
     fetchArticles()
-      .then((result) => setArticles(result.items))
+      .then((result) => {
+        setArticles(result.items);
+        setAudioAvailable(result.audioAvailable);
+      })
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401 && onUnauthorized) onUnauthorized();
         // 无内容不算错误：保留空态（PRD §9：缺少适配内容时允许不推荐）
@@ -99,12 +112,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
   }, [intro, onUnauthorized]);
 
   // 离开页面时把朗读停掉，避免声音跟着用户走
-  useEffect(
-    () => () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
-    },
-    [],
-  );
+  useEffect(() => () => stopAudio(), []);
 
   if (intro) {
     return (
@@ -176,20 +184,28 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
     .filter((item) => (tab === 'recommend' ? true : item.category === tab));
 
   const speak = (item: ArticleView): void => {
-    if (!supportsSpeech) return;
-    const synth = window.speechSynthesis;
-    synth.cancel();
+    if (!audioAvailable) return;
     if (speaking === item.id) {
-      setSpeaking(null);
+      stopAudio();
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(`${item.title}。${item.summary}`);
-    utterance.lang = 'zh-CN';
-    utterance.rate = 0.9;
-    utterance.onend = () => setSpeaking(null);
-    utterance.onerror = () => setSpeaking(null);
+    stopAudio();
+    setAudioNotice(null);
+    const audio = new Audio(`/zhiban/h5/articles/${encodeURIComponent(item.id)}/audio`);
+    audio.preload = 'auto';
+    audio.onended = () => {
+      if (audioRef.current === audio) audioRef.current = null;
+      setSpeaking(null);
+    };
+    const fail = (): void => {
+      if (audioRef.current === audio) audioRef.current = null;
+      setSpeaking(null);
+      setAudioNotice('朗读暂时放不出来，请稍后再试。');
+    };
+    audio.onerror = fail;
+    audioRef.current = audio;
     setSpeaking(item.id);
-    synth.speak(utterance);
+    void audio.play().catch(fail);
   };
 
   const card = (item: ArticleView) => {
@@ -218,7 +234,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
             <p className="feed-card__summary">{item.summary}</p>
           )}
           <div className="feed-card__row">
-            {supportsSpeech && (
+            {audioAvailable && (
               <button
                 type="button"
                 className="feed-card__audio"
@@ -254,6 +270,12 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
     <div className="page page-nurture">
       <TabHeader title="食养" size="brand" subtitle="在日常生活里，读懂照顾自己的智慧。" />
 
+      {audioNotice ? (
+        <p className="muted" role="status">
+          {audioNotice}
+        </p>
+      ) : null}
+
       {todayPick ? (
         <section className="feed-section" aria-label="今日一条">
           <div className="feed-section__head">
@@ -281,7 +303,7 @@ export function NurturePage({ intro, onStart, onSkip, onUnauthorized, onOpenArti
                 </p>
               ) : null}
               <div className="feed-card__row">
-                {supportsSpeech && (
+                {audioAvailable && (
                   <button
                     type="button"
                     className="feed-card__audio"

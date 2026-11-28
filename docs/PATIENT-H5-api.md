@@ -48,6 +48,7 @@
 | `PHONE_MISMATCH` | 422 | 手机号与预绑定不一致 |
 | `VERIFY_CODE_INVALID` | 422 | 验证码错误或已过期 |
 | `SMS_UNAVAILABLE` | 503 | 短信资源未配置/不可用——真实登录阻塞，不得用演示账号顶替 |
+| `TTS_UNAVAILABLE` | 503 | 朗读服务未配置或合成失败；前端隐藏/停用「听一听」，不放无效控件 |
 | `CONSENT_REQUIRED` | 403 | 需要相应分项授权（`details[0].scope` 给出缺的 scope） |
 | `SERVICE_PAUSED` | 403 | 患者服务已暂停（只读降级由 `GET /me` 表达，写接口拒绝） |
 | `PLAN_NOT_AVAILABLE` | 404 | 无已发布计划（配合 `GET /me` 的状态展示） |
@@ -550,8 +551,9 @@
 
 ### 9.2 `GET /zhiban/h5/articles?category=&page=`（公开）
 
-分类浏览（H08）：`classics_life` / `ingredients` / `seasonal_living`。只返回 `published` 且未 `retired`。响应 `200`：`{ items: [{ id, title, summary, category, seasonTerm, coverUrl, microAction, scenarioTags, publishedAt }], ... }`。
+分类浏览（H08）：`classics_life` / `ingredients` / `seasonal_living`。只返回 `published` 且未 `retired`。响应 `200`：`{ items: [{ id, title, summary, category, seasonTerm, coverUrl, microAction, scenarioTags, publishedAt }], audioAvailable, ... }`。
 
+- `audioAvailable`：服务端是否已配置火山 TTS；`false` 时前端不渲染「听一听」（不绑定系统语音兜底）。
 - `microAction`：实践段首句（≤60 字），作为「今天可以做的一件小事」；无实践段为 `null`。
 - `scenarioTags`：场景标签，前端与档案关键词匹配后决定是否放进「按你的情况」；匹配不上就整段不出现。
 - `coverUrl`：列表配图；为 `null` 时前端用占位图。
@@ -563,6 +565,15 @@
 详情。响应 `200`：content_article（sections 含 kind 标注、citations、authorName、ingredientSafety）。`retired`：`404`，前端显示「内容已更新」（A09）。
 
 - 已登录时附 `linkedToCurrentPlan: true/false`（场景标签匹配当前已发布计划）。
+
+### 9.3.1 `GET /zhiban/h5/articles/{id}/audio`（患者会话）
+
+「听一听」音频：服务端用火山引擎 TTS 合成「标题。摘要」，默认音色 `multi_female_xiaohe_taiwan_v3_uranus_bigtts`，返回 `audio/mpeg`（mp3）。
+
+- 成功：`200`，响应头 `Accept-Ranges: bytes`、`Cache-Control: private, max-age=300`；支持单段 `Range`，命中返回 `206` + `Content-Range`，越界/非法范围返回 `416` + `Content-Range: bytes */{size}`。
+- 未配置凭据或合成失败：`503 TTS_UNAVAILABLE`；文章不存在/已下架：`404 NOT_FOUND`。
+- 合成结果按「音色 + 文本」哈希缓存到 `mediaRootDir/tts`，同一篇内容不重复计费；不返回供应商原始错误。
+- 不接受任意文本参数，只合成已发布内容，避免被当作通用 TTS 代理。
 
 ### 9.4 `GET /zhiban/h5/articles/related?context=plan|calendar_item`
 

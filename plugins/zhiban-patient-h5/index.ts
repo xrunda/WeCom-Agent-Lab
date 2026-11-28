@@ -63,6 +63,7 @@ import {
   ProfileCenterService,
 } from '../../src/p1/patient-h5-profile-center.ts';
 import { MemoryRecordBackend, RecordService, UNCONFIGURED_RECOGNITION } from '../../src/p1/patient-h5-record.ts';
+import { TtsAudioCache, volcTtsFromEnv } from '../../src/p1/patient-h5-tts.ts';
 import { CalendarService } from '../../src/p1/patient-h5-calendar.ts';
 import { buildPlanTool, DshPlanSessionPort } from './plan-session.ts';
 import type { PlanSessionControllerLike } from './plan-session.ts';
@@ -619,8 +620,23 @@ export function apply(ctx: DshPatientH5Context, rawConfig: unknown): void {
     });
     ctx.provide('zhibanPatientH5Content', content);
 
+    // 火山 TTS：只服务内容库「听一听」，凭据来自环境变量；未配置时前端隐藏按钮
+    const tts = volcTtsFromEnv();
+    const ttsCache = new TtsAudioCache(join(config.mediaRootDir, 'tts'));
+    if (tts.available) {
+      log(`火山 TTS 已启用：音色=${tts.voiceType} 资源=${tts.resourceId}`);
+    } else {
+      log('火山 TTS 未配置：患者端「听一听」隐藏');
+    }
+
     const extensions = [
-      ...createContentRoutes({ content }),
+      ...createContentRoutes({
+        content,
+        tts: {
+          available: tts.available,
+          audioFor: (text) => ttsCache.getOrCreate(tts.voiceType, text, () => tts.synthesize(text)),
+        },
+      }),
       ...createProfileCenterRoutes({
         center,
         tenantReminderDefaults: { dailyLimit: 2, quietHours: { start: '21:00', end: '08:00' } },
