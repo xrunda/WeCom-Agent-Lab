@@ -14,6 +14,9 @@ export type ConsentStatus = 'agreed' | 'unknown' | 'disagreed';
 
 export type PatientStatus = 'serving' | 'paused' | 'archived';
 
+/** 性别：只有这三种取值；unspecified 是患者/顾问明确选过的，缺字段才是「没填」 */
+export type PatientSex = 'male' | 'female' | 'unspecified';
+
 /** manual = 控制台手工改名，优先于企微群名同步 */
 export type GroupNameSource = 'config' | 'api' | 'members' | 'roomid' | 'manual';
 
@@ -92,6 +95,10 @@ export interface Patient {
   /** 我们的备注名（顾问可改）；为空时展示群昵称 */
   remark?: string;
   avatar?: string;
+  /** 出生年（只存年份：年龄会随时间变，存年龄会过期）；未填不等于未知，不要推断 */
+  birthYear?: number;
+  /** 性别；unspecified = 明确选过「未说明」，未填则没有该字段 */
+  sex?: PatientSex;
   /** 主外部成员 id（wm...），用于路由与同意状态 */
   externalUserId?: string;
   /** 患者身份确认状态：待确认（系统按发言猜测）或已确认（顾问手动指定） */

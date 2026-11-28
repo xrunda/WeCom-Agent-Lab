@@ -76,6 +76,7 @@ import type {
   GroupMember,
   GroupServiceStatus,
   Patient,
+  PatientSex,
 } from '../../src/p1/types.ts';
 import { mealLogView, sniffImageMediaType, type MealLogRecord } from '../../src/p1/vision.ts';
 
@@ -208,7 +209,15 @@ interface PatientApiLike {
     patch: Partial<
       Pick<
         Patient,
-        'displayName' | 'avatar' | 'tags' | 'advisorId' | 'consent' | 'status' | 'externalUserId'
+        | 'displayName'
+        | 'avatar'
+        | 'birthYear'
+        | 'sex'
+        | 'tags'
+        | 'advisorId'
+        | 'consent'
+        | 'status'
+        | 'externalUserId'
       >
     >,
   ): Patient;
@@ -2037,6 +2046,28 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         }
         if (body.consent !== undefined) patch.consent = parseConsent(body.consent);
         if (body.status !== undefined) patch.status = parsePatientStatus(body.status);
+        // 出生年 / 性别：null 表示清空（回到「档案没有这项」），不接受推断值
+        if (body.birthYear !== undefined) {
+          if (body.birthYear === null) {
+            patch.birthYear = undefined;
+          } else {
+            const year = body.birthYear;
+            const maxYear = new Date().getUTCFullYear();
+            if (typeof year !== 'number' || !Number.isInteger(year) || year < 1900 || year > maxYear) {
+              throw new ConsoleError('VALIDATION_FAILED', `出生年需为 1900–${maxYear} 之间的整数`);
+            }
+            patch.birthYear = year;
+          }
+        }
+        if (body.sex !== undefined) {
+          if (body.sex === null) {
+            patch.sex = undefined;
+          } else if (body.sex === 'male' || body.sex === 'female' || body.sex === 'unspecified') {
+            patch.sex = body.sex as PatientSex;
+          } else {
+            throw new ConsoleError('VALIDATION_FAILED', 'sex 必须是 male / female / unspecified');
+          }
+        }
         if (body.advisorId !== undefined) {
           if (typeof body.advisorId !== 'string' || body.advisorId.trim() === '') {
             throw new ConsoleError('VALIDATION_FAILED', 'advisorId 必须是非空字符串');

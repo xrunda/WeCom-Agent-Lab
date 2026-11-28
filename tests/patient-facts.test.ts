@@ -85,3 +85,56 @@ test('事实卡：最近饮食最多 2 条，体征最多 3 条', () => {
 test('上海时间格式：UTC 00:26 → 上海 08:26', () => {
   assert.equal(formatShanghaiDateTime(NOW), '11-15 08:26');
 });
+
+test('事实卡：有出生年与性别时输出一行，年龄按当年换算并注明出生年', () => {
+  const lines = buildPatientFacts({
+    displayName: '汪女士',
+    birthYear: 1958,
+    sex: 'female',
+    chronic: chronic(),
+    nowMs: NOW,
+  });
+  const text = lines.join('\n');
+  assert.match(text, /· 年龄：68 岁（1958 年出生） · 性别：女/);
+  // 在疾病之前，且只出现一次
+  assert.equal(text.indexOf('年龄：') < text.indexOf('疾病：'), true);
+  assert.equal((text.match(/年龄：/g) ?? []).length, 1);
+});
+
+test('事实卡：只有性别不输出年龄，unspecified 不编成男/女', () => {
+  const onlySex = buildPatientFacts({
+    displayName: '李先生',
+    sex: 'male',
+    chronic: chronic(),
+    nowMs: NOW,
+  }).join('\n');
+  assert.match(onlySex, /· 性别：男/);
+  assert.equal(onlySex.includes('年龄：'), false);
+
+  const unspecified = buildPatientFacts({
+    displayName: '王女士',
+    sex: 'unspecified',
+    chronic: chronic(),
+    nowMs: NOW,
+  }).join('\n');
+  assert.equal(unspecified.includes('性别：'), false);
+});
+
+test('事实卡：出生年跨年按当年重算，未填不输出、不推断', () => {
+  const at2026 = buildPatientFacts({
+    displayName: '汪女士',
+    birthYear: 1958,
+    nowMs: Date.UTC(2026, 0, 2),
+  }).join('\n');
+  const at2027 = buildPatientFacts({
+    displayName: '汪女士',
+    birthYear: 1958,
+    nowMs: Date.UTC(2027, 0, 2),
+  }).join('\n');
+  assert.match(at2026, /年龄：68 岁/);
+  assert.match(at2027, /年龄：69 岁/);
+
+  // 没有任何档案字段时不注入空块
+  const empty = buildPatientFacts({ displayName: '未填患者' });
+  assert.deepEqual(empty, []);
+});

@@ -200,6 +200,10 @@ export interface PatientView {
   /** 我们的备注名（顾问可改） */
   remark: string | null;
   avatar: string | null;
+  /** 出生年；未填为 null（不推断年龄） */
+  birthYear: number | null;
+  /** 性别；未填为 null */
+  sex: 'male' | 'female' | 'unspecified' | null;
   externalUserId: string | null;
   /** 患者身份确认状态：pending=按发言猜测待确认；confirmed=顾问手动指定 */
   identityStatus: 'pending' | 'confirmed';
@@ -748,6 +752,8 @@ export function patientView(
     nickname: patient.nickname ?? null,
     remark: patient.remark ?? null,
     avatar: patient.avatar ?? null,
+    birthYear: patient.birthYear ?? null,
+    sex: patient.sex ?? null,
     externalUserId: patient.externalUserId ?? null,
     identityStatus: patient.identityStatus ?? 'pending',
     identitySource: patient.identitySource ?? 'auto',

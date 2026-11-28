@@ -62,6 +62,26 @@ describe('WP-K 页面', () => {
     expect(await screen.findByText('提醒量血压')).toBeInTheDocument();
   });
 
+  it('#212 患者详情可编辑出生年与性别，保存后回显', async () => {
+    const user = userEvent.setup();
+    await renderPage(<PatientsPage />);
+
+    await user.click(await screen.findByText('张女士'));
+    await screen.findByRole('tab', { name: '基本信息' });
+
+    const yearInput = screen.getByPlaceholderText('出生年，例如 1958');
+    await user.type(yearInput, '1958');
+    await user.click(screen.getByRole('button', { name: '保存基础信息' }));
+
+    // 保存后重新拉详情：年龄按出生年展示，性别标签可选
+    expect(await screen.findByText(/1958 年生/)).toBeInTheDocument();
+
+    // 清空后回到「未填」，不留旧值
+    await user.clear(screen.getByPlaceholderText('出生年，例如 1958'));
+    await user.click(screen.getByRole('button', { name: '保存基础信息' }));
+    await waitFor(() => expect(screen.queryByText(/1958 年生/)).not.toBeInTheDocument());
+  }, 20_000);
+
   it('群编辑弹窗说明负责顾问是谁、各绑定方式怎么选', async () => {
     const user = userEvent.setup();
     await renderPage(<GroupsPage />);

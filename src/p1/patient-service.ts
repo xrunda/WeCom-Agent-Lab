@@ -386,6 +386,8 @@ export class PatientService {
         | 'remark'
         | 'nickname'
         | 'avatar'
+        | 'birthYear'
+        | 'sex'
         | 'tags'
         | 'advisorId'
         | 'consent'

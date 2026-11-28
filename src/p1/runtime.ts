@@ -716,10 +716,12 @@ export class PatientAgentRuntime {
       currentVersion: revision?.currentVersion,
       proactive: merged.proactive ? { reason: `计划到期：${merged.proactive.title}` } : undefined,
       memoryLines: this.memory?.available() ? this.memory.render(patient.id) : undefined,
-      // #167：慢病档案 + 身高体重 + 最近饮食，每轮确定性注入（不依赖模型主动查）
+      // #167 / #212：慢病档案 + 身高体重 + 年龄性别 + 最近饮食，每轮确定性注入（不依赖模型主动查）
       factsLines: buildPatientFacts({
         displayName: patient.displayName,
         tags: patient.tags,
+        birthYear: patient.birthYear,
+        sex: patient.sex,
         chronic: this.service.getChronicProfile(patient.id),
         recentMeals: this.service.store
           .listMealLogs(patient.id)

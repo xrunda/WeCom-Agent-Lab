@@ -122,6 +122,8 @@ interface PatientLike {
   externalUserId?: string;
   advisorId?: string;
   tags: string[];
+  birthYear?: number;
+  sex?: 'male' | 'female' | 'unspecified';
   consent: string;
   status: string;
   deletedAt?: number;
@@ -557,10 +559,12 @@ export function apply(ctx: DshAdvisorContext, rawConfig: unknown): void {
           if (!ownsPatient(advisorId, patient)) return { status: 'forbidden' };
           const profile = api.getChronicProfile(patientId);
           const shown = displayNameOf(patient);
-          // #167：与患者侧注入同一份事实卡；再附长期记忆（忌口/偏好在这里）
+          // #167 / #212：与患者侧注入同一份事实卡；再附长期记忆（忌口/偏好在这里）
           const facts = buildPatientFacts({
             displayName: shown,
             tags: patient.tags,
+            birthYear: patient.birthYear,
+            sex: patient.sex,
             chronic: profile,
             recentMeals: api
               .listMealLogs(patientId)
