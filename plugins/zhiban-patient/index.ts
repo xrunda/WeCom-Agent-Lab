@@ -32,7 +32,11 @@ import type {
   SandboxPatientLike,
   SandboxTurnInput,
 } from '../../src/p1/runtime.ts';
-import type { DraftReviewInput, DraftReviewResult } from '../../src/p1/guard.ts';
+import type {
+  DraftReviewInput,
+  DraftReviewOptions,
+  DraftReviewResult,
+} from '../../src/p1/guard.ts';
 import type { PatientBridge, RuntimeStats } from '../../src/p1/session-port.ts';
 import type { ProactiveTurnInput, ProactiveTurnResult } from '../../src/p1/runtime.ts';
 import type {
@@ -308,17 +312,32 @@ export class LazyPatientBridge implements PatientBridge {
 /**
  * 懒加载 zhiban-guard 的草稿门禁（#37）。
  * guard 未安装时返回「未命中」，草稿按原样入队，不阻塞患者流程。
+ *
+ * 装了语义复核（judge）时走两段：关键词初筛 → 模型判断是不是误报 →
+ * 按结论落判定。复核不可用（未装、超时、报错）一律按关键词保守处理。
  */
 export class LazyDraftGuard implements DraftGuardPort {
   private readonly resolve: () => DraftGuardPort | undefined;
+  private readonly judge?: (input: { text: string; ruleNames: string[] }) => Promise<
+    'violation' | 'ok' | 'unknown'
+  >;
 
-  constructor(resolve: () => DraftGuardPort | undefined) {
+  constructor(
+    resolve: () => DraftGuardPort | undefined,
+    judge?: (input: { text: string; ruleNames: string[] }) => Promise<
+      'violation' | 'ok' | 'unknown'
+    >,
+  ) {
     this.resolve = resolve;
+    this.judge = judge;
   }
 
-  review(input: DraftReviewInput): DraftReviewResult {
+  review(
+    input: DraftReviewInput,
+    options?: DraftReviewOptions,
+  ): DraftReviewResult {
     const guard = this.resolve();
-    if (guard) return guard.review(input);
+    if (guard) return guard.review(input, options);
     return {
       riskLevel: input.riskLevel,
       hits: [],
@@ -327,6 +346,22 @@ export class LazyDraftGuard implements DraftGuardPort {
       escalate: false,
       guideOnly: false,
     };
+  }
+
+  async reviewDraft(input: DraftReviewInput): Promise<DraftReviewResult> {
+    const guard = this.resolve();
+    if (!guard) return this.review(input);
+    // 只有 flag 规则（草稿正文）需要语义复核；急症 / 就医引导看患者输入，不送模型
+    const check = guard.checkDraft?.(input);
+    if (!check || check.flagHits.length === 0 || !this.judge) return this.review(input);
+    let verdict: 'violation' | 'ok' | 'unknown' = 'unknown';
+    try {
+      verdict = await this.judge({ text: input.body, ruleNames: check.flagHitNames });
+    } catch {
+      // 复核链路出问题不打断患者流程：按关键词保守处理
+      verdict = 'unknown';
+    }
+    return this.review(input, { verdict });
   }
 
   linkDraft(alertId: string, draftId: string): void {
@@ -402,6 +437,11 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       const staffJudge = new StaffJudge({
         ask: (prompt) => staffJudgeSession.ask(prompt),
       });
+      // 草稿侧复核用同一套会话和判定口径，但等待上限更短：
+      // 草稿卡在回合里，等太久会把整个回合拖过超时、退化成模板草稿。
+      const draftJudge = new StaffJudge({
+        ask: (prompt, timeoutMs) => staffJudgeSession.ask(prompt, timeoutMs),
+      });
 
       const bridge = new LazyPatientBridge(
         () => ctx.get<PatientBridge>('zhibanWecom'),
@@ -409,6 +449,7 @@ export function apply(ctx: DshPatientContext, rawConfig: unknown): void {
       // #37：zhiban-guard 未安装时不做红线校验（直通）
       const guard = new LazyDraftGuard(
         () => ctx.get<DraftGuardPort>('zhibanGuard'),
+        (input) => draftJudge.judgeDraft(input),
       );
       // #35：zhiban-memory 未安装时返回空，提示词里也不出现记忆工具约定
       const memory = new LazyMemoryPort(() =>

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildDraftJudgePrompt,
   buildStaffJudgePrompt,
+  DRAFT_JUDGE_TIMEOUT_MS,
   parseStaffVerdict,
   StaffJudge,
 } from '../src/p1/staff-judge.ts';
@@ -60,6 +62,34 @@ test('语义复核：把端口返回值原样交给解析', async () => {
   assert.equal(await judge.judge({ text: '建议去医院做个检查。', ruleNames: ['不诊断'] }), 'ok');
   assert.equal(seen.length, 1);
   assert.equal(seen[0]!.includes('建议去医院做个检查。'), true);
+});
+
+test('草稿复核：用草稿版提示词，并给单次复核更短的等待上限', async () => {
+  const calls: Array<{ prompt: string; timeoutMs?: number }> = [];
+  const judge = new StaffJudge({
+    ask: (prompt, timeoutMs) => {
+      calls.push({ prompt, timeoutMs });
+      return Promise.resolve('{"violation": false}');
+    },
+  });
+  assert.equal(
+    await judge.judgeDraft({ text: '不要自己停药或减量。', ruleNames: ['不调药'] }),
+    'ok',
+  );
+  assert.equal(calls[0]!.timeoutMs, DRAFT_JUDGE_TIMEOUT_MS);
+  assert.equal(calls[0]!.prompt.includes('草稿'), true);
+  assert.equal(calls[0]!.prompt.includes('不要自己停药或减量。'), true);
+  assert.equal(calls[0]!.prompt.includes('不调药'), true);
+
+  // 员工发言那条仍然不传超时，沿用会话默认
+  await judge.judge({ text: '建议去医院。', ruleNames: ['不诊断'] });
+  assert.equal(calls[1]!.timeoutMs, undefined);
+});
+
+test('草稿复核提示词：不算违规的例子包含「提醒客户不要自己停药」', () => {
+  const prompt = buildDraftJudgePrompt({ text: '血压偏低时请先联系医生。', ruleNames: ['不调药'] });
+  assert.equal(prompt.includes('提醒客户不要自己停药或减量'), true);
+  assert.equal(prompt.includes('{"violation": true 或 false'), true);
 });
 
 test('会话事件：只从 assistant/message 的文本块取正文', () => {

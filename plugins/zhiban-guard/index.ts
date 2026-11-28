@@ -13,7 +13,9 @@ import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain';
 import { buildGuardToolDefinitions } from '../../src/p1/guard-tools.ts';
 import { GuardService } from '../../src/p1/guard.ts';
 import type {
+  DraftReviewCheck,
   DraftReviewInput,
+  DraftReviewOptions,
   DraftReviewResult,
   EscalateReason,
   GuardAlertRecord,
@@ -56,7 +58,9 @@ export interface DshGuardContext {
 
 /** 提供给 zhiban-patient / 控制台的接口 */
 export interface GuardRuntimeApi {
-  review(input: DraftReviewInput): DraftReviewResult;
+  review(input: DraftReviewInput, options?: DraftReviewOptions): DraftReviewResult;
+  /** 关键词初筛：只判断命中，供草稿语义复核前使用 */
+  checkDraft(input: DraftReviewInput): DraftReviewCheck;
   /** 员工（顾问 / 客服）在服务群里的发言质检；命中时返回 alertId */
   reviewStaffMessage(input: StaffMessageReviewInput): StaffMessageReviewResult;
   /** 关键词初筛：只判断命中，不产生告警（语义复核前用） */
@@ -129,7 +133,8 @@ export function apply(ctx: DshGuardContext, rawConfig: unknown): void {
       }
 
       const api: GuardRuntimeApi = {
-        review: (input) => service.review(input),
+        review: (input, options) => service.review(input, options),
+        checkDraft: (input) => service.checkDraft(input),
         reviewStaffMessage: (input) => service.reviewStaffMessage(input),
         checkStaffMessage: (input) => service.checkStaffMessage(input),
         dismissStaffMessage: (input) => service.dismissStaffMessage(input),

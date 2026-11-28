@@ -132,6 +132,34 @@ export interface DraftReviewResult {
   alertId?: string;
 }
 
+/** 关键词初筛的结果：只判断命中，不计数、不告警、不落审计。 */
+export interface DraftReviewCheck {
+  /** 按「尚未语义复核」的口径算出的风险等级 */
+  riskLevel: RiskLevel;
+  hits: string[];
+  hitNames: string[];
+  actions: RuleAction[];
+  escalate: boolean;
+  guideOnly: boolean;
+  referralBody?: string;
+  /** 命中 flag 规则的部分——只有这些需要交给模型复核 */
+  flagHits: string[];
+  flagHitNames: string[];
+  /** flag 规则实际命中的关键词（已排除否定句里的提醒） */
+  flagHitKeywords: string[];
+}
+
+export interface DraftReviewOptions {
+  /**
+   * 语义复核结论：
+   * - `ok`：关键词只是合规提醒 → flag 规则不算命中，风险回到模型自评；
+   * - `violation`：确实违规 → 告警标 `semantic`；
+   * - 不传 / `unknown`：复核不可用 → 按关键词保守处理，告警标 `keyword`。
+   * guide / escalate 规则只看患者输入，不受复核结论影响。
+   */
+  verdict?: 'violation' | 'ok' | 'unknown';
+}
+
 export const REFERRAL_BODY =
   '您描述的情况需要尽快由医生处理。请立即拨打 120 或前往最近医院急诊，不要等待线上回复。';
 
@@ -640,27 +668,54 @@ export class GuardService {
 
   // ---------- 草稿后校验 ----------
 
-  /** 同步评估草稿；命中时累加 hitCount，并异步落盘。 */
-  review(input: DraftReviewInput): DraftReviewResult {
-    const hits: RiskRuleRecord[] = [];
-    for (const rule of this.rules.values()) {
-      if (!rule.enabled) continue;
-      // flag：校验草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
-      //   与员工发言同一套匹配：否定句（「不要自己停药或减量」）是合规提醒，不算命中。
-      // guide / escalate：只看患者输入，确保模型没复述症状也能升级；
-      // 草稿正文里的条件式提醒不参与匹配，否则正常关怀草稿会被整段替换成就医引导。
-      const matchesBody =
-        rule.action === 'flag' &&
-        rule.keywords.some((keyword) => keywordHit(input.body, keyword));
-      const matchesInbound =
-        (rule.action === 'guide' || rule.action === 'escalate') &&
-        typeof input.inboundText === 'string' &&
-        rule.keywords.some((keyword) => input.inboundText!.includes(keyword));
-      if (matchesBody || matchesInbound) hits.push(rule);
-    }
+  /**
+   * 关键词初筛：只判断命中，不计数、不告警、不落审计。
+   *
+   * 给「关键词初筛 + 语义复核」用：先看有没有可疑词、命中了哪些规则，
+   * 再决定要不要交给模型判断；复核判为合规时不留下任何告警痕迹。
+   */
+  checkDraft(input: DraftReviewInput): DraftReviewCheck {
+    const matched = this.matchDraftRules(input);
+    const flagMatched = matched.filter((item) => item.rule.action === 'flag');
+    let riskLevel = input.riskLevel;
+    for (const { rule } of matched) riskLevel = maxRisk(riskLevel, rule.riskLevel);
+    const actions = matched.map((item) => item.rule.action);
+    const escalate = actions.includes('escalate');
+    const guideOnly = escalate || actions.includes('guide');
+    return {
+      riskLevel,
+      hits: matched.map((item) => item.rule.id),
+      hitNames: matched.map((item) => item.rule.name),
+      actions,
+      escalate,
+      guideOnly,
+      referralBody: guideOnly ? REFERRAL_BODY : undefined,
+      flagHits: flagMatched.map((item) => item.rule.id),
+      flagHitNames: flagMatched.map((item) => item.rule.name),
+      flagHitKeywords: [...new Set(flagMatched.flatMap((item) => item.keywords))],
+    };
+  }
+
+  /**
+   * 落草稿的判定结果：累加命中、写审计、按需告警。
+   *
+   * `options.verdict` 是语义复核结论：判为合规时丢掉 flag 规则命中（合规提醒），
+   * 没复核或复核不可用时按关键词保守处理。
+   */
+  review(input: DraftReviewInput, options: DraftReviewOptions = {}): DraftReviewResult {
+    const verdict = options.verdict ?? 'unknown';
+    const matched = this.matchDraftRules(input);
+    // 语义复核只管草稿正文（flag）；急症 / 就医引导看的是患者自己说的话，复核不覆盖
+    const dropped =
+      verdict === 'ok'
+        ? new Set(
+            matched.filter((item) => item.rule.action === 'flag').map((item) => item.rule.id),
+          )
+        : new Set<string>();
+    const kept = matched.filter((item) => !dropped.has(item.rule.id));
 
     let riskLevel = input.riskLevel;
-    for (const rule of hits) {
+    for (const { rule } of kept) {
       riskLevel = maxRisk(riskLevel, rule.riskLevel);
       const updated: RiskRuleRecord = {
         ...rule,
@@ -679,25 +734,23 @@ export class GuardService {
       });
     }
 
-    const actions = hits.map((rule) => rule.action);
+    const actions = kept.map((item) => item.rule.action);
     const escalate = actions.includes('escalate');
     const guideOnly = escalate || actions.includes('guide');
-    const hitNames = hits.map((rule) => rule.name);
-    const hitIds = hits.map((rule) => rule.id);
+    const hitNames = kept.map((item) => item.rule.name);
+    const hitIds = kept.map((item) => item.rule.id);
+    const flagKept = kept.filter((item) => item.rule.action === 'flag');
 
     let alert: GuardAlertRecord | undefined;
-    if (hits.length > 0 && (escalate || riskLevel === 'high')) {
+    if (hitIds.length > 0 && (escalate || riskLevel === 'high')) {
       // 管理员要一眼看到「草稿里哪句话踩了线」，而不是只有规则名；
       // 只有急症 / 就医引导这类看患者输入的规则才没有草稿摘录。
-      const bodyHits = hits
-        .filter((rule) => rule.action === 'flag')
-        .flatMap((rule) =>
-          rule.keywords.map((keyword) => ({
-            keyword,
-            index: keywordHitIndex(input.body, keyword),
-          })),
-        )
-        .filter((hit) => hit.index >= 0);
+      const bodyHits = flagKept.flatMap((item) =>
+        item.keywords.map((keyword) => ({
+          keyword,
+          index: keywordHitIndex(input.body, keyword),
+        })),
+      );
       const bodyHit = bodyHits.reduce<(typeof bodyHits)[number] | undefined>(
         (first, hit) => (first === undefined || hit.index < first.index ? hit : first),
         undefined,
@@ -717,9 +770,11 @@ export class GuardService {
         groupId: input.groupId,
         sessionId: input.sessionId,
         source: 'draft',
-        // 草稿后校验只有关键词这一层，语义复核对草稿尚未接入：
-        // 控制台按 keyword 标注「初筛」，避免初筛被当成已确认的违规。
-        reviewStage: 'keyword',
+        // 草稿红线：模型复核确认违规标 semantic，只过初筛 / 复核不可用标 keyword。
+        // 急症升级来自患者输入，不属于「草稿内容判定」，不标层级。
+        ...(escalate
+          ? {}
+          : { reviewStage: verdict === 'violation' && flagKept.length > 0 ? 'semantic' : 'keyword' }),
         ...(bodyKeywords.length > 0 ? { hitKeywords: bodyKeywords } : {}),
         ruleIds: hitIds,
       });
@@ -735,6 +790,32 @@ export class GuardService {
       referralBody: guideOnly ? REFERRAL_BODY : undefined,
       alertId: alert?.id,
     };
+  }
+
+  /**
+   * 草稿规则匹配：flag 校验草稿正文，guide / escalate 只看患者输入。
+   *
+   * - flag 与员工发言同一套匹配：否定句（「不要自己停药或减量」）是合规提醒，不算命中；
+   * - guide / escalate 只看患者输入，确保模型没复述症状也能升级；
+   *   草稿正文里的条件式提醒不参与匹配，否则正常关怀草稿会被整段替换成就医引导。
+   */
+  private matchDraftRules(
+    input: DraftReviewInput,
+  ): Array<{ rule: RiskRuleRecord; keywords: string[] }> {
+    const matched: Array<{ rule: RiskRuleRecord; keywords: string[] }> = [];
+    for (const rule of this.rules.values()) {
+      if (!rule.enabled) continue;
+      if (rule.action === 'flag') {
+        const keywords = rule.keywords.filter((keyword) => keywordHit(input.body, keyword));
+        if (keywords.length > 0) matched.push({ rule, keywords });
+        continue;
+      }
+      const matchesInbound =
+        typeof input.inboundText === 'string' &&
+        rule.keywords.some((keyword) => input.inboundText!.includes(keyword));
+      if (matchesInbound) matched.push({ rule, keywords: [] });
+    }
+    return matched;
   }
 
   // ---------- 员工发言质检 ----------

@@ -19,7 +19,7 @@ import {
 import type { PatientService } from './patient-service.ts';
 import type { PatientSessionPort, RuntimeStats } from './session-port.ts';
 import type { PatientBridge } from './session-port.ts';
-import type { DraftReviewInput, DraftReviewResult } from './guard.ts';
+import type { DraftReviewInput, DraftReviewOptions, DraftReviewResult } from './guard.ts';
 import type {
   AgentCapabilities,
   AgentReplyDraftInput,
@@ -150,7 +150,17 @@ export interface SandboxDraftSink {
 }
 
 export interface DraftGuardPort {
-  review(input: DraftReviewInput): DraftReviewResult;
+  review(input: DraftReviewInput, options?: DraftReviewOptions): DraftReviewResult;
+  /** 关键词初筛（不产生副作用）；没有它时跳过语义复核 */
+  checkDraft?(input: DraftReviewInput): {
+    flagHits: string[];
+    flagHitNames: string[];
+  };
+  /**
+   * 初筛 → 语义复核 → 落判定的完整链路。
+   * 有这一层时草稿入队会等它返回；没有就退回同步的 `review`（纯关键词）。
+   */
+  reviewDraft?(input: DraftReviewInput): Promise<DraftReviewResult>;
   /** 草稿入队后回填 draftId（guard 未实现时忽略） */
   linkDraft?(alertId: string, draftId: string): void;
 }
@@ -1038,8 +1048,9 @@ export class PatientAgentRuntime {
     input: AgentReplyDraftInput,
   ): Promise<{ draftId: string; version: number }> {
     const turn = this.requireTurn(sessionId);
-    // #37：草稿产出后先过红线校验再入队；未安装 zhiban-guard 时保持原样
-    const review = this.guard?.review({
+    // #37：草稿产出后先过红线校验再入队；未安装 zhiban-guard 时保持原样。
+    // 装了语义复核（reviewDraft）时会等模型判断，让「合规提醒」不再抬高风险。
+    const reviewInput = {
       body: input.body,
       riskLevel: input.riskLevel,
       patientId: turn.patient.id,
@@ -1055,7 +1066,17 @@ export class PatientAgentRuntime {
           : turn.revision
             ? this.lastInboundText.get(turn.patient.id)
             : undefined,
-    });
+    } satisfies DraftReviewInput;
+    const review = this.guard
+      ? this.guard.reviewDraft
+        ? await this.guard.reviewDraft(reviewInput)
+        : this.guard.review(reviewInput)
+      : undefined;
+    // 等复核这段时间可能已经把回合拖过超时：模板草稿已经入队，这里再入一张就是重复。
+    if (turn.closed) {
+      this.log(`回合已收口，放弃复核后的草稿 patient=${turn.patient.id}`);
+      return { draftId: '', version: 0 };
+    }
     const body = review?.guideOnly && review.referralBody ? review.referralBody : input.body;
     // #55：图片回合在红线结果之上再套一层风险下限
     const reviewedRisk = review?.riskLevel ?? input.riskLevel;

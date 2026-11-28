@@ -79,28 +79,29 @@ export class StaffJudgeSession {
     this.options = options;
   }
 
-  ask(prompt: string): Promise<string> {
+  ask(prompt: string, timeoutMs?: number): Promise<string> {
     if (this.busy) return Promise.reject(new Error('JUDGE_BUSY'));
     this.busy = true;
     const release = (): void => {
       this.busy = false;
     };
-    const run = this.queue.then(() => this.runOnce(prompt));
+    const run = this.queue.then(() => this.runOnce(prompt, timeoutMs));
     this.queue = run.then(release, release);
     return run;
   }
 
-  private async runOnce(prompt: string): Promise<string> {
+  private async runOnce(prompt: string, timeoutMs?: number): Promise<string> {
     const sessionId = await this.ensureSession();
     this.subscribe();
 
-    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    // 调用方可以给单次复核更短的等待：草稿要卡在回合里等结果
+    const waitMs = timeoutMs ?? this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     return await new Promise<string>((resolve, reject) => {
       this.lastText = undefined;
       const timer = setTimeout(() => {
         this.waiting = undefined;
         reject(new Error('JUDGE_TIMEOUT'));
-      }, timeoutMs);
+      }, waitMs);
       const waiting: Waiting = { resolve, reject, timer };
       this.waiting = waiting;
 

@@ -55,8 +55,14 @@
    - 仅 `flag` → 只抬高风险，正文不动。
 6. 命中规则 `hitCount += 1`，写审计 `risk_rule.hit`，发 `risk_rule.hit` 事件。
 7. 命中且 `escalate || riskLevel === 'high'` 时生成告警；普通 low/medium 命中不告警。告警创建时带 `patientId` / `groupId` / `sessionId` / `ruleIds`，草稿入队后由运行时代回调 `linkDraft` 回填 `draftId`。
-8. 草稿告警一律标 `reviewStage="keyword"`：草稿侧只有关键词这一层，语义复核尚未接入。控制台据此标「关键词初筛」，不会把初筛当成已确认的违规。员工发言经语义复核确认违规时标 `semantic`，复核不可用时保守告警但标 `keyword`。
-9. 告警带 `hitKeywords`（实际命中的关键词，已排除否定句里的提醒），控制台只在命中词上加底色；摘录以最早的那个命中词为中心截取。
+8. **语义复核（草稿侧，第二层）**：flag 规则命中后，`LazyDraftGuard.reviewDraft` 先调 `checkDraft` 拿初筛结果，再把草稿正文与命中的规则名交给模型判断（`buildDraftJudgePrompt`，复用 `zhiban-guard-review` 长会话，等待上限 `DRAFT_JUDGE_TIMEOUT_MS = 4s`）：
+   - 判为合规（`ok`）→ flag 规则不算命中：不累加 `hitCount`、不生告警，风险回到模型自评；
+   - 判为违规（`violation`）→ 告警标 `reviewStage="semantic"`；
+   - 复核不可用（未装、超时、报错）→ 按关键词保守处理，告警标 `reviewStage="keyword"`。
+   `guide|escalate` 规则只看患者输入，不受复核结论影响。没装语义复核时退回同步的 `review`，行为与之前一致。
+9. 同步的 `review`（没有语义复核时的路径，例如测试脚本或未配置复核会话）直接按关键词落判定，告警标 `reviewStage="keyword"`。控制台据此标「关键词初筛 / 语义复核确认」，不会把初筛当成已确认的违规。
+10. 告警带 `hitKeywords`（实际命中的关键词，已排除否定句里的提醒），控制台只在命中词上加底色；摘录以最早的那个命中词为中心截取。
+11. 草稿要等复核结论才入队，因此复核给了 4 秒上限；如果这一等把回合拖过超时（`turn.closed`），草稿不再入队，避免和超时兜底的模板草稿重复，只在日志里记一行。
 
 `REFERRAL_BODY`：`您描述的情况需要尽快由医生处理。请立即拨打 120 或前往最近医院急诊，不要等待线上回复。`
 

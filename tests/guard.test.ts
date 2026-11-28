@@ -15,6 +15,7 @@ import type {
   GuardBackend,
   RiskRuleRecord,
 } from '../src/p1/guard.ts';
+import type { DraftGuardPort } from '../src/p1/runtime.ts';
 import { observeServiceGroup, setupRuntime } from './p1-helpers.ts';
 import { apply as applyGuardPlugin } from '../plugins/zhiban-guard/index.ts';
 import { parseGuardConfig } from '../plugins/zhiban-guard/config.ts';
@@ -218,13 +219,90 @@ test('草稿告警标 keyword：只有实际命中的关键词进 hitKeywords，
   });
   assert.ok(result.hits.includes('rul_builtin_no_medication'));
   const alert = h.service.alerts()[0]!;
-  // 草稿侧还没接语义复核：控制台必须能看出这是初筛，不是已确认的违规
+  // 同步 review 没等语义复核：控制台必须能看出这是初筛，不是已确认的违规
   assert.equal(alert.reviewStage, 'keyword');
   // 「停药」「减量」处在否定句里，不该被当地标；真正的触发词是「加量」
   assert.deepEqual(alert.hitKeywords, ['加量']);
   assert.match(alert.message, /草稿内容：「.*加量到两片试试。/);
   // 摘录以真正的触发词为中心，不能落在被否定掉的「不要自己停药或减量」上
-  assert.equal(alert.message.includes('不要自己停药或减量。今天开始可以加量'), true);
+  assert.equal(alert.message.includes('不要自己停药或减量。今天开始可以加量到两片'), true);
+});
+
+test('草稿初筛 checkDraft 不产生副作用，只告诉调用方哪些 flag 规则要复核', () => {
+  const h = harness();
+  const input = {
+    body: '建议口服一片降糖药试试。',
+    riskLevel: 'low' as const,
+    patientId: 'pt_1',
+    source: 'inbound' as const,
+  };
+  const check = h.service.checkDraft(input);
+  assert.deepEqual(check.flagHits, ['rul_builtin_no_medication']);
+  assert.deepEqual(check.flagHitNames, ['不调药']);
+  assert.deepEqual(check.flagHitKeywords, ['建议口服', '降糖药']);
+  assert.equal(check.riskLevel, 'high');
+  // 初筛只是「看看有没有可疑词」：不计数、不告警、不写审计
+  assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 0);
+  assert.equal(h.service.alerts().length, 0);
+  assert.equal(
+    h.service.audits().some((event) => event.action === 'risk_rule.hit'),
+    false,
+  );
+});
+
+test('草稿语义复核：verdict=ok 丢掉 flag 命中不告警，violation 告警标 semantic', () => {
+  const h = harness();
+  const input = {
+    body: '建议口服一片降糖药试试。',
+    riskLevel: 'low' as const,
+    patientId: 'pt_1',
+    source: 'inbound' as const,
+  };
+
+  // 模型判为合规：关键词只是措辞问题，风险回到模型自评，什么都不留
+  const ok = h.service.review(input, { verdict: 'ok' });
+  assert.deepEqual(ok.hits, []);
+  assert.equal(ok.riskLevel, 'low');
+  assert.equal(ok.alertId, undefined);
+  assert.equal(h.service.alerts().length, 0);
+  assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 0);
+  assert.equal(
+    h.service.audits().some((event) => event.action === 'risk_rule.hit'),
+    false,
+  );
+
+  // 模型确认违规：命中、计数、告警都照旧，只是告警标成语义确认
+  const bad = h.service.review(input, { verdict: 'violation' });
+  assert.ok(bad.hits.includes('rul_builtin_no_medication'));
+  assert.equal(bad.riskLevel, 'high');
+  const alert = h.service.alerts()[0]!;
+  assert.equal(alert.reviewStage, 'semantic');
+  assert.equal(h.service.get('rul_builtin_no_medication')?.hitCount, 1);
+
+  // 复核不可用：保守处理，告警仍标 keyword
+  const unknown = h.service.review(input, { verdict: 'unknown' });
+  assert.ok(unknown.hits.includes('rul_builtin_no_medication'));
+  assert.equal(h.service.alerts()[1]?.reviewStage, 'keyword');
+});
+
+test('草稿语义复核只覆盖草稿正文：急症规则仍按患者输入升级', () => {
+  const h = harness();
+  const result = h.service.review(
+    {
+      body: '您描述的情况需要尽快由医生处理，请先别紧张。',
+      riskLevel: 'low',
+      patientId: 'pt_2',
+      source: 'inbound',
+      inboundText: '我爸刚才胸口很痛，喘不上气。',
+    },
+    { verdict: 'ok' },
+  );
+  assert.equal(result.escalate, true);
+  assert.ok(result.hits.includes('rul_builtin_emergency'));
+  const alert = h.service.alerts()[0]!;
+  assert.equal(alert.kind, 'escalate');
+  // 急症升级来自患者输入，不是「草稿内容判定」，不标复核层级
+  assert.equal(alert.reviewStage, undefined);
 });
 
 test('员工发言告警记录判定层级：语义复核确认 semantic，复核不可用 keyword', () => {
@@ -698,6 +776,119 @@ test('#37 LazyDraftGuard：guard 未就绪时返回未命中，就绪后转发',
   const result = withGuard.review(input);
   assert.ok(result.hits.includes('rul_builtin_no_medication'));
   assert.equal(result.riskLevel, 'high');
+});
+
+test('LazyDraftGuard 语义复核：只把 flag 命中送模型，判合规就不告警', async () => {
+  const h = harness();
+  const calls: Array<{ text: string; ruleNames: string[] }> = [];
+  const lazy = new LazyDraftGuard(
+    () => h.service,
+    async (input) => {
+      calls.push(input);
+      return 'ok';
+    },
+  );
+  const result = await lazy.reviewDraft({
+    body: '建议口服一片降糖药试试。',
+    riskLevel: 'low',
+    patientId: 'pt_1',
+    source: 'inbound',
+  });
+  assert.deepEqual(calls, [{ text: '建议口服一片降糖药试试。', ruleNames: ['不调药'] }]);
+  assert.deepEqual(result.hits, []);
+  assert.equal(result.riskLevel, 'low');
+  assert.equal(h.service.alerts().length, 0);
+});
+
+test('LazyDraftGuard 语义复核：报错 / 没装复核都按关键词保守告警，标 keyword', async () => {
+  const h = harness();
+  const input = {
+    body: '建议口服一片降糖药试试。',
+    riskLevel: 'low' as const,
+    patientId: 'pt_1',
+    source: 'inbound' as const,
+  };
+  const failing = new LazyDraftGuard(
+    () => h.service,
+    async () => {
+      throw new Error('JUDGE_TIMEOUT');
+    },
+  );
+  const result = await failing.reviewDraft(input);
+  assert.ok(result.hits.includes('rul_builtin_no_medication'));
+  assert.equal(h.service.alerts()[0]?.reviewStage, 'keyword');
+
+  const noJudge = new LazyDraftGuard(() => h.service);
+  const plain = await noJudge.reviewDraft(input);
+  assert.ok(plain.hits.includes('rul_builtin_no_medication'));
+  assert.equal(h.service.alerts()[1]?.reviewStage, 'keyword');
+
+  // 模型确认违规时只标 semantic
+  const confirming = new LazyDraftGuard(
+    () => h.service,
+    async () => 'violation',
+  );
+  await confirming.reviewDraft(input);
+  assert.equal(h.service.alerts()[2]?.reviewStage, 'semantic');
+});
+
+test('草稿门禁接了语义复核：草稿等复核结论再入队，风险用复核结果', async () => {
+  let draftReviews = 0;
+  let syncReviews = 0;
+  const port: DraftGuardPort = {
+    review: (input) => {
+      syncReviews += 1;
+      return {
+        riskLevel: 'high',
+        hits: ['rul_builtin_no_medication'],
+        hitNames: ['不调药'],
+        actions: ['flag'],
+        escalate: false,
+        guideOnly: false,
+      };
+    },
+    checkDraft: () => ({
+      flagHits: ['rul_builtin_no_medication'],
+      flagHitNames: ['不调药'],
+    }),
+    reviewDraft: async () => {
+      draftReviews += 1;
+      return {
+        riskLevel: 'low',
+        hits: [],
+        hitNames: [],
+        actions: [],
+        escalate: false,
+        guideOnly: false,
+      };
+    },
+  };
+  const h = setupRuntime({ guard: port });
+  observeServiceGroup(h, { status: 'serving', advisorId: 'adv_1' });
+  h.sessions.onPrompt = async (sessionId) => {
+    await h.runtime.replyDraft(sessionId, {
+      body: '有情况随时问我。',
+      inboundSummary: '患者问血压',
+      riskLevel: 'low',
+      citedMemoryIds: [],
+      citedKnowledgeIds: [],
+    });
+  };
+
+  h.runtime.routeInbound({
+    msgid: 'm_guard_async',
+    roomId: 'wr_g1',
+    from: 'wm_patient',
+    text: '最近血压有点高，怎么办？',
+    msgtime: 1_700_000_000_000,
+  });
+  h.clock.advance(30_000);
+  await h.runtime.flushDue();
+
+  assert.equal(draftReviews, 1);
+  assert.equal(syncReviews, 0);
+  assert.equal(h.bridge.enqueued.length, 1);
+  assert.equal(h.bridge.enqueued[0]!.riskLevel, 'low');
 });
 
 test('#37 配置：tenantId 必填，sandbox 默认 false', () => {
