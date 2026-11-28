@@ -939,7 +939,9 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 告警带 `reviewStage` 告诉控制台判定停在哪一层：`semantic` = 语义复核确认违规；`keyword` = 只有关键词初筛（复核不可用时按保守策略告警）。`hitKeywords` 是实际命中的关键词，已排除否定句里的合规提醒，控制台只在它上面加底色。
 
-草稿后校验（`source="draft"`）走同一套关键词匹配：`flag` 规则校验草稿正文时，同样跳过否定句与并列结构——「不要自己停药或减量」「请勿自行停药」「不建议自行减量」都算合规提醒，不抬高风险、不告警；否定不跨逗号、句号，「不用怕，加量到两片」仍算命中。草稿侧目前只有关键词这一层，语义复核对草稿尚未接入，因此草稿告警一律标 `reviewStage="keyword"`。
+草稿后校验（`source="draft"`）走同一套关键词匹配：`flag` 规则校验草稿正文时，同样跳过否定句与并列结构——「不要自己停药或减量」「请勿自行停药」「不建议自行减量」都算合规提醒，不抬高风险、不告警；否定不跨逗号、句号，「不用怕，加量到两片」仍算命中。
+
+草稿侧也接语义复核（与员工发言共用复核会话，等待上限 4 秒）：关键词命中后交模型判断草稿是否真的在替客户下诊断/调药/承诺疗效。判为合规则 `flag` 规则不算命中（不计数、不告警，风险回到模型自评）；判为违规告警标 `reviewStage="semantic"`；复核不可用（未启用、超时、报错）按关键词保守处理并标 `reviewStage="keyword"`。`guide` / `escalate` 规则只看患者输入，不受复核结论影响，`kind=escalate` 的告警不带 `reviewStage`。
 
 ### `GET /alerts/unresolved-count?source=&kind=`
 
