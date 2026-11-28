@@ -110,6 +110,8 @@ export async function loadImageAttachment(
 /** 单轮注入结果：失败张数只记数量，不记路径与原因细节 */
 export interface LoadedImages {
   images: ImageAttachment[];
+  /** 读入成功的图片路径，顺序与输入一致；饮食记录据此关联本轮全部原图 */
+  paths: string[];
   failed: number;
   skipped: number;
 }
@@ -120,16 +122,23 @@ export async function loadTurnImages(
 ): Promise<LoadedImages> {
   const max = options.maxPerTurn ?? IMAGE_MAX_PER_TURN;
   const images: ImageAttachment[] = [];
+  const loadedPaths: string[] = [];
   let failed = 0;
   for (const path of paths) {
     if (images.length >= max) break;
     try {
       images.push(await loadImageAttachment(path, { maxBytes: options.maxBytes }));
+      loadedPaths.push(path);
     } catch {
       failed += 1;
     }
   }
-  return { images, failed, skipped: Math.max(0, paths.length - images.length - failed) };
+  return {
+    images,
+    paths: loadedPaths,
+    failed,
+    skipped: Math.max(0, paths.length - images.length - failed),
+  };
 }
 
 /** 本轮图片说明写进用户消息，紧挨着附件 */
@@ -183,6 +192,11 @@ export interface MealLogRecord {
   mediaId?: string;
   /** 存档原图在服务器上的路径；仅服务端使用，不直接出接口 */
   mediaPath?: string;
+  /**
+   * 同一条记录关联的全部原图路径（如「餐食 + 饮品」两张图）。
+   * 首张与 `mediaPath` 相同，保留 `mediaPath` 兼容旧记录。
+   */
+  mediaPaths?: string[];
   mealType: MealType;
   foods: Array<{ name: string; portion?: string }>;
   notes?: string;
@@ -295,7 +309,12 @@ export function validateImageClassify(args: unknown): ValidationResult<ImageClas
 }
 
 /** 对外视图：不暴露服务器路径 */
-export function mealLogView(record: MealLogRecord, photoUrl?: string): Record<string, unknown> {
+export function mealLogView(
+  record: MealLogRecord,
+  photoUrl?: string,
+  photoUrls?: string[],
+): Record<string, unknown> {
+  const urls = photoUrls ?? (photoUrl ? [photoUrl] : []);
   return {
     id: record.id,
     tenantId: record.tenantId,
@@ -304,6 +323,8 @@ export function mealLogView(record: MealLogRecord, photoUrl?: string): Record<st
     messageId: record.messageId ?? null,
     mediaId: record.mediaId ?? null,
     photoUrl: photoUrl ?? null,
+    /** 一条记录的全部原图；`photoUrl` 保留为首张，兼容旧前端 */
+    photoUrls: urls,
     mealType: record.mealType,
     foods: record.foods,
     notes: record.notes ?? null,

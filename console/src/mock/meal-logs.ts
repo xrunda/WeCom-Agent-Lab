@@ -20,6 +20,8 @@ export interface MealLog {
   messageId: string;
   mediaId: string;
   photoUrl: string;
+  /** 一条记录关联的全部原图（如主食 + 饮品）；旧数据没有该字段时退回 photoUrl */
+  photoUrls?: string[];
   mealType: MealType;
   foods: MealFood[];
   notes: string;
