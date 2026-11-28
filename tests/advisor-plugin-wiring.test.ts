@@ -70,6 +70,8 @@ const PATIENTS = [
     externalUserId: 'wm_001',
     advisorId: 'adv_1',
     tags: ['高血压'],
+    birthYear: 1958,
+    sex: 'female',
     consent: 'agreed',
     status: 'serving',
   },
@@ -647,6 +649,8 @@ test('patient_chronic 返回事实卡：身高体重、最近饮食与长期记�
   const chronic = h.tools.find((item) => item.name === 'patient_chronic')!;
   const value = await chronic.execute({ patientId: 'p1' }, { agent: { id: 'zhiban-advisor-adv_1' } });
   const text = chronic.output.render({}, value)[0]!.text;
+  // #212：年龄按出生年与当年换算，性别取档案值；顾问问「她多大/性别」能直接答
+  assert.match(text, /年龄：\d+ 岁（1958 年出生） · 性别：女/);
   assert.match(text, /身高体重：170 cm \/ 65 kg/);
   assert.match(text, /最近饮食/);
   assert.match(text, /燕麦粥/);

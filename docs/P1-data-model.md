@@ -297,6 +297,8 @@ media：文件在磁盘，元数据随消息保存
 | `tenantId` | string | 否 | |
 | `displayName` | string | 否 | 备注名；占位名（`外部成员 …尾号`）会在拿到真实群昵称后自动回填，手工名不覆盖 |
 | `avatar` | string | 是 | |
+| `birthYear` | number | 是 | 出生年（`1900`–当前年）。只存年份：年龄随时间变，存年龄会过期；未填不推断 |
+| `sex` | enum | 是 | `male` / `female` / `unspecified`；缺字段 = 档案没填，`unspecified` = 明确选过「未说明」 |
 | `externalUserId` | string | 是 | 主外部成员 id（`wm...`），用于路由与同意状态 |
 | `identityStatus` | enum | 是 | `pending`（系统按发言猜测）/ `confirmed`（顾问手动确认/改绑） |
 | `identitySource` | enum | 是 | `auto` / `manual` |

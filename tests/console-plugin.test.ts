@@ -1935,6 +1935,36 @@ test('患者：真实患者列表区分 demo，详情含群与顾问，健康档
   assert.equal(patched.status, 200);
   assert.equal((patched.json() as { displayName: string }).displayName, '汪女士（VIP）');
 
+  // #212 出生年 / 性别：可写、可清空、非法值拒绝
+  const basics = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { birthYear: 1958, sex: 'female' },
+  });
+  assert.equal(basics.status, 200);
+  const basicsBody = basics.json() as { birthYear: number | null; sex: string | null };
+  assert.equal(basicsBody.birthYear, 1958);
+  assert.equal(basicsBody.sex, 'female');
+
+  const badYear = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { birthYear: 1800 },
+  });
+  assert.equal(badYear.status, 422);
+  const badSex = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { sex: 'other' },
+  });
+  assert.equal(badSex.status, 422);
+
+  const clearedBasics = await call('PATCH', '/zhiban/api/patients/pat_1', {
+    cookie,
+    body: { birthYear: null, sex: null },
+  });
+  assert.equal(clearedBasics.status, 200);
+  const clearedBody = clearedBasics.json() as { birthYear: number | null; sex: string | null };
+  assert.equal(clearedBody.birthYear, null);
+  assert.equal(clearedBody.sex, null);
+
   const invalid = await call('PATCH', '/zhiban/api/patients/pat_1', {
     cookie,
     body: { consent: 'unknown-ish' },

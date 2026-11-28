@@ -35,6 +35,9 @@ export type AgentTool =
   | 'meal_log_write';
 export type ActionResult = 'success' | 'failed' | 'skipped';
 
+/** 性别：unspecified 是明确选过的，null / 缺字段是「档案没填」 */
+export type PatientSex = 'male' | 'female' | 'unspecified';
+
 export interface Patient {
   id: string;
   tenantId: string;
@@ -45,6 +48,10 @@ export interface Patient {
   /** 我们的备注名（顾问可改） */
   remark?: string | null;
   avatar: string | null;
+  /** 出生年；历史数据没有该字段 */
+  birthYear?: number | null;
+  /** 性别；历史数据没有该字段 */
+  sex?: PatientSex | null;
   externalUserId: string | null;
   /** 患者身份确认状态：pending=系统按发言推测待确认；confirmed=顾问手动指定 */
   identityStatus?: IdentityStatus;
@@ -697,7 +704,15 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
 
 export async function updatePatient(
   patientId: string,
-  patch: { displayName?: string; tags?: string[]; consent?: ConsentStatus; status?: PatientStatus },
+  patch: {
+    displayName?: string;
+    tags?: string[];
+    consent?: ConsentStatus;
+    status?: PatientStatus;
+    /** null = 清空（回到「档案没有这项」） */
+    birthYear?: number | null;
+    sex?: PatientSex | null;
+  },
 ): Promise<Patient> {
   if (!isMockMode) {
     return apiRequest<Patient>(`/patients/${patientId}`, {
@@ -716,6 +731,24 @@ export async function updatePatient(
   if (patch.tags) patient.tags = patch.tags;
   if (patch.consent) patient.consent = patch.consent;
   if (patch.status) patient.status = patch.status;
+  if (patch.birthYear !== undefined) {
+    if (patch.birthYear === null) patient.birthYear = null;
+    else {
+      const maxYear = new Date().getFullYear();
+      if (!Number.isInteger(patch.birthYear) || patch.birthYear < 1900 || patch.birthYear > maxYear) {
+        throw new ApiError('VALIDATION_FAILED', `出生年需为 1900–${maxYear} 之间的整数`, 422);
+      }
+      patient.birthYear = patch.birthYear;
+    }
+  }
+  if (patch.sex !== undefined) {
+    if (patch.sex === null) patient.sex = null;
+    else if (patch.sex === 'male' || patch.sex === 'female' || patch.sex === 'unspecified') {
+      patient.sex = patch.sex;
+    } else {
+      throw new ApiError('VALIDATION_FAILED', 'sex 必须是 male / female / unspecified', 422);
+    }
+  }
   patient.updatedAt = now();
   writeState(state);
   return patient;
