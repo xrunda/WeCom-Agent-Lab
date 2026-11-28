@@ -262,6 +262,10 @@ export interface AlertRecord {
   groupId: string | null;
   /** 告警来源：员工群发言 / AI 草稿；历史记录可能为空 */
   source?: 'draft' | 'staff';
+  /** 判定层级：keyword=只过关键词初筛；semantic=语义复核确认违规；历史记录可能为空 */
+  reviewStage?: 'keyword' | 'semantic';
+  /** 实际命中的关键词（已排除否定句里的提醒），控制台据此加底色 */
+  hitKeywords?: string[];
   note: string | null;
   resolvedBy: string | null;
   resolvedAt: number | null;

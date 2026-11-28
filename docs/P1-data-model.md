@@ -575,6 +575,9 @@ media：文件在磁盘，元数据随消息保存
 | `patientId` | string | 是 | |
 | `advisorId` | string | 是 | |
 | `groupId` | string | 是 | |
+| `source` | enum | 是 | `staff`（员工群发言）/ `draft`（AI 草稿）；运维类告警为空 |
+| `reviewStage` | enum | 是 | `keyword`（只过关键词初筛）/ `semantic`（语义复核确认违规）；非红线告警为空 |
+| `hitKeywords` | string[] | 是 | 实际命中的关键词（已排除否定句里的合规提醒），控制台据此加底色 |
 | `note` | string | 是 | 处理备注 |
 | `resolvedBy` | string | 是 | 账号 id |
 | `resolvedAt` | number | 是 | |

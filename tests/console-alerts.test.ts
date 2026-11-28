@@ -80,6 +80,39 @@ test('P1 告警实体保留 id 与来源，重复事件幂等；未知类型与�
   assert.equal(service.ingest('alert'), undefined);
 });
 
+test('判定层级与命中词入库：非法值忽略，事件载荷一并下发', () => {
+  const { service, events } = setup();
+  const draft = service.ingest({
+    id: 'alt_draft',
+    kind: 'redline',
+    source: 'draft',
+    reviewStage: 'keyword',
+    hitKeywords: ['加量', ''],
+    message: '命中规则：不调药；风险等级 high',
+  });
+  assert.equal(draft?.reviewStage, 'keyword');
+  assert.deepEqual(draft?.hitKeywords, ['加量']);
+  const created = events.find((event) => event.type === 'alert.created')!.data as Record<
+    string,
+    unknown
+  >;
+  assert.equal(created.reviewStage, 'keyword');
+  assert.deepEqual(created.hitKeywords, ['加量']);
+
+  const staff = service.ingest({
+    id: 'alt_staff',
+    kind: 'redline',
+    source: 'staff',
+    reviewStage: 'semantic',
+  });
+  assert.equal(staff?.reviewStage, 'semantic');
+
+  // 拼错的层级、空命中词列表都当没传，旧告警继续按「未标注」展示
+  const legacy = service.ingest({ id: 'alt_legacy', kind: 'redline', reviewStage: 'guess' });
+  assert.equal(legacy?.reviewStage, undefined);
+  assert.equal(legacy?.hitKeywords, undefined);
+});
+
 test('告警详情截断到 500 字（含员工发言摘录），审计不带正文', () => {
   const { service, events, store } = setup();
   const alert = service.ingest({ kind: 'remind', message: 'x'.repeat(800) });

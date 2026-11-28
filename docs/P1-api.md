@@ -937,6 +937,10 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 
 告警的 `message` 带发言人、群名、命中规则与**发言原文摘录**：以最早命中词为中心截取前后各 80 字，压成一行，超长时首尾标 `…`，保证触发告警的那句话一定在摘录里。日志、审计（含 `dismiss`）与规则命中事件仍不含正文。处置方式与其他告警一致（`POST /alerts/{id}/resolve`）。
 
+告警带 `reviewStage` 告诉控制台判定停在哪一层：`semantic` = 语义复核确认违规；`keyword` = 只有关键词初筛（复核不可用时按保守策略告警）。`hitKeywords` 是实际命中的关键词，已排除否定句里的合规提醒，控制台只在它上面加底色。
+
+草稿后校验（`source="draft"`）走同一套关键词匹配：`flag` 规则校验草稿正文时，同样跳过否定句与并列结构——「不要自己停药或减量」「请勿自行停药」「不建议自行减量」都算合规提醒，不抬高风险、不告警；否定不跨逗号、句号，「不用怕，加量到两片」仍算命中。草稿侧目前只有关键词这一层，语义复核对草稿尚未接入，因此草稿告警一律标 `reviewStage="keyword"`。
+
 ### `GET /alerts/unresolved-count?source=&kind=`
 
 角色：全部。响应 `200`：`{ "open": 2, "acknowledged": 1, "total": 3 }`。可传 `source` 只看某一来源、`kind` 只看某一类型；菜单角标用 `kind=redline`，员工发言与草稿两类红线都计数，超时、推送失败等运维告警不占角标。角标用 SSE `alert.*` 增量更新，打开页面时调此接口校准。

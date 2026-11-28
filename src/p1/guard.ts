@@ -11,14 +11,24 @@
  *   只保留就医引导；action=flag 只抬高风险，正文交给顾问审核。
  * - 审计、告警与事件都不带消息正文与草稿正文，只带规则 id、名称和等级。
  * - 员工（顾问 / 客服）在服务群里的发言也走关键词质检（#P1-QC）：
- *   只匹配 action=flag 的规则（急症规则针对患者输入，员工复述症状不算违规），
- *   关键词前 4 字出现否定词时视为合规提醒（如「不要加量」），不计命中。
+ *   只匹配 action=flag 的规则（急症规则针对患者输入，员工复述症状不算违规）。
+ * - 草稿与员工发言共用同一套关键词匹配：关键词前出现否定词时视为合规提醒
+ *   （「不要加量」「请勿自行停药」），不计命中。否定允许跨并列连词
+ *   （「不要自己停药或减量」里的「减量」同样是提醒），但不跨逗号、句号。
  */
 import type { RiskLevel } from '../c2/types.ts';
 import type { AuditEvent } from '../c2/types.ts';
 
 export type RuleKind = 'redline' | 'keyword';
 export type RuleAction = 'flag' | 'guide' | 'escalate';
+
+/**
+ * 告警的判定层级：
+ * - `keyword`：只过了关键词初筛，还没经过模型语义复核（草稿后校验目前都在这一层）；
+ * - `semantic`：关键词命中后，模型语义复核判定确实违规（员工发言质检）。
+ * 控制台据此区分「待人工确认」和「已确认违规」，避免把初筛当成结论。
+ */
+export type ReviewStage = 'keyword' | 'semantic';
 
 export interface RiskRuleRecord {
   id: string;
@@ -70,6 +80,10 @@ export interface GuardAlertRecord {
   source?: 'draft' | 'staff';
   /** 员工发言的存档 msgid，仅用于去重与追溯，不含正文 */
   messageId?: string;
+  /** 这条告警停在关键词初筛，还是已经过语义复核确认 */
+  reviewStage?: ReviewStage;
+  /** 实际命中的关键词（已排除否定句里的提醒），控制台按它加底色 */
+  hitKeywords?: string[];
   ruleIds: string[];
   createdAt: number;
   updatedAt: number;
@@ -134,6 +148,11 @@ export interface StaffMessageReviewInput {
   groupName?: string;
   /** 存档 msgid；同一条消息重复扫描时只记一次 */
   messageId?: string;
+  /**
+   * 告警的判定层级：调用方的语义复核判为违规时传 semantic；
+   * 未装复核能力、复核超时或报错时传 keyword（保守告警）。
+   */
+  reviewStage?: ReviewStage;
 }
 
 export interface StaffMessageReviewResult {
@@ -145,8 +164,9 @@ export interface StaffMessageReviewResult {
 }
 
 /**
- * 关键词前的否定词（「不要加量」「请勿停药」）。单个字的否定词只认紧邻位置，
- * 避免「特别加量」被当成否定句。
+ * 关键词前的否定词（「不要加量」「请勿自行停药」「不建议自己减量」）。
+ * 多字否定词按词判断；单字否定词要防误伤——「特别加量」里的「别」、
+ * 「未来」里的「未」都不是否定，所以「别 / 未」只认紧邻位置。
  */
 const NEGATION_WORDS = [
   '不要',
@@ -158,34 +178,100 @@ const NEGATION_WORDS = [
   '不必',
   '无需',
   '不用',
+  '不需',
   '没有',
   '避免',
   '禁止',
+  '严禁',
+  '切忌',
   '切勿',
+  '请勿',
+  '不建议',
+  '不推荐',
+  '不主张',
   '别',
   '勿',
   '未',
 ];
 
-const NEGATION_WINDOW = 4;
+/** 否定词说完之后，还能管到几个字之后的关键词 */
+const NEGATION_REACH = 4;
+/** 向前取多宽找否定词：最长否定词 3 字 + reach 4 字，留点余量 */
+const NEGATION_LOOKBACK = 12;
+/** 并列连词：一个否定管几个并列动作（「不要自己停药或减量」） */
+const COORDINATION_WORDS = ['或者', '以及', '或', '和', '与', '及', '并', '、'];
+/** 分句边界：否定不跨句生效（「不用怕，加量到两片」说的还是加量） */
+const CLAUSE_BREAKS = new Set(['，', '。', '；', '！', '？', ';', ',', '!', '?', '\n', '\r']);
+/** 并列结构最多向前追几步，避免整段话被一句「不要」罩住 */
+const MAX_COORDINATION_HOPS = 3;
+/** 「别」的前一个字是这些时，它是「特别 / 分别」而不是否定 */
+const NOT_NEGATION_BEFORE_BIE = '特分个差类区性级派告离辨惜作';
 
-function isNegated(text: string, index: number): boolean {
-  const before = text.slice(Math.max(0, index - NEGATION_WINDOW), index);
-  return NEGATION_WORDS.some((word) => {
-    if (!before.includes(word)) return false;
-    if (word.length > 1) return true;
-    if (!before.endsWith(word)) return false;
-    // 「特别加量」「分别减药」里的「别」不是否定词
-    if (word === '别') {
-      const prev = before.slice(-2, -1);
-      return !'特分个差类区性级派告离辨惜作'.includes(prev);
+/**
+ * `from` 到 `position` 之间有没有能管到 `position` 的否定词。
+ *
+ * 多字否定词：说完之后 4 字以内都算命中的否定，所以「不建议自己减药」
+ * 里的「不建议」虽然跨出了 4 字窗口，也照样挡得住。
+ */
+function hasNegation(text: string, from: number, position: number): boolean {
+  const segment = text.slice(from, position);
+  for (const word of NEGATION_WORDS) {
+    const at = segment.lastIndexOf(word);
+    if (at < 0) continue;
+    const gap = position - (from + at + word.length);
+    if (word.length > 1) {
+      if (gap <= NEGATION_REACH) return true;
+      continue;
     }
+    // 「勿」不参与「特别 / 未来」这类组合，出现在同一分句里就是否定（请勿自行停药）
+    if (word === '勿') return true;
+    // 「别 / 未」只认紧邻，否则「特别加量」「未来」会被当成否定句
+    if (gap !== 0) continue;
+    const prev = segment[at - 1];
+    if (word === '别' && prev !== undefined && NOT_NEGATION_BEFORE_BIE.includes(prev)) continue;
     return true;
-  });
+  }
+  return false;
 }
 
-/** 员工发言里「未被否定的」关键词首次出现位置；没有则返回 -1。 */
-export function staffKeywordIndex(text: string, keyword: string): number {
+/** 关键词所在分句的起点：否定只看同一分句，不跨逗号 / 句号。 */
+function clauseStart(text: string, start: number, index: number): number {
+  for (let i = index - 1; i >= start; i -= 1) {
+    if (CLAUSE_BREAKS.has(text[i]!)) return i + 1;
+  }
+  return start;
+}
+
+/**
+ * 关键词是不是出现在否定句里（合规提醒）。
+ *
+ * 否定允许沿并列连词往前延伸：「不要自己停药或减量」里「减量」和「停药」
+ * 共享同一个「不要」，两个词都算提醒。但否定不跨逗号 / 句号：
+ * 「不用怕，加量到两片」的「加量」仍然算命中。
+ */
+function isNegated(text: string, index: number): boolean {
+  let position = index;
+  for (let hop = 0; hop <= MAX_COORDINATION_HOPS; hop += 1) {
+    const start = Math.max(0, position - NEGATION_LOOKBACK);
+    const from = clauseStart(text, start, position);
+    if (hasNegation(text, from, position)) return true;
+    // 关键词前面紧贴并列连词（「…停药或|减量」）：跨过连词再看前一个动作
+    const segment = text.slice(from, position);
+    const connector = COORDINATION_WORDS.find((word) => segment.endsWith(word));
+    if (!connector) return false;
+    const next = position - connector.length;
+    if (next <= from) return false;
+    position = next;
+  }
+  return false;
+}
+
+/**
+ * 关键词「未被否定的」首次出现位置；没有则返回 -1。
+ *
+ * 草稿后校验与员工发言质检共用：否定句是合规提醒，不该抬高风险或产生告警。
+ */
+export function keywordHitIndex(text: string, keyword: string): number {
   let cursor = 0;
   while (cursor <= text.length) {
     const index = text.indexOf(keyword, cursor);
@@ -196,9 +282,19 @@ export function staffKeywordIndex(text: string, keyword: string): number {
   return -1;
 }
 
+/** 文本里是否出现「未被否定的」关键词；导出便于单测与规则预览复用。 */
+export function keywordHit(text: string, keyword: string): boolean {
+  return keywordHitIndex(text, keyword) >= 0;
+}
+
+/** 员工发言的关键词匹配（与草稿共用同一套否定判断）。 */
+export function staffKeywordIndex(text: string, keyword: string): number {
+  return keywordHitIndex(text, keyword);
+}
+
 /** 员工发言里是否出现「未被否定的」关键词；导出便于单测与规则预览复用。 */
 export function staffKeywordHit(text: string, keyword: string): boolean {
-  return staffKeywordIndex(text, keyword) >= 0;
+  return keywordHitIndex(text, keyword) >= 0;
 }
 
 /** 摘录窗口：命中词前后各取多少字 */
@@ -550,11 +646,12 @@ export class GuardService {
     for (const rule of this.rules.values()) {
       if (!rule.enabled) continue;
       // flag：校验草稿正文，防止 Agent 自己说出「停药 / 根治 / 诊断」这类违规内容。
+      //   与员工发言同一套匹配：否定句（「不要自己停药或减量」）是合规提醒，不算命中。
       // guide / escalate：只看患者输入，确保模型没复述症状也能升级；
       // 草稿正文里的条件式提醒不参与匹配，否则正常关怀草稿会被整段替换成就医引导。
       const matchesBody =
         rule.action === 'flag' &&
-        rule.keywords.some((keyword) => input.body.includes(keyword));
+        rule.keywords.some((keyword) => keywordHit(input.body, keyword));
       const matchesInbound =
         (rule.action === 'guide' || rule.action === 'escalate') &&
         typeof input.inboundText === 'string' &&
@@ -592,11 +689,20 @@ export class GuardService {
     if (hits.length > 0 && (escalate || riskLevel === 'high')) {
       // 管理员要一眼看到「草稿里哪句话踩了线」，而不是只有规则名；
       // 只有急症 / 就医引导这类看患者输入的规则才没有草稿摘录。
-      const bodyHit = hits
+      const bodyHits = hits
         .filter((rule) => rule.action === 'flag')
-        .flatMap((rule) => rule.keywords)
-        .map((keyword) => ({ keyword, index: input.body.indexOf(keyword) }))
-        .find((hit) => hit.index >= 0);
+        .flatMap((rule) =>
+          rule.keywords.map((keyword) => ({
+            keyword,
+            index: keywordHitIndex(input.body, keyword),
+          })),
+        )
+        .filter((hit) => hit.index >= 0);
+      const bodyHit = bodyHits.reduce<(typeof bodyHits)[number] | undefined>(
+        (first, hit) => (first === undefined || hit.index < first.index ? hit : first),
+        undefined,
+      );
+      const bodyKeywords = [...new Set(bodyHits.map((hit) => hit.keyword))];
       const bodyExcerpt = bodyHit
         ? excerptAroundHit(input.body, bodyHit.index, bodyHit.keyword.length)
         : undefined;
@@ -611,6 +717,10 @@ export class GuardService {
         groupId: input.groupId,
         sessionId: input.sessionId,
         source: 'draft',
+        // 草稿后校验只有关键词这一层，语义复核对草稿尚未接入：
+        // 控制台按 keyword 标注「初筛」，避免初筛被当成已确认的违规。
+        reviewStage: 'keyword',
+        ...(bodyKeywords.length > 0 ? { hitKeywords: bodyKeywords } : {}),
         ruleIds: hitIds,
       });
     }
@@ -648,13 +758,15 @@ export class GuardService {
     };
   }
 
-  /** 按 action=flag 的规则做关键词匹配，并记下最早命中位置（供告警摘录取用） */
+  /** 按 action=flag 的规则做关键词匹配，并记下最早命中位置与命中词（供告警摘录与高亮） */
   private matchStaffRules(text: string): {
     hits: RiskRuleRecord[];
     hitIndex: number;
     hitLength: number;
+    hitKeywords: string[];
   } {
     const hits: RiskRuleRecord[] = [];
+    const hitKeywords: string[] = [];
     let hitIndex = -1;
     let hitLength = 0;
     for (const rule of this.rules.values()) {
@@ -664,6 +776,7 @@ export class GuardService {
         const index = staffKeywordIndex(text, keyword);
         if (index < 0) continue;
         ruleHit = true;
+        if (!hitKeywords.includes(keyword)) hitKeywords.push(keyword);
         if (hitIndex < 0 || index < hitIndex) {
           hitIndex = index;
           hitLength = keyword.length;
@@ -671,7 +784,7 @@ export class GuardService {
       }
       if (ruleHit) hits.push(rule);
     }
-    return { hits, hitIndex, hitLength };
+    return { hits, hitIndex, hitLength, hitKeywords };
   }
 
   /**
@@ -699,7 +812,7 @@ export class GuardService {
     }
 
     // 命中位置用于告警摘录：围绕最早出现的关键词截取，不能只截开头
-    const { hits, hitIndex, hitLength } = this.matchStaffRules(text);
+    const { hits, hitIndex, hitLength, hitKeywords } = this.matchStaffRules(text);
     if (hits.length === 0) return empty;
 
     let riskLevel: RiskLevel = 'low';
@@ -746,6 +859,8 @@ export class GuardService {
       groupId: input.groupId,
       messageId: input.messageId,
       source: 'staff',
+      reviewStage: input.reviewStage ?? 'keyword',
+      ...(hitKeywords.length > 0 ? { hitKeywords } : {}),
       ruleIds: hits.map((rule) => rule.id),
       actor: 'staff',
     });
@@ -855,6 +970,8 @@ export class GuardService {
     advisorId?: string;
     source?: 'draft' | 'staff';
     messageId?: string;
+    reviewStage?: ReviewStage;
+    hitKeywords?: string[];
     ruleIds: string[];
     actor?: 'agent' | 'staff' | 'system';
   }): GuardAlertRecord {
@@ -873,6 +990,10 @@ export class GuardService {
       ...(input.advisorId ? { advisorId: input.advisorId } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.messageId ? { messageId: input.messageId } : {}),
+      ...(input.reviewStage ? { reviewStage: input.reviewStage } : {}),
+      ...(input.hitKeywords && input.hitKeywords.length > 0
+        ? { hitKeywords: [...input.hitKeywords] }
+        : {}),
       ruleIds: [...input.ruleIds],
       createdAt: at,
       updatedAt: at,
@@ -902,6 +1023,8 @@ export class GuardService {
       advisorId: alert.advisorId,
       groupId: alert.groupId,
       source: alert.source,
+      reviewStage: alert.reviewStage,
+      hitKeywords: alert.hitKeywords,
       ruleIds: alert.ruleIds,
       createdAt: alert.createdAt,
       updatedAt: alert.updatedAt,
