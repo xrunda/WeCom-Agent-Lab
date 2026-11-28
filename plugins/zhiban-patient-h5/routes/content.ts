@@ -10,6 +10,45 @@ import type { H5RouteExtension } from '../http.ts';
 
 const CATEGORIES: readonly ArticleCategory[] = ['classics_life', 'ingredients', 'seasonal_living'];
 
+/** 语音合成端口：由插件按环境变量注入；未配置时 available=false，前端隐藏按钮 */
+export interface ContentTtsPort {
+  available: boolean;
+  audioFor(text: string): Promise<Buffer>;
+}
+
+/** 朗读正文：与卡片上展示的标题 + 摘要保持一致 */
+export function ttsTextOf(article: { title: string; summary: string }): string {
+  const title = article.title.trim();
+  const joiner = /[。！？!?；;，,]$/.test(title) ? '' : '。';
+  return `${title}${joiner}${article.summary}`
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 800);
+}
+
+/** 单段 Range 解析；返回 null 表示无 Range，'invalid' 表示不可满足 */
+export function parseByteRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | null | 'invalid' {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || size <= 0) return 'invalid';
+  const [, rawStart, rawEnd] = match;
+  if (rawStart === '' && rawEnd === '') return 'invalid';
+  if (rawStart === '') {
+    const suffix = Number(rawEnd);
+    if (!Number.isInteger(suffix) || suffix <= 0) return 'invalid';
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(rawStart);
+  const end = rawEnd === '' ? size - 1 : Number(rawEnd);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start > end || start >= size) {
+    return 'invalid';
+  }
+  return { start, end: Math.min(end, size - 1) };
+}
+
 function view(article: ReturnType<ContentService['getPublished']>) {
   return {
     id: article.id,
@@ -30,7 +69,10 @@ function view(article: ReturnType<ContentService['getPublished']>) {
   };
 }
 
-export function createContentRoutes(options: { content: ContentService }): H5RouteExtension[] {
+export function createContentRoutes(options: {
+  content: ContentService;
+  tts?: ContentTtsPort;
+}): H5RouteExtension[] {
   /** GET /articles?category= */
   const list: H5RouteExtension = async (_req, _res, ctx) => {
     if (ctx.path !== '/articles' || ctx.method !== 'GET') return false;
@@ -55,6 +97,8 @@ export function createContentRoutes(options: { content: ContentService }): H5Rou
             item.sections.find((section) => section.kind === 'practice')?.text?.slice(0, 60) ?? null,
           scenarioTags: item.scenarioTags,
         })),
+      // 朗读能力由服务端凭据决定；未配置时前端不渲染「听一听」
+      audioAvailable: options.tts?.available ?? false,
     });
     return true;
   };
@@ -93,5 +137,65 @@ export function createContentRoutes(options: { content: ContentService }): H5Rou
     return true;
   };
 
-  return [related, detail, list];
+  /** GET /articles/:id/audio —— 服务端合成朗读音频（火山 TTS），带本地缓存 */
+  const audio: H5RouteExtension = async (req, res, ctx) => {
+    const match = /^\/articles\/([^/]+)\/audio$/.exec(ctx.path);
+    if (!match || ctx.method !== 'GET') return false;
+    await ctx.requireSession();
+    if (!options.tts?.available) {
+      throw new H5Error('TTS_UNAVAILABLE', '朗读暂时不可用');
+    }
+    let article: ReturnType<ContentService['getPublished']>;
+    try {
+      article = options.content.getPublished(match[1]!);
+    } catch (error) {
+      if (error instanceof ContentError) throw new H5Error('NOT_FOUND', '内容已更新');
+      throw error;
+    }
+    let data: Buffer;
+    try {
+      data = await options.tts.audioFor(ttsTextOf(article));
+    } catch {
+      // 供应商错误不透给患者端；服务端日志由插件统一记录
+      throw new H5Error('TTS_UNAVAILABLE', '朗读暂时不可用');
+    }
+
+    const rangeHeader = req.headers['range'];
+    const range = parseByteRange(
+      typeof rangeHeader === 'string' ? rangeHeader : undefined,
+      data.length,
+    );
+    if (range === 'invalid') {
+      res.writeHead(416, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Range': `bytes */${data.length}`,
+        'X-Request-Id': ctx.requestId,
+      });
+      res.end(
+        JSON.stringify({
+          error: {
+            code: 'TTS_UNAVAILABLE',
+            message: '朗读暂时不可用',
+            requestId: ctx.requestId,
+          },
+        }),
+      );
+      return true;
+    }
+    const start = range?.start ?? 0;
+    const end = range?.end ?? data.length - 1;
+    const body = data.subarray(start, end + 1);
+    res.writeHead(range ? 206 : 200, {
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': body.length,
+      'Accept-Ranges': 'bytes',
+      ...(range ? { 'Content-Range': `bytes ${start}-${end}/${data.length}` } : {}),
+      'Cache-Control': 'private, max-age=300',
+      'X-Request-Id': ctx.requestId,
+    });
+    res.end(body as unknown as string);
+    return true;
+  };
+
+  return [related, audio, detail, list];
 }

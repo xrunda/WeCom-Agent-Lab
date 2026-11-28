@@ -388,12 +388,15 @@ export async function fetchArticleDetail(id: string): Promise<ArticleDetailView>
   return apiRequest<ArticleDetailView>(`/articles/${id}`);
 }
 
-export async function fetchArticles(): Promise<{ items: ArticleView[] }> {
+export async function fetchArticles(): Promise<{ items: ArticleView[]; audioAvailable: boolean }> {
   if (isDemoMode()) {
     const { demoArticles } = await import('./mock/demo-api.ts');
-    return demoArticles();
+    const result = await demoArticles();
+    // 演示数据不调用付费 TTS，不显示「听一听」
+    return { ...result, audioAvailable: false };
   }
-  return apiRequest<{ items: ArticleView[] }>('/articles');
+  const result = await apiRequest<{ items: ArticleView[]; audioAvailable?: boolean }>('/articles');
+  return { items: result.items, audioAvailable: result.audioAvailable === true };
 }
 
 // ---------- 计划（H04） ----------
