@@ -380,7 +380,7 @@ media：文件在磁盘，元数据随消息保存
 
 ### 3.10 meal_log
 
-餐食记录（#55）。一张餐食图 → 一条饮食记录。
+餐食记录（#55）。一次餐食（一轮消息内可有多张图，如主食 + 饮品）→ 一条饮食记录，`mediaPaths` 关联全部原图。
 
 | 字段 | 类型 | 可空 | 说明 |
 |---|---|---|---|
@@ -390,7 +390,8 @@ media：文件在磁盘，元数据随消息保存
 | `groupId` | string | 否 | |
 | `messageId` | string | 是 | 存档 msgid |
 | `mediaId` | string | 是 | 图片资源 id；无图时为空 |
-| `photoUrl` | string | 是 | 鉴权读取地址 `/zhiban/api/media/{mediaId}` |
+| `photoUrl` | string | 是 | 首张原图鉴权读取地址 `/zhiban/api/patients/{patientId}/meal-logs/{id}/photo` |
+| `photoUrls` | array<string> | 是 | 一条记录关联的全部原图；首张与 `photoUrl` 相同，多图时依次带 `?index=1…` |
 | `mealType` | enum | 否 | `breakfast` / `lunch` / `dinner` / `snack` / `unknown` |
 | `foods` | array<object> | 否 | `[{ "name": "清蒸鲈鱼", "portion": "约 150g" }]`，`portion` 可空 |
 | `notes` | string | 是 | Agent 或人工补充 |

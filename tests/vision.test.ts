@@ -92,11 +92,13 @@ test('#55 loadTurnImages 只记失败张数，单轮最多注入上限张', asyn
   });
   assert.equal(loaded.images.length, 1);
   assert.equal(loaded.images[0]!.mediaType, 'image/jpeg');
+  assert.deepEqual(loaded.paths, [first]);
   assert.equal(loaded.failed, 0);
   assert.equal(loaded.skipped, 2);
 
   const all = await loadTurnImages([first, join(dir, 'missing.jpg'), second], { maxPerTurn: 4 });
   assert.equal(all.images.length, 2);
+  assert.deepEqual(all.paths, [first, second]);
   assert.equal(all.failed, 1);
 });
 
@@ -155,7 +157,12 @@ test('#55 mealLogView 不暴露服务器路径，photoUrl 可空', () => {
   assert.equal('mediaPath' in view, false);
   assert.equal(JSON.stringify(view).includes('/srv/media'), false);
   assert.equal(view.photoUrl, null);
+  assert.deepEqual(view.photoUrls, []);
   assert.equal(view.mealType, 'lunch');
+
+  const multi = mealLogView(record, '/a/photo', ['/a/photo', '/a/photo?index=1']);
+  assert.equal(multi.photoUrl, '/a/photo');
+  assert.deepEqual(multi.photoUrls, ['/a/photo', '/a/photo?index=1']);
 });
 
 test('#55 图片降级正文与类型标签', () => {

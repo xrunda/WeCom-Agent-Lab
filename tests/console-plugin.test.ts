@@ -1035,6 +1035,10 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，照片经鉴�
   const photoDir = await mkdtemp(join(tmpdir(), 'zhiban-meal-'));
   const photoPath = join(photoDir, 'dinner.jpg');
   await writeFile(photoPath, png);
+  // 同一餐的多张原图（如煎饼 + 可乐）：第二条照片走 ?index=1 回读
+  const colaPath = join(photoDir, 'cola.jpg');
+  const colaPng = Buffer.concat([png, Buffer.from([0x05, 0x06])]);
+  await writeFile(colaPath, colaPng);
 
   const records: MealLogRecord[] = [
     {
@@ -1044,6 +1048,7 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，照片经鉴�
       groupId: 'grp_1',
       messageId: 'msg_2',
       mediaPath: photoPath,
+      mediaPaths: [photoPath, colaPath],
       mealType: 'dinner',
       foods: [{ name: '清蒸鲈鱼', portion: '约 150g' }],
       confidence: 0.9,
@@ -1072,7 +1077,12 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，照片经鉴�
   assert.equal(body.total, 2);
   assert.equal(body.items[0]!.id, 'meal_2');
   assert.equal(body.items[0]!.photoUrl, '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo');
+  assert.deepEqual(body.items[0]!.photoUrls, [
+    '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo',
+    '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo?index=1',
+  ]);
   assert.equal(body.items[1]!.photoUrl, null);
+  assert.deepEqual(body.items[1]!.photoUrls, []);
   assert.equal(JSON.stringify(body).includes(photoDir), false);
   assert.equal(JSON.stringify(body).includes('.jpg'), false);
 
@@ -1080,6 +1090,27 @@ test('#55 饮食记录：按患者读取、时间过滤、分页，照片经鉴�
   assert.equal(photo.status, 200);
   assert.equal(photo.headers['content-type'], 'image/png');
   assert.deepEqual(photo.bytes(), png);
+
+  // 多图记录：index=1 返回第二张，越界 / 非法下标一律 404，不拼路径探测
+  const colaPhoto = await call(
+    'GET',
+    '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo?index=1',
+    { cookie },
+  );
+  assert.equal(colaPhoto.status, 200);
+  assert.deepEqual(colaPhoto.bytes(), colaPng);
+  const outOfRange = await call(
+    'GET',
+    '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo?index=2',
+    { cookie },
+  );
+  assert.equal(outOfRange.status, 404);
+  const badIndex = await call(
+    'GET',
+    '/zhiban/api/patients/pat_1/meal-logs/meal_2/photo?index=../secret',
+    { cookie },
+  );
+  assert.equal(badIndex.status, 404);
 
   // 没有原图或日志不存在的记录返回 404，不拼路径探测
   const noPhoto = await call('GET', '/zhiban/api/patients/pat_1/meal-logs/meal_1/photo', {

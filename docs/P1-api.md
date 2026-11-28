@@ -612,13 +612,15 @@ Set-Cookie: zhiban_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax; Max
 #### `GET /patients/{id}/meal-logs?from=&to=&page=`
 
 角色：全部（`patient.read`）。响应 `200`：`{ "items": [meal_log], ... }`，按 `createdAt` 倒序。
-有原图的记录返回 `photoUrl`（`/zhiban/api/patients/{id}/meal-logs/{logId}/photo`），没有原图为 `null`；
-不返回服务器磁盘路径。
+有原图的记录返回 `photoUrl`（首张，`/zhiban/api/patients/{id}/meal-logs/{logId}/photo`）与
+`photoUrls`（一条记录的全部原图，首张不带参数，其余为 `...?index=1`、`...?index=2`；无图为 `[]`）；
+不返回服务器磁盘路径。同一条早餐记录可以关联多张图（如「煎饼 + 可乐」），前端必须全部展示，不能只显示首张。
 
-#### `GET /patients/{id}/meal-logs/{logId}/photo`
+#### `GET /patients/{id}/meal-logs/{logId}/photo?index=`
 
-角色：全部（`patient.read`）。按记录 id 回读存档原图，`content-type` 按文件魔数判断（扩展名不可信），
-`cache-control: private, max-age=300`。错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在）。
+角色：全部（`patient.read`）。按记录 id 回读存档原图；多图记录用 `index` 选第几张（从 0 开始，缺省 0）。
+`content-type` 按文件魔数判断（扩展名不可信），`cache-control: private, max-age=300`。
+错误：`404 NOT_FOUND`（患者 / 记录 / 原图不存在，或 `index` 越界 / 非法）。
 
 ### 慢病管理
 

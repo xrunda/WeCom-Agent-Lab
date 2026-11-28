@@ -8,9 +8,9 @@ import { observeServiceGroup, setupRuntime } from './p1-helpers.ts';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9]);
 
-function imageMessage(path: string, msgtime = 1_700_000_000_000) {
+function imageMessage(path: string, msgtime = 1_700_000_000_000, msgid = 'm_img_1') {
   return {
-    msgid: 'm_img_1',
+    msgid,
     roomId: 'wr_g1',
     from: 'wm_patient',
     text: '',
@@ -86,6 +86,54 @@ test('#55 餐食图：注入图片附件、写入饮食记录，草稿保留低�
   const mealEvent = h.events.find((event) => event.type === 'patient.meal.logged');
   assert.ok(mealEvent);
   assert.equal((mealEvent.data as { mealType: string }).mealType, 'dinner');
+});
+
+test('#55 一轮多图（煎饼 + 可乐）：同一条饮食记录关联全部原图，不丢图', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'zhiban-image-turn-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const meal = join(dir, 'pancake.jpg');
+  const drink = join(dir, 'cola.jpg');
+  await writeFile(meal, JPEG);
+  await writeFile(drink, JPEG);
+
+  const h = setupRuntime();
+  observeServiceGroup(h, { status: 'serving', advisorId: 'adv_1' });
+
+  h.sessions.onPrompt = async (sessionId) => {
+    h.runtime.imageClassify(sessionId, { kind: 'meal', confidence: 0.85 });
+    h.runtime.imageClassify(sessionId, { kind: 'meal', confidence: 0.85 });
+    h.runtime.mealLogWrite(sessionId, {
+      foods: [
+        { name: '煎饼', portion: '1 份' },
+        { name: '无糖可乐', portion: '1 瓶，约 500ml' },
+      ],
+      mealType: 'breakfast',
+      confidence: 0.85,
+    });
+    await h.runtime.replyDraft(sessionId, {
+      body: '早餐看到了：煎饼配无糖可乐，已经记进饮食记录。',
+      inboundSummary: '患者发来煎饼和可乐两张照片',
+      riskLevel: 'low',
+      citedMemoryIds: [],
+      citedKnowledgeIds: [],
+    });
+  };
+
+  h.runtime.routeInbound(imageMessage(meal, 1_700_000_000_000, 'm_img_1'));
+  h.runtime.routeInbound(imageMessage(drink, 1_700_000_000_000, 'm_img_2'));
+  h.clock.advance(30_000);
+  await h.runtime.flushDue();
+
+  assert.equal(h.sessions.prompts.length, 1);
+  assert.equal(imageParts(h.sessions.prompts[0]!.content).length, 2);
+
+  const patient = h.store.findPatientByExternalId('wm_patient');
+  assert.ok(patient);
+  const logs = h.store.listMealLogs(patient.id);
+  assert.equal(logs.length, 1);
+  // 两张原图都挂在同一条记录上；mediaPath 保留首张兼容旧读取逻辑
+  assert.equal(logs[0]!.mediaPath, meal);
+  assert.deepEqual(logs[0]!.mediaPaths, [meal, drink]);
 });
 
 test('#55 化验单图：不写饮食记录时风险至少 medium', async (t) => {

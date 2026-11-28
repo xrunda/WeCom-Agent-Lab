@@ -29,6 +29,19 @@
   gap: 8px;
 }
 
+/* 一条记录的多张原图（如主食 + 饮品）：小图并排，点开可放大 */
+.diet-photos {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+}
+
+.diet-photos-multi {
+  max-width: 134px;
+}
+
 .diet-foods {
   display: flex;
   flex-wrap: wrap;

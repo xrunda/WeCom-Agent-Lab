@@ -1124,6 +1124,17 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
 
     // ---------- 饮食记录（#55） ----------
 
+    /** 一条饮食记录关联的全部原图；旧记录只有 mediaPath */
+    const mealPhotoPaths = (log: MealLogRecord): string[] =>
+      log.mediaPaths && log.mediaPaths.length > 0
+        ? log.mediaPaths
+        : log.mediaPath
+          ? [log.mediaPath]
+          : [];
+
+    const mealPhotoUrl = (patientId: string, logId: string, index: number): string =>
+      `${API_PREFIX}/patients/${encodeURIComponent(patientId)}/meal-logs/${encodeURIComponent(logId)}/photo${index === 0 ? '' : `?index=${index}`}`;
+
     router.add(
       'GET',
       '/patients/:id/meal-logs',
@@ -1140,14 +1151,12 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
               (from === undefined || log.createdAt >= from) &&
               (to === undefined || log.createdAt <= to),
           )
-          .map((log) =>
-            mealLogView(
-              log,
-              log.mediaPath
-                ? `${API_PREFIX}/patients/${encodeURIComponent(patient.id)}/meal-logs/${encodeURIComponent(log.id)}/photo`
-                : undefined,
-            ),
-          );
+          .map((log) => {
+            const photoUrls = mealPhotoPaths(log).map((_, index) =>
+              mealPhotoUrl(patient.id, log.id, index),
+            );
+            return mealLogView(log, photoUrls[0], photoUrls);
+          });
         respond(
           rc,
           200,
@@ -1169,10 +1178,15 @@ export function apply(ctx: DshConsoleContext, rawConfig: unknown): void {
         const log = (patientApi?.listMealLogs?.(patient.id) ?? []).find(
           (item) => item.id === rc.params.logId,
         );
-        if (!log?.mediaPath) throw new ConsoleError('NOT_FOUND', '照片不存在');
+        const paths = log ? mealPhotoPaths(log) : [];
+        const rawIndex = rc.query.get('index');
+        const index =
+          rawIndex == null ? 0 : /^(0|[1-9]\d*)$/.test(rawIndex) ? Number(rawIndex) : -1;
+        const photoPath = index >= 0 && index < paths.length ? paths[index] : undefined;
+        if (!photoPath) throw new ConsoleError('NOT_FOUND', '照片不存在');
         let data: Buffer;
         try {
-          data = await readFile(log.mediaPath);
+          data = await readFile(photoPath);
         } catch {
           throw new ConsoleError('NOT_FOUND', '照片不存在');
         }

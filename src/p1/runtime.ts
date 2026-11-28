@@ -96,6 +96,8 @@ interface ActiveTurn {
   /** #55：本轮实际注入的图片张数 / 加载失败张数 */
   imageCount?: number;
   imageFailed?: number;
+  /** 读入成功的图片路径（按消息顺序）；多图餐食记录据此关联全部原图 */
+  imageMediaPaths?: string[];
   /** 模型通过 image_classify 提交的类型 */
   imageKinds?: string[];
   /** 本轮写入的饮食记录 id；有值说明图片已被当作餐食处理 */
@@ -686,6 +688,7 @@ export class PatientAgentRuntime {
       revision,
       imageCount: loadedImages.images.length,
       imageFailed: loadedImages.failed,
+      imageMediaPaths: loadedImages.paths,
       imageKinds: [],
       mealLogIds: [],
     };
@@ -777,7 +780,7 @@ export class PatientAgentRuntime {
     patientId: string,
     groupId: string,
   ): Promise<LoadedImages> {
-    if (paths.length === 0) return { images: [], failed: 0, skipped: 0 };
+    if (paths.length === 0) return { images: [], paths: [], failed: 0, skipped: 0 };
     const loaded = await loadTurnImages(paths, {
       maxBytes: this.imageMaxBytes,
       maxPerTurn: this.imageMaxPerTurn,
@@ -975,6 +978,7 @@ export class PatientAgentRuntime {
       sandbox: sink,
       imageCount: loadedImages.images.length,
       imageFailed: loadedImages.failed,
+      imageMediaPaths: loadedImages.paths,
       imageKinds: [],
       mealLogIds: [],
     };
@@ -1219,13 +1223,25 @@ export class PatientAgentRuntime {
     const turn = this.activeImageTurn(sessionId);
     if ((turn.mealLogIds?.length ?? 0) > 0) throw new Error('ALREADY_LOGGED');
     const firstImage = turn.messages.find((message) => message.msgtype === 'image');
+    // 同一轮的多张图通常是一顿饭的多角度 / 多品类（如主食 + 饮品），全部挂到同一条记录上；
+    // 优先用实际读入的路径（顺序稳定、排除读图失败的），旧路径只取首张。
+    const mediaPaths = [
+      ...new Set(
+        turn.imageMediaPaths?.length
+          ? turn.imageMediaPaths
+          : firstImage?.mediaPath
+            ? [firstImage.mediaPath]
+            : [],
+      ),
+    ];
     const record: MealLogRecord = {
       id: this.service.store.nextId('meal'),
       tenantId: turn.patient.tenantId,
       patientId: turn.patient.id,
       groupId: turn.group.id,
       ...(firstImage ? { messageId: firstImage.msgid } : {}),
-      ...(firstImage?.mediaPath ? { mediaPath: firstImage.mediaPath } : {}),
+      ...(mediaPaths[0] ? { mediaPath: mediaPaths[0] } : {}),
+      ...(mediaPaths.length > 1 ? { mediaPaths } : {}),
       mealType: input.mealType,
       foods: input.foods,
       ...(input.notes ? { notes: input.notes } : {}),
