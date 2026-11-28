@@ -568,7 +568,7 @@
 
 ### 9.3.1 `GET /zhiban/h5/articles/{id}/audio`（患者会话）
 
-「听一听」音频：服务端用火山引擎 TTS 合成「标题。摘要」，默认音色 `multi_female_xiaohe_taiwan_v3_uranus_bigtts`，返回 `audio/mpeg`（mp3）。
+「听一听」音频：服务端用火山引擎 TTS 合成「标题。摘要」，默认音色 `zh_female_tuanzi_uranus_bigtts`，返回 `audio/mpeg`（mp3）。
 
 - 成功：`200`，响应头 `Accept-Ranges: bytes`、`Cache-Control: private, max-age=300`；支持单段 `Range`，命中返回 `206` + `Content-Range`，越界/非法范围返回 `416` + `Content-Range: bytes */{size}`。
 - 未配置凭据或合成失败：`503 TTS_UNAVAILABLE`；文章不存在/已下架：`404 NOT_FOUND`。

@@ -3,7 +3,9 @@
  *
  * 设计约定：
  * - 密钥只从环境变量读取，不进仓库、不进日志、不出接口；
- * - 默认音色 `multi_female_xiaohe_taiwan_v3_uranus_bigtts`（大模型语音合成）；
+ * - 默认音色 `zh_female_tuanzi_uranus_bigtts`（团子，豆包语音合成 2.0）；
+ *   3.0 音色（`*_v3_uranus_bigtts`）需要账号在 `volc.service_type.10048`
+ *   资源下有可用并发，可用 `VOLC_TTS_VOICE_TYPE` / `VOLC_TTS_RESOURCE_ID` 切换；
  * - 只合成服务端给定的文本（内容库文章标题 + 摘要），不做任意文本代理；
  * - 合成结果按「音色 + 文本」哈希缓存到磁盘，同一篇内容只付一次费；
  * - 失败只抛 `TtsError`（带安全错误码），调用方统一回 503，不把供应商响应透给客户端。
@@ -12,7 +14,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const VOLC_TTS_DEFAULT_VOICE = 'multi_female_xiaohe_taiwan_v3_uranus_bigtts';
+export const VOLC_TTS_DEFAULT_VOICE = 'zh_female_tuanzi_uranus_bigtts';
 export const VOLC_TTS_ENDPOINT = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional';
 /** 单次合成文本上限：文章标题 + 摘要足够，防止被当成通用 TTS 代理 */
 export const VOLC_TTS_MAX_TEXT = 800;
